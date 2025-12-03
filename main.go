@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,10 +15,17 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+	"runtime"
 
 	"github.com/kdomanski/iso9660/util"
 	"golang.org/x/text/encoding/simplifiedchinese"
 )
+
+// UI 可以在初始化时赋值，用于显示进度条。
+// phase: 阶段（例："Creating files", "Extracting", "Applying metadata", "DISM" 等）
+// percent: 0~100（如果没解析到就传 -1）
+// raw: 原始行
+var ImageProgress func(phase string, percent float64, raw string)
 
 var (
 	modShell32                  = syscall.NewLazyDLL("shell32.dll")
@@ -25,6 +33,7 @@ var (
 	modKernel32                 = syscall.NewLazyDLL("kernel32.dll")
 	procGetLogicalDriveStringsW = modKernel32.NewProc("GetLogicalDriveStringsW")
 	procGetDriveTypeW           = modKernel32.NewProc("GetDriveTypeW")
+	procCopyFileW               = modKernel32.NewProc("CopyFileW")
 	//关机相关
 	modUser32              = syscall.NewLazyDLL("user32.dll")
 	modAdvapi32            = syscall.NewLazyDLL("advapi32.dll")
@@ -204,15 +213,74 @@ func UnpackISO(isoPath, dstDir string) error {
 	return nil
 }
 
-// 执行外部命令，返回 stdout+stderr 文本，方便日志记录
-func runCmd(bin string, args ...string) (string, error) {
+// 执行外部命令，返回stdout+stderr文本。
+// onLine：不为 nil 时，每输出一行（或一条 \r 结尾的进度）就回调一次。
+// 这个是同步函数
+func runCmd(bin string, onLine func(string), args ...string) (string, error) {
 	cmd := exec.Command(bin, args...)
-	exe, err := os.Executable() //取运行目录
-	cmd.Dir = filepath.Dir(exe)
+	exe, err := os.Executable()
+	if err == nil {
+		cmd.Dir = filepath.Dir(exe)
+	}
+
 	var buf bytes.Buffer
-	cmd.Stdout = &buf
-	cmd.Stderr = &buf
+
+	// 自定义writer：一方面把原始输出塞进buf，另一方面拆分成行给onLine。
+	type lineWriter struct {
+		all    *bytes.Buffer
+		onLine func(string)
+		part   []byte // 当前未结束的一行（以\n或\r为界）
+	}
+
+	lw := &lineWriter{
+		all:    &buf,
+		onLine: onLine,
+		part:   make([]byte, 0, 256),
+	}
+
+	// 实现 io.Writer
+	// 注意：wimlib / DISM 进度通常用 '\r' 覆盖同一行，这里把 '\r' 也当作一次行结束处理。
+	writeLine := func(l string) {
+		if lw.onLine != nil {
+			lw.onLine(l)
+		} else {
+			fmt.Println(l)
+		}
+	}
+
+	lwWrite := func(p []byte) {
+		// 先全部记录下来，便于最终返回完整输出
+		lw.all.Write(p)
+
+		for _, b := range p {
+			if b == '\n' || b == '\r' {
+				if len(lw.part) > 0 {
+					line := string(lw.part)
+					writeLine(line)
+					lw.part = lw.part[:0]
+				}
+			} else {
+				lw.part = append(lw.part, b)
+			}
+		}
+	}
+
+	// 包装成真正的io.Writer
+	cmd.Stdout = writerFunc(func(p []byte) (int, error) {
+		lwWrite(p)
+		return len(p), nil
+	})
+	cmd.Stderr = cmd.Stdout
+
+	// 同步执行命令
 	err = cmd.Run()
+
+	// 处理最后一行（没有 \n/\r 结尾）
+	if len(lw.part) > 0 {
+		writeLine(string(lw.part))
+		lw.part = lw.part[:0]
+	}
+
 	raw := buf.Bytes()
 
 	decoded, decErr := simplifiedchinese.GBK.NewDecoder().Bytes(raw)
@@ -220,7 +288,6 @@ func runCmd(bin string, args ...string) (string, error) {
 	if decErr == nil {
 		out = string(decoded)
 	} else {
-		// 解码失败就直接用原始内容（至少 ASCII 部分是对的）
 		fmt.Println("[runCmdGBK] gbk decode failed, fallback raw:", decErr)
 	}
 
@@ -229,6 +296,11 @@ func runCmd(bin string, args ...string) (string, error) {
 	}
 	return out, nil
 }
+
+// 一个小工具类型：把匿名函数适配成 io.Writer
+type writerFunc func(p []byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 
 // 规范化盘符根路径：接受 "C", "C:", "C:\"，统一变成 "C:\"
 func normRoot(vol string) string {
@@ -275,6 +347,36 @@ func GetFwType() (uint32, error) {
 	return t, nil
 }
 
+// 从一行输出中提取百分比（形如 "(100%)" / "50.3%"），失败返回 -1
+func extractPercent(line string) float64 {
+	// 找第一个 '%' 左边的数字
+	idx := strings.Index(line, "%")
+	if idx == -1 {
+		return -1
+	}
+
+	// 向左回溯，找到连续的数字和小数点
+	i := idx - 1
+	for i >= 0 && ((line[i] >= '0' && line[i] <= '9') || line[i] == '.') {
+		i--
+	}
+	if i == idx-1 {
+		return -1
+	}
+	numStr := strings.TrimSpace(line[i+1 : idx])
+	v, err := strconv.ParseFloat(numStr, 64)
+	if err != nil {
+		return -1
+	}
+	if v < 0 {
+		v = 0
+	}
+	if v > 100 {
+		v = 100
+	}
+	return v
+}
+
 // ApplyImage 会优先使用DISM，失败后wimlib-imagex
 // imagePath:WIM 或 ESD 路径
 // index:镜像索引（1 开始）
@@ -292,7 +394,7 @@ func ApplyImage(imagePath string, index int, targetVol string) error {
 		return fmt.Errorf("invalid target volume: %q", targetVol)
 	}
 
-	//DISM
+	// DISM回调
 	dismArgs := []string{
 		"/Apply-Image",
 		"/ImageFile:" + imagePath,
@@ -300,28 +402,71 @@ func ApplyImage(imagePath string, index int, targetVol string) error {
 		"/ApplyDir:" + targetRoot,
 	}
 
-	if out, err := runCmd("dism.exe", dismArgs...); err == nil {
+	dismOnLine := func(line string) {
+		if ImageProgress == nil {
+			return
+		}
+		// 尝试从 DISM 输出中解析百分比（大部分是 "xx.x%"）
+		pct := extractPercent(line)
+		if pct >= 0 {
+			ImageProgress("DISM", pct, line)
+		}
+	}
+
+	if out, err := runCmd("dism.exe", dismOnLine, dismArgs...); err == nil {
 		fmt.Println("[ApplyImage] DISM ok")
 		fmt.Println(out)
+		// DISM 结束，报 100%
+		if ImageProgress != nil {
+			ImageProgress("DISM", 100, "DISM apply finished")
+		}
 		return nil
 	} else {
 		fmt.Println("[ApplyImage] DISM failed, will try wimlib-imagex")
 		fmt.Println(out)
 	}
 
-	// wimlib-imagex
-	// IMAGE可以是索引号
+	// wimlib回调
 	wimArgs := []string{
 		"apply",
 		imagePath,
 		fmt.Sprintf("%d", index),
 		targetRoot,
 	}
-	exe, _ := os.Executable()
-	exe = filepath.Dir(exe) + "wimlib-imagex.exe"
-	if out, err := runCmd(exe, wimArgs...); err == nil {
+	exePath, _ := os.Executable()
+	exePath = filepath.Join(filepath.Dir(exePath), "wimlib-imagex.exe")
+
+	wimOnLine := func(line string) {
+		if ImageProgress == nil {
+			return
+		}
+
+		phase := ""
+		lower := strings.ToLower(line)
+
+		switch {
+		case strings.HasPrefix(lower, "creating files"):
+			phase = "Creating files"
+		case strings.HasPrefix(lower, "extracting file data"):
+			phase = "Extracting"
+		case strings.HasPrefix(lower, "applying metadata"):
+			phase = "Applying metadata"
+		default:
+			// 其他行我们就当普通日志，不一定有进度
+		}
+
+		pct := extractPercent(line)
+		if pct >= 0 || phase != "" {
+			ImageProgress(phase, pct, line)
+		}
+	}
+
+	if out, err := runCmd(exePath, wimOnLine, wimArgs...); err == nil {
 		fmt.Println("[ApplyImage] wimlib-imagex ok")
 		fmt.Println(out)
+		if ImageProgress != nil {
+			ImageProgress("wimlib", 100, "wimlib apply finished")
+		}
 		return nil
 	} else {
 		fmt.Println("[ApplyImage] wimlib-imagex failed")
@@ -626,7 +771,7 @@ func FixUEFI(osRoot, sysHint, locale string) error {
 		"/s", sysRoot,
 		"/f", "UEFI",
 	}
-	out, err := runCmd("bcdboot.exe", args...)
+	out, err := runCmd("bcdboot.exe", nil, args...)
 	if err != nil {
 		fmt.Println("[FixUEFI] bcdboot failed")
 		fmt.Println(out)
@@ -646,17 +791,17 @@ func FixBIOS(osRoot, sysHint, locale string) error {
 	}
 
 	// 修复MBR/PBR
-	if out, err := runCmd("bootrec.exe", "/fixmbr"); err != nil {
+	if out, err := runCmd("bootrec.exe", nil, "/fixmbr"); err != nil {
 		fmt.Println("[FixBIOS] bootrec /fixmbr failed (may be ok):", err)
 		fmt.Println(out)
 	} else {
 		fmt.Println("[FixBIOS] bootrec /fixmbr ok")
 		fmt.Println(out)
 	}
-	if out, err := runCmd("bootrec.exe", "/fixboot"); err != nil {
+	if out, err := runCmd("bootrec.exe", nil, "/fixboot"); err != nil {
 		fmt.Println("[FixBIOS] bootrec /fixboot failed, try bootsect:", err)
 		fmt.Println(out)
-		if out2, err2 := runCmd("bootsect.exe", "/nt60", sysRoot, "/mbr"); err2 != nil {
+		if out2, err2 := runCmd("bootsect.exe", nil, "/nt60", sysRoot, "/mbr"); err2 != nil {
 			fmt.Println("[FixBIOS] bootsect failed:", err2)
 			fmt.Println(out2)
 		} else {
@@ -674,7 +819,7 @@ func FixBIOS(osRoot, sysHint, locale string) error {
 		"/s", sysRoot,
 		"/f", "BIOS",
 	}
-	out, err := runCmd("bcdboot.exe", args...)
+	out, err := runCmd("bcdboot.exe", nil, args...)
 	if err != nil {
 		fmt.Println("[FixBIOS] bcdboot failed")
 		fmt.Println(out)
@@ -834,6 +979,7 @@ type ImageMeta struct {
 	Edition      string // Professional/WindowsPE/...
 	Installation string // Client/Server/WindowsPE/...
 	SystemRoot   string // WINDOWS/...
+	Arch         string // x86 / x64 / arm64 ...
 
 	IsOS bool // 是否认为是系统
 }
@@ -898,6 +1044,11 @@ func parseImageInfoText(out string) ([]ImageMeta, error) {
 		case strings.HasPrefix(key, "Installation"):
 			if cur != nil {
 				cur.Installation = val
+			}
+
+		case key == "Architecture" || key == "Arch":
+			if cur != nil {
+				cur.Arch = val // 例如 "x64" / "x86" / "arm64"
 			}
 
 		case strings.HasPrefix(key, "System Root"):
@@ -1007,6 +1158,7 @@ func ListImageInfos(imagePath string) ([]ImageMeta, error) {
 
 	// DISM
 	if out, err := runCmd("dism.exe",
+		nil,
 		"/English", // 固定英文输出
 		"/Get-WimInfo",
 		"/WimFile:"+imagePath,
@@ -1023,7 +1175,7 @@ func ListImageInfos(imagePath string) ([]ImageMeta, error) {
 	}
 
 	// wimlib-imagex
-	if out, err := runCmd("wimlib-imagex.exe", "info", imagePath); err == nil {
+	if out, err := runCmd("wimlib-imagex.exe", nil, "info", imagePath); err == nil {
 		if imgs, perr := parseImageInfoText(out); perr == nil && len(imgs) > 0 {
 			fmt.Println("[ListImageInfos] use wimlib-imagex result")
 			return imgs, nil
@@ -1060,7 +1212,7 @@ func RunDiskpart(lines []string) (string, error) {
 		return "", fmt.Errorf("close temp script failed: %w", err)
 	}
 
-	out, err := runCmd("diskpart.exe", "/s", path)
+	out, err := runCmd("diskpart.exe", nil, "/s", path)
 	if err != nil {
 		return out, fmt.Errorf("diskpart failed: %w", err)
 	}
@@ -1267,31 +1419,18 @@ func Shutdown(reboot bool) error {
 		flag = EWX_SHUTDOWN | EWX_FORCEIFHUNG
 	}
 
-	// 1. 先尝试 WinAPI：ExitWindowsEx
+	// ExitWindowsEx
 	if err := enableShutdownPrivilege(); err == nil {
 		r, _, _ := procExitWindowsEx.Call(
 			uintptr(flag),
 			0,
 		)
 		if r != 0 {
-			// 调用成功，一般不会返回
 			return nil
 		}
-		// 失败就继续用下一种方式
 	}
 
-	// 2. 尝试 shutdown.exe
-	var args []string
-	if reboot {
-		args = []string{"/r", "/t", "0", "/f"}
-	} else {
-		args = []string{"/s", "/t", "0", "/f"}
-	}
-	if err := exec.Command("shutdown.exe", args...).Run(); err == nil {
-		return nil
-	}
-
-	// 3. 兜底用 rundll32 + ExitWindowsEx（有些精简 PE 可能没有 shutdown.exe）
+	// rundll32 + ExitWindowsEx
 	//   rundll32.exe user32.dll,ExitWindowsEx <flag>,0
 	flagStr := "8" // EWX_SHUTDOWN
 	if reboot {
@@ -1301,8 +1440,8 @@ func Shutdown(reboot bool) error {
 		return nil
 	}
 
-	// 4. 最后一招：直接调用 NtShutdownSystem
-	//    仍然需要 SeShutdownPrivilege，这里再尝试一次但不强求成功
+	// 调用 NtShutdownSystem
+	// 需要 SeShutdownPrivilege
 	_ = enableShutdownPrivilege()
 
 	action := uintptr(ShutdownPowerOff)
@@ -1315,21 +1454,455 @@ func Shutdown(reboot bool) error {
 		return nil
 	}
 
+	// shutdown.exe
+	var args []string
+	if reboot {
+		args = []string{"/r", "/t", "0", "/f"}
+	} else {
+		args = []string{"/s", "/t", "0", "/f"}
+	}
+	if err := exec.Command("shutdown.exe", args...).Run(); err == nil {
+		return nil
+	}
 	return fmt.Errorf("all shutdown/reboot methods failed, NtShutdownSystem also failed: %v", e)
 }
 
+// 以下是创建快捷方式相关代码，参考：https://docs.microsoft.com/en-us/windows/win32/shell/links
+var (
+	ole32                = syscall.NewLazyDLL("ole32.dll")
+	procCoInitializeEx   = ole32.NewProc("CoInitializeEx")
+	procCoUninitialize   = ole32.NewProc("CoUninitialize")
+	procCoCreateInstance = ole32.NewProc("CoCreateInstance")
+)
+
+const (
+	COINIT_APARTMENTTHREADED = 0x2
+	CLSCTX_INPROC_SERVER     = 0x1
+)
+
+type GUID struct {
+	Data1 uint32
+	Data2 uint16
+	Data3 uint16
+	Data4 [8]byte
+}
+
+// CLSID / IID
+var (
+	CLSID_ShellLink = GUID{0x00021401, 0x0000, 0x0000, [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
+	IID_IShellLinkW = GUID{0x000214F9, 0x0000, 0x0000, [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
+	IID_IPersistFile = GUID{0x0000010b, 0x0000, 0x0000, [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
+)
+
+// IShellLinkW vtable（顺序按官方接口定义）
+type iShellLinkWVtbl struct {
+	QueryInterface     uintptr
+	AddRef             uintptr
+	Release            uintptr
+	GetArguments       uintptr
+	GetDescription     uintptr
+	GetHotkey          uintptr
+	GetIconLocation    uintptr
+	GetIDList          uintptr
+	GetPath            uintptr
+	GetShowCmd         uintptr
+	GetWorkingDirectory uintptr
+	Resolve            uintptr
+	SetArguments       uintptr
+	SetDescription     uintptr
+	SetHotkey          uintptr
+	SetIconLocation    uintptr
+	SetIDList          uintptr
+	SetPath            uintptr
+	SetRelativePath    uintptr
+	SetShowCmd         uintptr
+	SetWorkingDirectory uintptr
+}
+
+type IShellLinkW struct {
+	lpVtbl *iShellLinkWVtbl
+}
+
+// IPersistFile vtable（IUnknown + IPersist + IPersistFile）
+type iPersistFileVtbl struct {
+	QueryInterface uintptr
+	AddRef         uintptr
+	Release        uintptr
+	GetClassID     uintptr
+	IsDirty        uintptr
+	Load           uintptr
+	Save           uintptr
+	SaveCompleted  uintptr
+	GetCurFile     uintptr
+}
+
+type IPersistFile struct {
+	lpVtbl *iPersistFileVtbl
+}
+
+func hresultFailed(hr uintptr) bool {
+	return int32(hr) < 0
+}
+// 在指定目录 dir 下创建一个快捷方式；
+// name 为快捷方式文件名，target 为目标（exe 路径或网址）。
+func CreateShortcut(dir, name, target string) (string, error) {
+	dir = strings.TrimSpace(dir)
+	name = strings.TrimSpace(name)
+	target = strings.TrimSpace(target)
+
+	if dir == "" {
+		return "", fmt.Errorf("dir is empty")
+	}
+	if name == "" {
+		return "", fmt.Errorf("name is empty")
+	}
+	if target == "" {
+		return "", fmt.Errorf("target is empty")
+	}
+
+	// 确保目录存在
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", fmt.Errorf("mkdir %s: %w", dir, err)
+	}
+
+	// 判断是否是网址
+	lowerTarget := strings.ToLower(target)
+	isURL := strings.HasPrefix(lowerTarget, "http://") ||
+		strings.HasPrefix(lowerTarget, "https://")
+
+	ext := strings.ToLower(filepath.Ext(name))
+	if ext == "" {
+		if isURL {
+			ext = ".url"
+		} else {
+			ext = ".lnk"
+		}
+		name += ext
+	} else if ext != ".lnk" && ext != ".url" {
+		// 非 .lnk/.url 的一律当 .lnk 用
+		ext = ".lnk"
+	}
+
+	fullPath, err := filepath.Abs(filepath.Join(dir, name))
+	if err != nil {
+		return "", fmt.Errorf("abs path: %w", err)
+	}
+
+	// 先处理 .url：直接写文本文件
+	if isURL || ext == ".url" {
+		if err := writeURLShortcut(fullPath, target); err != nil {
+			return "", err
+		}
+		return fullPath, nil
+	}
+
+	// 走到这里就是普通 .lnk（指向文件/程序）
+
+	// 用 WinAPI+COM(IShellLinkW + IPersistFile) 创建 .lnk
+	if err := createShellLinkCOM(fullPath, target); err == nil {
+		return fullPath, nil
+	}
+
+	// COM 失败：退回写一个 .url，当作简易快捷方式
+	urlPath := strings.TrimSuffix(fullPath, filepath.Ext(fullPath)) + ".url"
+	if err := writeURLShortcut(urlPath, target); err != nil {
+		return "", fmt.Errorf("create .lnk via COM failed AND fallback .url failed: %w", err)
+	}
+	return urlPath, nil
+}
+
+//.url + COM 创建 .lnk
+
+func writeURLShortcut(path, target string) error {
+	// 最基础的 InternetShortcut 格式，足够打开 URL 或本地 exe
+	content := "[InternetShortcut]\r\nURL=" + target + "\r\n"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		return fmt.Errorf("write url shortcut %s: %w", path, err)
+	}
+	return nil
+}
+
+func createShellLinkCOM(linkPath, targetPath string) error {
+	// 为了满足 COM 单线程模型，把 goroutine 固定在一个 OS 线程上
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	// 初始化 COM
+	hr, _, _ := procCoInitializeEx.Call(0, uintptr(COINIT_APARTMENTTHREADED))
+	if hresultFailed(hr) {
+		return fmt.Errorf("CoInitializeEx failed: 0x%08X", uint32(hr))
+	}
+	defer procCoUninitialize.Call()
+
+	// CoCreateInstance CLSID_ShellLink -> IShellLinkW*
+	var psl *IShellLinkW
+	hr, _, _ = procCoCreateInstance.Call(
+		uintptr(unsafe.Pointer(&CLSID_ShellLink)),
+		0,
+		uintptr(CLSCTX_INPROC_SERVER),
+		uintptr(unsafe.Pointer(&IID_IShellLinkW)),
+		uintptr(unsafe.Pointer(&psl)),
+	)
+	if hresultFailed(hr) || psl == nil {
+		return fmt.Errorf("CoCreateInstance(IShellLinkW) failed: 0x%08X", uint32(hr))
+	}
+	// 记得 Release
+	defer syscall.SyscallN(psl.lpVtbl.Release, uintptr(unsafe.Pointer(psl)))
+
+	// 设置目标路径
+	targetUTF16, err := syscall.UTF16PtrFromString(targetPath)
+	if err != nil {
+		return fmt.Errorf("target UTF16: %w", err)
+	}
+	hr, _, _ = syscall.SyscallN(
+		psl.lpVtbl.SetPath,
+		uintptr(unsafe.Pointer(psl)),
+		uintptr(unsafe.Pointer(targetUTF16)),
+	)
+	if hresultFailed(hr) {
+		return fmt.Errorf("IShellLinkW.SetPath failed: 0x%08X", uint32(hr))
+	}
+
+	if dir := filepath.Dir(targetPath); dir != "" {
+		if wd, err := syscall.UTF16PtrFromString(dir); err == nil {
+			syscall.SyscallN(
+				psl.lpVtbl.SetWorkingDirectory,
+				uintptr(unsafe.Pointer(psl)),
+				uintptr(unsafe.Pointer(wd)),
+			)
+		}
+	}
+
+	// QueryInterface(IPersistFile)
+	var ppf *IPersistFile
+	hr, _, _ = syscall.SyscallN(
+		psl.lpVtbl.QueryInterface,
+		uintptr(unsafe.Pointer(psl)),
+		uintptr(unsafe.Pointer(&IID_IPersistFile)),
+		uintptr(unsafe.Pointer(&ppf)),
+	)
+	if hresultFailed(hr) || ppf == nil {
+		return fmt.Errorf("IShellLinkW.QueryInterface(IPersistFile) failed: 0x%08X", uint32(hr))
+	}
+	defer syscall.SyscallN(ppf.lpVtbl.Release, uintptr(unsafe.Pointer(ppf)))
+
+	// 保存 .lnk 文件
+	linkUTF16, err := syscall.UTF16PtrFromString(linkPath)
+	if err != nil {
+		return fmt.Errorf("linkPath UTF16: %w", err)
+	}
+	hr, _, _ = syscall.SyscallN(
+		ppf.lpVtbl.Save,
+		uintptr(unsafe.Pointer(ppf)),
+		uintptr(unsafe.Pointer(linkUTF16)),
+		uintptr(1), // TRUE: remember
+	)
+	if hresultFailed(hr) {
+		return fmt.Errorf("IPersistFile.Save failed: 0x%08X", uint32(hr))
+	}
+	return nil
+}
+
+// 尝试把src拷贝到dst。
+// overwrite=true：覆盖；false：跳过
+// createDir=true：目标目录不存在就创建；false：报错
+func Copy(src, dst string, overwrite, createDir bool) error {
+	si, err := os.Stat(src)
+	if err != nil {
+		return fmt.Errorf("Copy: src not found: %w", err)
+	}
+
+	// 负责单个文件的三连拷贝逻辑
+	copyOneFile := func(srcFile, dstFile string, overwrite, createDir bool) error {
+		fi, err := os.Stat(srcFile)
+		if err != nil {
+			return fmt.Errorf("Copy: src not found: %w", err)
+		}
+		if !fi.Mode().IsRegular() {
+			return fmt.Errorf("Copy: src is not a regular file: %s", srcFile)
+		}
+
+		// 目标存在处理
+		if dfi, err := os.Stat(dstFile); err == nil {
+			if dfi.IsDir() {
+				return fmt.Errorf("Copy: dst is a directory: %s", dstFile)
+			}
+			if !overwrite {
+				// 跳过模式
+				fmt.Println("[Copy] dst exists, skip file:", dstFile)
+				return nil
+			}
+		}
+
+		// 确保目标目录存在
+		if dir := filepath.Dir(dstFile); dir != "" && dir != "." {
+			if dfi, err := os.Stat(dir); err != nil {
+				if os.IsNotExist(err) {
+					if !createDir {
+						return fmt.Errorf("Copy: dest dir not exist and createDir=false: %s", dir)
+					}
+					if err := os.MkdirAll(dir, 0755); err != nil {
+						return fmt.Errorf("Copy: MkdirAll(%s) failed: %w", dir, err)
+					}
+				} else {
+					return fmt.Errorf("Copy: stat dest dir failed: %w", err)
+				}
+			} else if !dfi.IsDir() {
+				return fmt.Errorf("Copy: dest parent is not dir: %s", dir)
+			}
+		}
+
+		// 标准库 io.Copy
+		if err := func() error {
+			in, err := os.Open(srcFile)
+			if err != nil {
+				return err
+			}
+			defer in.Close()
+
+			out, err := os.OpenFile(dstFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fi.Mode().Perm())
+			if err != nil {
+				return err
+			}
+			defer out.Close()
+
+			if _, err := io.Copy(out, in); err != nil {
+				return err
+			}
+			return nil
+		}(); err == nil {
+			return nil
+		} else {
+			fmt.Println("[Copy] std copy failed, try cmd.exe:", err)
+		}
+
+		// cmd.exe
+		if err := func() error {
+			srcQ := `"` + srcFile + `"`
+			dstQ := `"` + dstFile + `"`
+
+			args := []string{"/C", "copy"}
+			if overwrite {
+				args = append(args, "/Y")
+			} else {
+				args = append(args, "/-Y")
+			}
+			args = append(args, srcQ, dstQ)
+
+			cmd := exec.Command("cmd.exe", args...)
+			return cmd.Run()
+		}(); err == nil {
+			return nil
+		} else {
+			fmt.Println("[Copy] cmd copy failed, try CopyFileW:", err)
+		}
+
+		// WinAPI CopyFileW
+		srcW, err := syscall.UTF16PtrFromString(srcFile)
+		if err != nil {
+			return fmt.Errorf("Copy: src UTF16 failed: %w", err)
+		}
+		dstW, err := syscall.UTF16PtrFromString(dstFile)
+		if err != nil {
+			return fmt.Errorf("Copy: dst UTF16 failed: %w", err)
+		}
+
+		// bFailIfExists: TRUE(1) 目标存在就失败；FALSE(0) 覆盖
+		var failIfExists uintptr = 0
+		if !overwrite {
+			failIfExists = 1
+		}
+
+		r, _, e := procCopyFileW.Call(
+			uintptr(unsafe.Pointer(srcW)),
+			uintptr(unsafe.Pointer(dstW)),
+			failIfExists,
+		)
+		if r == 0 {
+			if !overwrite {
+				if errno, ok := e.(syscall.Errno); ok &&
+					(errno == syscall.ERROR_FILE_EXISTS || errno == syscall.ERROR_ALREADY_EXISTS) {
+					fmt.Println("[Copy] dst exists (CopyFileW), skip:", dstFile)
+					return nil
+				}
+			}
+			return fmt.Errorf("Copy: CopyFileW failed: %v", e)
+		}
+		return nil
+	}
+
+	// 目录分支
+	if si.IsDir() {
+		// 根目标目录的存在逻辑受 createDir 控制
+		if dfi, err := os.Stat(dst); err == nil {
+			if !dfi.IsDir() {
+				return fmt.Errorf("Copy: dst exists and is not directory: %s", dst)
+			}
+		} else if os.IsNotExist(err) {
+			if !createDir {
+				return fmt.Errorf("Copy: dst dir not exist and createDir=false: %s", dst)
+			}
+			if err := os.MkdirAll(dst, si.Mode().Perm()); err != nil {
+				return fmt.Errorf("Copy: MkdirAll root dst failed: %w", err)
+			}
+		} else {
+			return fmt.Errorf("Copy: stat dst failed: %w", err)
+		}
+
+		// 递归遍历整个目录树
+		return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if path == src {
+				return nil
+			}
+
+			rel, err := filepath.Rel(src, path)
+			if err != nil {
+				return err
+			}
+			targetPath := filepath.Join(dst, rel)
+
+			if info.IsDir() {
+				if err := os.MkdirAll(targetPath, info.Mode().Perm()); err != nil {
+					return err
+				}
+				return nil
+			}
+
+			return copyOneFile(path, targetPath, overwrite, true) // 子目录内部总是需要创建
+		})
+	}
+
+	// 单文件分支
+	return copyOneFile(src, dst, overwrite, createDir)
+}
 func main() {
 	fmt.Println(GetDiskNum("E:\\"))
 	path, err := os.Getwd()
-	img, err := ListImageInfos(path + "\\win7.esd")
+	img, err := ListImageInfos(path + "\\win10.esd")
 	fmt.Println(img, err)
 	fmt.Println(Format("C", "ntfs", "win10", true))
-	err = ApplyImageWithProgress(path+"\\win7.esd", 1, "C:", func(stage string, p int) {
-		fmt.Printf("[%s] %d%%\n", stage, p) //打印进度
-	})
-	if err != nil {
-		fmt.Println("ApplyImageWithProgress FAILED:", err)
+	//  绑定进度回调
+	ImageProgress = func(phase string, pct float64, raw string) {
+		// pct < 0 表示这一行没解析到百分比
+		if pct >= 0 {
+			if phase == "" {
+				phase = "Unknown"
+			}
+			fmt.Printf("[PROGRESS] %-18s %6.2f%%   %s\n", phase, pct, raw)
+		} else {
+			fmt.Printf("[LOG] %s\n", raw)
+		}
 	}
-	//fmt.Println(ApplyEsdImage(path+"\\win7.esd", 1, "C:"))
+	fmt.Println(ApplyImage(path+"\\win10.esd", 7, "C:\\"))
+
 	fmt.Println(FixBoot("C:\\", "", "zh-cn"))
+	fmt.Println(Copy(path+"\\win10.xml", "C:\\Windows\\Panther\\Unattend.xml", true, true))
+	fmt.Println(Copy(path+"\\drive10.exe", "C:\\drive.exe", true, true))
+	fmt.Println(Copy(path+"\\HEU_KMS_Activator.exe", "C:\\HEU_KMS_Activator.exe", true, true))
+	fmt.Println(CreateShortcut("C:\\Users\\Public\\Desktop\\", "百度", "https://www.baidu.com"))
+	//time.Sleep(30 * time.Second)
+	Shutdown(true)
 }
