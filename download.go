@@ -15,11 +15,52 @@ import (
 	"syscall"
 )
 
+type progInfo struct {
+	pct   int
+	speed int64
+	done  int64
+	total int64
+}
+
+// 解析 aria2 的大小字符串，例如 "467MiB"、"2.4GiB"、"0B"
+func parseSize(s string) int64 {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	re := regexp.MustCompile(`^([0-9]+(?:\.[0-9]+)?)([KMGTP]?i?B)$`)
+	m := re.FindStringSubmatch(s)
+	if len(m) != 3 {
+		return 0
+	}
+	valStr, unit := m[1], m[2]
+	fv, err := strconv.ParseFloat(valStr, 64)
+	if err != nil {
+		return 0
+	}
+	mul := float64(1)
+	switch unit {
+	case "B":
+		mul = 1
+	case "KiB":
+		mul = 1024
+	case "MiB":
+		mul = 1024 * 1024
+	case "GiB":
+		mul = 1024 * 1024 * 1024
+	case "TiB":
+		mul = 1024 * 1024 * 1024 * 1024
+	default:
+		mul = 1
+	}
+	return int64(fv*mul + 0.5)
+}
+
 // 调用运行目录下的 aria2c.exe 下载BT的magnet链接。
 // magnet: 必须是 "magnet:?xt=urn:btih:..." 开头的字符串
 // dir:    下载保存目录，为空则用当前目录
 // prog:   实时进度回调，0~100
-func DownloadBT(magnet, dir string, prog func(int)) error {
+func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)) error {
 	if !strings.HasPrefix(strings.ToLower(magnet), "magnet:?xt=urn:btih:") {
 		return fmt.Errorf("不是合法的 BT 磁力链接: %s", magnet)
 	}
@@ -39,27 +80,66 @@ func DownloadBT(magnet, dir string, prog func(int)) error {
 		return fmt.Errorf("未找到 aria2c.exe: %s (请放在程序同目录)", ariaPath)
 	}
 
-	// 为了“稳定”，这里参数偏保守：
-	// - 只允许 1 个并发任务
-	// - 限制整体速度 1M/s（可以按需要改大/删掉）
-	// - 预分配文件，减少碎片
+	// 默认内置几条常用公共 trackers
+	trackers := []string{
+		"udp://tracker.opentrackr.org:1337/announce",
+		"udp://open.stealth.si:80/announce",
+		"udp://tracker.torrent.eu.org:451/announce",
+		"udp://exodus.desync.com:6969/announce",
+	}
+
+	//读取运行目录下的trackers.txt
+	trkFile := filepath.Join(exeDir, "trackers.txt")
+	if f, err := os.Open(trkFile); err == nil {
+		sc := bufio.NewScanner(f)
+		for sc.Scan() {
+			line := strings.TrimSpace(sc.Text())
+			if line == "" {
+				continue
+			}
+			// 支持注释行
+			if strings.HasPrefix(line, "#") || strings.HasPrefix(line, "//") {
+				continue
+			}
+			trackers = append(trackers, line)
+		}
+		_ = f.Close()
+	}
+
+	trkArg := ""
+	if len(trackers) > 0 {
+		trkArg = "--bt-tracker=" + strings.Join(trackers, ",")
+	}
+
 	args := []string{
 		"--enable-color=false",
-		"--summary-interval=1",            // 每 1 秒输出一次进度
-		"--console-log-level=notice",      // 只要关键日志
-		"--seed-time=0",                   // 下完就退出，不做种
-		"--max-concurrent-downloads=1",    // 稳定一点，只下一个任务
-		"--file-allocation=prealloc",      // 预分配，减少磁盘抖动
-		"--continue=true",                 // 允许断点续传
-		"--max-overall-download-limit=1M", // 限速 1MB/s，追求稳定（可修改/删除）
-		"--bt-max-peers=32",               // 限制连接的 peers 数量
-		"-d", dir,                         // 下载目录
-		magnet,
+		"--summary-interval=1", // 每秒输出一次进度
+		"--console-log-level=notice",
+		"--enable-dht=true",
+		"--enable-dht6=false",
+		"--bt-enable-lpd=true",
+		"--enable-peer-exchange=true",
+		"--bt-save-metadata=true",
+		"--bt-max-peers=55",
+		"--seed-time=0",   // 下完就退出
+		"--continue=true", // 允许断点续传
+		"--bt-max-peers=32",
 	}
+
+	// 有 trackers 参数就加上
+	if trkArg != "" {
+		args = append(args, trkArg)
+	}
+
+	// 下载目录和 magnet
+	args = append(args,
+		"-d", dir,
+		magnet,
+	)
 
 	cmd := exec.Command(ariaPath, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		HideWindow: true, // 关键：隐藏黑色控制台窗口
+		HideWindow: true,
 	}
 
 	stdout, err := cmd.StdoutPipe()
@@ -70,8 +150,6 @@ func DownloadBT(magnet, dir string, prog func(int)) error {
 	if err != nil {
 		return fmt.Errorf("获取 stderr 失败: %w", err)
 	}
-
-	// 启动 aria2c
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("启动 aria2c 失败: %w", err)
 	}
@@ -81,52 +159,87 @@ func DownloadBT(magnet, dir string, prog func(int)) error {
 		_, _ = io.Copy(io.Discard, stderr)
 	}()
 
-	// 解析类似：
-	// [#c1a5b0 11MiB/101MiB(10%) CN:5 DL:1.2MiB]
-	// 里面的 10%
-	rePct := regexp.MustCompile(`(\d+(?:\.\d+)?)%`)
+	reMain := regexp.MustCompile(`#\S+\s+([0-9.]+[KMGTP]?i?B)/([0-9.]+[KMGTP]?i?B)\(([0-9.]+)%\)`)
+	reSpeed := regexp.MustCompile(`DL:([0-9.]+[KMGTP]?i?B)`)
 
-	last := -1
+	var cand *progInfo
+	var last *progInfo
+
 	sc := bufio.NewScanner(stdout)
 	for sc.Scan() {
 		line := sc.Text()
-		matches := rePct.FindAllStringSubmatch(line, -1)
-		if len(matches) == 0 {
-			continue
+
+		// 解析主进度行
+		if m := reMain.FindStringSubmatch(line); len(m) == 4 {
+			doneStr := m[1]
+			totalStr := m[2]
+			pctStr := m[3]
+
+			doneBytes := parseSize(doneStr)
+			totalBytes := parseSize(totalStr)
+
+			fv, err := strconv.ParseFloat(pctStr, 64)
+			if err != nil {
+				fv = 0
+			}
+			pct := int(fv + 0.5)
+			if pct < 0 {
+				pct = 0
+			}
+			if pct > 100 {
+				pct = 100
+			}
+
+			// 解析速度，可能没有DL字段
+			var speedBytes int64
+			if m2 := reSpeed.FindStringSubmatch(line); len(m2) == 2 {
+				speedBytes = parseSize(m2[1])
+			}
+
+			cand = &progInfo{
+				pct:   pct,
+				speed: speedBytes,
+				done:  doneBytes,
+				total: totalBytes,
+			}
 		}
-		// 取最后一个百分比
-		raw := matches[len(matches)-1][1]
-		fv, err := strconv.ParseFloat(raw, 64)
-		if err != nil {
-			continue
-		}
-		pct := int(fv + 0.5)
-		if pct < 0 {
-			pct = 0
-		}
-		if pct > 100 {
-			pct = 100
-		}
-		if pct != last && prog != nil {
-			last = pct
-			prog(pct) // 把实时进度回调给你，自己去更新进度条
+
+		// FILE行里可以区分是不是metadata任务
+		if strings.Contains(line, "FILE:") {
+			if strings.Contains(line, "[MEMORY][METADATA]") {
+				cand = nil
+				continue
+			}
+			if cand != nil {
+				info := *cand // 拷贝一份
+				cand = nil
+
+				if prog != nil && (last == nil || info.pct != last.pct) {
+					prog(info.pct, info.speed, info.done, info.total)
+					last = &info
+				}
+			}
 		}
 	}
-	// 忽略扫描错误（一般是进程退出导致 EOF）
 	_ = sc.Err()
 
-	// 等待进程结束，拿到退出码
 	if err := cmd.Wait(); err != nil {
-		// 如果失败时有进度（比如 90%），最后一次也回调一下
-		if prog != nil && last >= 0 {
-			prog(last)
+		if prog != nil && last != nil {
+			prog(last.pct, last.speed, last.done, last.total)
 		}
 		return fmt.Errorf("aria2c 退出错误: %w", err)
 	}
 
-	// 确保最终给到 100%
-	if prog != nil && last < 100 {
-		prog(100)
+	// 成功结束但没有 100%，补一次 100%
+	if prog != nil {
+		if last != nil && last.pct < 100 {
+			done := last.total
+			total := last.total
+			prog(100, 0, done, total)
+		} else if last == nil {
+			// 理论上不会到这
+			prog(100, 0, 0, 0)
+		}
 	}
 	return nil
 }
@@ -136,7 +249,6 @@ func DownloadBT(magnet, dir string, prog func(int)) error {
 // - sha1Hex: 期望的 SHA1 字符串（不区分大小写，可带/不带空格）
 // 返回：是否匹配、实际计算出的 SHA1（大写）、错误信息
 func CheckFileSHA1(path, sha1Hex string) (bool, string, error) {
-	// 打开文件
 	f, err := os.Open(path)
 	if err != nil {
 		return false, "", fmt.Errorf("打开文件失败: %w", err)

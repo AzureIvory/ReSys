@@ -79,7 +79,6 @@ func Uiinit() {
 	gif_wait.SetImage(imagex.NewByFile("wait.gif").Handle)
 	//进度条
 	progbar = widget.NewProgressBar(300, 50, 300, 30, w.Handle)
-	go test(progbar)
 
 }
 
