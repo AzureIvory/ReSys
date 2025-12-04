@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,7 +14,6 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
-	"runtime"
 
 	"github.com/kdomanski/iso9660/util"
 	"golang.org/x/text/encoding/simplifiedchinese"
@@ -297,7 +295,7 @@ func runCmd(bin string, onLine func(string), args ...string) (string, error) {
 	return out, nil
 }
 
-// 一个小工具类型：把匿名函数适配成 io.Writer
+// 把匿名函数适配成 io.Writer
 type writerFunc func(p []byte) (int, error)
 
 func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
@@ -544,6 +542,35 @@ func getVolumeInfo(root string) (fsType string, totalBytes uint64, err error) {
 		return fsType, 0, fmt.Errorf("GetDiskFreeSpaceExW failed")
 	}
 	return fsType, total, nil
+}
+
+// 读取指定卷的剩余空间
+func GetFreeSize(vol string) (freeBytes uint64, err error) {
+	root := normRoot(vol)
+	if root == "" {
+		return 0, fmt.Errorf("empty volume")
+	}
+
+	pRoot, e := syscall.UTF16PtrFromString(root)
+	if e != nil {
+		return 0, e
+	}
+
+	var freeAvail, total, freeTotal uint64
+
+	r, _, e2 := procGetDiskFreeSpaceExW.Call(
+		uintptr(unsafe.Pointer(pRoot)),
+		uintptr(unsafe.Pointer(&freeAvail)), // 当前用户可用空间
+		uintptr(unsafe.Pointer(&total)),     // 卷总大小
+		uintptr(unsafe.Pointer(&freeTotal)), // 卷总空闲（包括管理员保留）
+	)
+	if r == 0 {
+		if e2 != nil && e2 != syscall.Errno(0) {
+			return 0, fmt.Errorf("GetDiskFreeSpaceExW: %w", e2)
+		}
+		return 0, fmt.Errorf("GetDiskFreeSpaceExW failed")
+	}
+	return freeAvail, nil
 }
 
 // 找系统分区（有 \Windows 目录的卷）
@@ -1116,14 +1143,13 @@ func bytesToMBGBStr(size uint64) string {
 
 // 结合 Installation / Edition / 名称 做系统索引判断 + 填充 Size 文本
 func finalizeImageMeta(m *ImageMeta) {
-	// 1) 填好人类可读的大小
 	m.Size = bytesToMBGBStr(m.SizeBytes)
 
 	name := strings.ToLower(m.Name + " " + m.Description)
 	inst := strings.ToLower(m.Installation)
 	edition := strings.ToLower(m.Edition)
 
-	// 明确是 WinPE/安装环境 的情况（优先排除）
+	// 明确是 WinPE/安装环境 的情况
 	isPEInstall := strings.Contains(inst, "windowspe") || strings.Contains(inst, "winpe")
 	isPEEdition := strings.Contains(edition, "windowspe")
 
@@ -1145,7 +1171,7 @@ func finalizeImageMeta(m *ImageMeta) {
 		return
 	}
 
-	// 正常逻辑：Client/Server 且不是 PE/Setup，认为是系统
+	// Client/Server 且不是 PE/Setup，认为是系统
 	m.IsOS = isClientOrServer && !isPEInstall && !isPEEdition && !isSetupName
 }
 
@@ -1309,576 +1335,15 @@ func FormatPartition(diskIdx, partIdx int, fs, label string, quick bool) error {
 	return nil
 }
 
-// ExitWindowsEx flags
-const (
-	EWX_LOGOFF      = 0x00000000 //注销
-	EWX_SHUTDOWN    = 0x00000008 //关机
-	EWX_REBOOT      = 0x00000002 //重启
-	EWX_FORCE       = 0x00000004 //强制关闭应用
-	EWX_FORCEIFHUNG = 0x00000010 //程序无响应 则强制关闭
-	//调用nt内核
-	ShutdownNoReboot = 0 // 只是退出系统，不重启
-	ShutdownReboot   = 1 // 重启
-	ShutdownPowerOff = 2 // 关机断电
-)
-
-// token 权限相关
-const (
-	SE_PRIVILEGE_ENABLED    = 0x00000002
-	TOKEN_ADJUST_PRIVILEGES = 0x0020
-	TOKEN_QUERY             = 0x0008
-)
-
-// 调用nt内核
-var modNtdll = syscall.NewLazyDLL("ntdll.dll")
-var procNtShutdownSystem = modNtdll.NewProc("NtShutdownSystem")
-
-// LUID / TOKEN_PRIVILEGES 结构体
-type luid struct {
-	LowPart  uint32
-	HighPart int32
-}
-
-type luidAndAttributes struct {
-	Luid       luid
-	Attributes uint32
-}
-
-type tokenPrivileges struct {
-	PrivilegeCount uint32
-	Privileges     [1]luidAndAttributes
-}
-
-// 开启当前进程的关机权限SeShutdownPrivilege
-func enableShutdownPrivilege() error {
-	var hToken syscall.Token
-
-	hProc, err := syscall.GetCurrentProcess()
-	if err != nil {
-		return fmt.Errorf("GetCurrentProcess failed: %w", err)
-	}
-
-	// OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES|TOKEN_QUERY, &hToken)
-	r1, _, e1 := procOpenProcessToken.Call(
-		uintptr(hProc),
-		uintptr(TOKEN_ADJUST_PRIVILEGES|TOKEN_QUERY),
-		uintptr(unsafe.Pointer(&hToken)),
-	)
-	if r1 == 0 {
-		if e1 != nil && e1 != syscall.Errno(0) {
-			return fmt.Errorf("OpenProcessToken failed: %w", e1)
-		}
-		return fmt.Errorf("OpenProcessToken failed")
-	}
-	defer syscall.CloseHandle(syscall.Handle(hToken))
-
-	// LookupPrivilegeValueW("", "SeShutdownPrivilege", &luid)
-	var l luid
-	seName, _ := syscall.UTF16PtrFromString("SeShutdownPrivilege")
-	r2, _, e2 := procLookupPrivilegeVal.Call(
-		0,
-		uintptr(unsafe.Pointer(seName)),
-		uintptr(unsafe.Pointer(&l)),
-	)
-	if r2 == 0 {
-		if e2 != nil && e2 != syscall.Errno(0) {
-			return fmt.Errorf("LookupPrivilegeValueW failed: %w", e2)
-		}
-		return fmt.Errorf("LookupPrivilegeValueW failed")
-	}
-
-	var tp tokenPrivileges
-	tp.PrivilegeCount = 1
-	tp.Privileges[0].Luid = l
-	tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED
-
-	r3, _, e3 := procAdjustTokenPriv.Call(
-		uintptr(hToken),
-		0,
-		uintptr(unsafe.Pointer(&tp)),
-		0,
-		0,
-		0,
-	)
-	if r3 == 0 {
-		if e3 != nil && e3 != syscall.Errno(0) {
-			return fmt.Errorf("AdjustTokenPrivileges failed: %w", e3)
-		}
-		return fmt.Errorf("AdjustTokenPrivileges failed")
-	}
-	return nil
-}
-
-// Shutdown
-// reboot = true：重启，false：关机
-func Shutdown(reboot bool) error {
-	var flag uint32
-	if reboot {
-		flag = EWX_REBOOT | EWX_FORCEIFHUNG
-	} else {
-		flag = EWX_SHUTDOWN | EWX_FORCEIFHUNG
-	}
-
-	// ExitWindowsEx
-	if err := enableShutdownPrivilege(); err == nil {
-		r, _, _ := procExitWindowsEx.Call(
-			uintptr(flag),
-			0,
-		)
-		if r != 0 {
-			return nil
-		}
-	}
-
-	// rundll32 + ExitWindowsEx
-	//   rundll32.exe user32.dll,ExitWindowsEx <flag>,0
-	flagStr := "8" // EWX_SHUTDOWN
-	if reboot {
-		flagStr = "2" // EWX_REBOOT
-	}
-	if err := exec.Command("rundll32.exe", "user32.dll,ExitWindowsEx", flagStr, "0").Run(); err == nil {
-		return nil
-	}
-
-	// 调用 NtShutdownSystem
-	// 需要 SeShutdownPrivilege
-	_ = enableShutdownPrivilege()
-
-	action := uintptr(ShutdownPowerOff)
-	if reboot {
-		action = uintptr(ShutdownReboot)
-	}
-	r, _, e := procNtShutdownSystem.Call(action)
-	// NtShutdownSystem 返回 NTSTATUS，0 通常表示 STATUS_SUCCESS
-	if r == 0 {
-		return nil
-	}
-
-	// shutdown.exe
-	var args []string
-	if reboot {
-		args = []string{"/r", "/t", "0", "/f"}
-	} else {
-		args = []string{"/s", "/t", "0", "/f"}
-	}
-	if err := exec.Command("shutdown.exe", args...).Run(); err == nil {
-		return nil
-	}
-	return fmt.Errorf("all shutdown/reboot methods failed, NtShutdownSystem also failed: %v", e)
-}
-
-// 以下是创建快捷方式相关代码，参考：https://docs.microsoft.com/en-us/windows/win32/shell/links
-var (
-	ole32                = syscall.NewLazyDLL("ole32.dll")
-	procCoInitializeEx   = ole32.NewProc("CoInitializeEx")
-	procCoUninitialize   = ole32.NewProc("CoUninitialize")
-	procCoCreateInstance = ole32.NewProc("CoCreateInstance")
-)
-
-const (
-	COINIT_APARTMENTTHREADED = 0x2
-	CLSCTX_INPROC_SERVER     = 0x1
-)
-
-type GUID struct {
-	Data1 uint32
-	Data2 uint16
-	Data3 uint16
-	Data4 [8]byte
-}
-
-// CLSID / IID
-var (
-	CLSID_ShellLink = GUID{0x00021401, 0x0000, 0x0000, [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
-	IID_IShellLinkW = GUID{0x000214F9, 0x0000, 0x0000, [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
-	IID_IPersistFile = GUID{0x0000010b, 0x0000, 0x0000, [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
-)
-
-// IShellLinkW vtable（顺序按官方接口定义）
-type iShellLinkWVtbl struct {
-	QueryInterface     uintptr
-	AddRef             uintptr
-	Release            uintptr
-	GetArguments       uintptr
-	GetDescription     uintptr
-	GetHotkey          uintptr
-	GetIconLocation    uintptr
-	GetIDList          uintptr
-	GetPath            uintptr
-	GetShowCmd         uintptr
-	GetWorkingDirectory uintptr
-	Resolve            uintptr
-	SetArguments       uintptr
-	SetDescription     uintptr
-	SetHotkey          uintptr
-	SetIconLocation    uintptr
-	SetIDList          uintptr
-	SetPath            uintptr
-	SetRelativePath    uintptr
-	SetShowCmd         uintptr
-	SetWorkingDirectory uintptr
-}
-
-type IShellLinkW struct {
-	lpVtbl *iShellLinkWVtbl
-}
-
-// IPersistFile vtable（IUnknown + IPersist + IPersistFile）
-type iPersistFileVtbl struct {
-	QueryInterface uintptr
-	AddRef         uintptr
-	Release        uintptr
-	GetClassID     uintptr
-	IsDirty        uintptr
-	Load           uintptr
-	Save           uintptr
-	SaveCompleted  uintptr
-	GetCurFile     uintptr
-}
-
-type IPersistFile struct {
-	lpVtbl *iPersistFileVtbl
-}
-
-func hresultFailed(hr uintptr) bool {
-	return int32(hr) < 0
-}
-// 在指定目录 dir 下创建一个快捷方式；
-// name 为快捷方式文件名，target 为目标（exe 路径或网址）。
-func CreateShortcut(dir, name, target string) (string, error) {
-	dir = strings.TrimSpace(dir)
-	name = strings.TrimSpace(name)
-	target = strings.TrimSpace(target)
-
-	if dir == "" {
-		return "", fmt.Errorf("dir is empty")
-	}
-	if name == "" {
-		return "", fmt.Errorf("name is empty")
-	}
-	if target == "" {
-		return "", fmt.Errorf("target is empty")
-	}
-
-	// 确保目录存在
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return "", fmt.Errorf("mkdir %s: %w", dir, err)
-	}
-
-	// 判断是否是网址
-	lowerTarget := strings.ToLower(target)
-	isURL := strings.HasPrefix(lowerTarget, "http://") ||
-		strings.HasPrefix(lowerTarget, "https://")
-
-	ext := strings.ToLower(filepath.Ext(name))
-	if ext == "" {
-		if isURL {
-			ext = ".url"
-		} else {
-			ext = ".lnk"
-		}
-		name += ext
-	} else if ext != ".lnk" && ext != ".url" {
-		// 非 .lnk/.url 的一律当 .lnk 用
-		ext = ".lnk"
-	}
-
-	fullPath, err := filepath.Abs(filepath.Join(dir, name))
-	if err != nil {
-		return "", fmt.Errorf("abs path: %w", err)
-	}
-
-	// 先处理 .url：直接写文本文件
-	if isURL || ext == ".url" {
-		if err := writeURLShortcut(fullPath, target); err != nil {
-			return "", err
-		}
-		return fullPath, nil
-	}
-
-	// 走到这里就是普通 .lnk（指向文件/程序）
-
-	// 用 WinAPI+COM(IShellLinkW + IPersistFile) 创建 .lnk
-	if err := createShellLinkCOM(fullPath, target); err == nil {
-		return fullPath, nil
-	}
-
-	// COM 失败：退回写一个 .url，当作简易快捷方式
-	urlPath := strings.TrimSuffix(fullPath, filepath.Ext(fullPath)) + ".url"
-	if err := writeURLShortcut(urlPath, target); err != nil {
-		return "", fmt.Errorf("create .lnk via COM failed AND fallback .url failed: %w", err)
-	}
-	return urlPath, nil
-}
-
-//.url + COM 创建 .lnk
-
-func writeURLShortcut(path, target string) error {
-	// 最基础的 InternetShortcut 格式，足够打开 URL 或本地 exe
-	content := "[InternetShortcut]\r\nURL=" + target + "\r\n"
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		return fmt.Errorf("write url shortcut %s: %w", path, err)
-	}
-	return nil
-}
-
-func createShellLinkCOM(linkPath, targetPath string) error {
-	// 为了满足 COM 单线程模型，把 goroutine 固定在一个 OS 线程上
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
-	// 初始化 COM
-	hr, _, _ := procCoInitializeEx.Call(0, uintptr(COINIT_APARTMENTTHREADED))
-	if hresultFailed(hr) {
-		return fmt.Errorf("CoInitializeEx failed: 0x%08X", uint32(hr))
-	}
-	defer procCoUninitialize.Call()
-
-	// CoCreateInstance CLSID_ShellLink -> IShellLinkW*
-	var psl *IShellLinkW
-	hr, _, _ = procCoCreateInstance.Call(
-		uintptr(unsafe.Pointer(&CLSID_ShellLink)),
-		0,
-		uintptr(CLSCTX_INPROC_SERVER),
-		uintptr(unsafe.Pointer(&IID_IShellLinkW)),
-		uintptr(unsafe.Pointer(&psl)),
-	)
-	if hresultFailed(hr) || psl == nil {
-		return fmt.Errorf("CoCreateInstance(IShellLinkW) failed: 0x%08X", uint32(hr))
-	}
-	// 记得 Release
-	defer syscall.SyscallN(psl.lpVtbl.Release, uintptr(unsafe.Pointer(psl)))
-
-	// 设置目标路径
-	targetUTF16, err := syscall.UTF16PtrFromString(targetPath)
-	if err != nil {
-		return fmt.Errorf("target UTF16: %w", err)
-	}
-	hr, _, _ = syscall.SyscallN(
-		psl.lpVtbl.SetPath,
-		uintptr(unsafe.Pointer(psl)),
-		uintptr(unsafe.Pointer(targetUTF16)),
-	)
-	if hresultFailed(hr) {
-		return fmt.Errorf("IShellLinkW.SetPath failed: 0x%08X", uint32(hr))
-	}
-
-	if dir := filepath.Dir(targetPath); dir != "" {
-		if wd, err := syscall.UTF16PtrFromString(dir); err == nil {
-			syscall.SyscallN(
-				psl.lpVtbl.SetWorkingDirectory,
-				uintptr(unsafe.Pointer(psl)),
-				uintptr(unsafe.Pointer(wd)),
-			)
-		}
-	}
-
-	// QueryInterface(IPersistFile)
-	var ppf *IPersistFile
-	hr, _, _ = syscall.SyscallN(
-		psl.lpVtbl.QueryInterface,
-		uintptr(unsafe.Pointer(psl)),
-		uintptr(unsafe.Pointer(&IID_IPersistFile)),
-		uintptr(unsafe.Pointer(&ppf)),
-	)
-	if hresultFailed(hr) || ppf == nil {
-		return fmt.Errorf("IShellLinkW.QueryInterface(IPersistFile) failed: 0x%08X", uint32(hr))
-	}
-	defer syscall.SyscallN(ppf.lpVtbl.Release, uintptr(unsafe.Pointer(ppf)))
-
-	// 保存 .lnk 文件
-	linkUTF16, err := syscall.UTF16PtrFromString(linkPath)
-	if err != nil {
-		return fmt.Errorf("linkPath UTF16: %w", err)
-	}
-	hr, _, _ = syscall.SyscallN(
-		ppf.lpVtbl.Save,
-		uintptr(unsafe.Pointer(ppf)),
-		uintptr(unsafe.Pointer(linkUTF16)),
-		uintptr(1), // TRUE: remember
-	)
-	if hresultFailed(hr) {
-		return fmt.Errorf("IPersistFile.Save failed: 0x%08X", uint32(hr))
-	}
-	return nil
-}
-
-// 尝试把src拷贝到dst。
-// overwrite=true：覆盖；false：跳过
-// createDir=true：目标目录不存在就创建；false：报错
-func Copy(src, dst string, overwrite, createDir bool) error {
-	si, err := os.Stat(src)
-	if err != nil {
-		return fmt.Errorf("Copy: src not found: %w", err)
-	}
-
-	// 负责单个文件的三连拷贝逻辑
-	copyOneFile := func(srcFile, dstFile string, overwrite, createDir bool) error {
-		fi, err := os.Stat(srcFile)
-		if err != nil {
-			return fmt.Errorf("Copy: src not found: %w", err)
-		}
-		if !fi.Mode().IsRegular() {
-			return fmt.Errorf("Copy: src is not a regular file: %s", srcFile)
-		}
-
-		// 目标存在处理
-		if dfi, err := os.Stat(dstFile); err == nil {
-			if dfi.IsDir() {
-				return fmt.Errorf("Copy: dst is a directory: %s", dstFile)
-			}
-			if !overwrite {
-				// 跳过模式
-				fmt.Println("[Copy] dst exists, skip file:", dstFile)
-				return nil
-			}
-		}
-
-		// 确保目标目录存在
-		if dir := filepath.Dir(dstFile); dir != "" && dir != "." {
-			if dfi, err := os.Stat(dir); err != nil {
-				if os.IsNotExist(err) {
-					if !createDir {
-						return fmt.Errorf("Copy: dest dir not exist and createDir=false: %s", dir)
-					}
-					if err := os.MkdirAll(dir, 0755); err != nil {
-						return fmt.Errorf("Copy: MkdirAll(%s) failed: %w", dir, err)
-					}
-				} else {
-					return fmt.Errorf("Copy: stat dest dir failed: %w", err)
-				}
-			} else if !dfi.IsDir() {
-				return fmt.Errorf("Copy: dest parent is not dir: %s", dir)
-			}
-		}
-
-		// 标准库 io.Copy
-		if err := func() error {
-			in, err := os.Open(srcFile)
-			if err != nil {
-				return err
-			}
-			defer in.Close()
-
-			out, err := os.OpenFile(dstFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fi.Mode().Perm())
-			if err != nil {
-				return err
-			}
-			defer out.Close()
-
-			if _, err := io.Copy(out, in); err != nil {
-				return err
-			}
-			return nil
-		}(); err == nil {
-			return nil
-		} else {
-			fmt.Println("[Copy] std copy failed, try cmd.exe:", err)
-		}
-
-		// cmd.exe
-		if err := func() error {
-			srcQ := `"` + srcFile + `"`
-			dstQ := `"` + dstFile + `"`
-
-			args := []string{"/C", "copy"}
-			if overwrite {
-				args = append(args, "/Y")
-			} else {
-				args = append(args, "/-Y")
-			}
-			args = append(args, srcQ, dstQ)
-
-			cmd := exec.Command("cmd.exe", args...)
-			return cmd.Run()
-		}(); err == nil {
-			return nil
-		} else {
-			fmt.Println("[Copy] cmd copy failed, try CopyFileW:", err)
-		}
-
-		// WinAPI CopyFileW
-		srcW, err := syscall.UTF16PtrFromString(srcFile)
-		if err != nil {
-			return fmt.Errorf("Copy: src UTF16 failed: %w", err)
-		}
-		dstW, err := syscall.UTF16PtrFromString(dstFile)
-		if err != nil {
-			return fmt.Errorf("Copy: dst UTF16 failed: %w", err)
-		}
-
-		// bFailIfExists: TRUE(1) 目标存在就失败；FALSE(0) 覆盖
-		var failIfExists uintptr = 0
-		if !overwrite {
-			failIfExists = 1
-		}
-
-		r, _, e := procCopyFileW.Call(
-			uintptr(unsafe.Pointer(srcW)),
-			uintptr(unsafe.Pointer(dstW)),
-			failIfExists,
-		)
-		if r == 0 {
-			if !overwrite {
-				if errno, ok := e.(syscall.Errno); ok &&
-					(errno == syscall.ERROR_FILE_EXISTS || errno == syscall.ERROR_ALREADY_EXISTS) {
-					fmt.Println("[Copy] dst exists (CopyFileW), skip:", dstFile)
-					return nil
-				}
-			}
-			return fmt.Errorf("Copy: CopyFileW failed: %v", e)
-		}
-		return nil
-	}
-
-	// 目录分支
-	if si.IsDir() {
-		// 根目标目录的存在逻辑受 createDir 控制
-		if dfi, err := os.Stat(dst); err == nil {
-			if !dfi.IsDir() {
-				return fmt.Errorf("Copy: dst exists and is not directory: %s", dst)
-			}
-		} else if os.IsNotExist(err) {
-			if !createDir {
-				return fmt.Errorf("Copy: dst dir not exist and createDir=false: %s", dst)
-			}
-			if err := os.MkdirAll(dst, si.Mode().Perm()); err != nil {
-				return fmt.Errorf("Copy: MkdirAll root dst failed: %w", err)
-			}
-		} else {
-			return fmt.Errorf("Copy: stat dst failed: %w", err)
-		}
-
-		// 递归遍历整个目录树
-		return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-			if path == src {
-				return nil
-			}
-
-			rel, err := filepath.Rel(src, path)
-			if err != nil {
-				return err
-			}
-			targetPath := filepath.Join(dst, rel)
-
-			if info.IsDir() {
-				if err := os.MkdirAll(targetPath, info.Mode().Perm()); err != nil {
-					return err
-				}
-				return nil
-			}
-
-			return copyOneFile(path, targetPath, overwrite, true) // 子目录内部总是需要创建
-		})
-	}
-
-	// 单文件分支
-	return copyOneFile(src, dst, overwrite, createDir)
-}
 func main() {
+	fmt.Println(Findpart())
+	//剩余空间需要大于7g（7340032）
+	fmt.Println(GetDiskKind("F"))
+	Uiinit()
+	w.Show(true)
+	a.Run()
+	a.Exit()
+	return
 	fmt.Println(GetDiskNum("E:\\"))
 	path, err := os.Getwd()
 	img, err := ListImageInfos(path + "\\win10.esd")
@@ -1905,4 +1370,27 @@ func main() {
 	fmt.Println(CreateShortcut("C:\\Users\\Public\\Desktop\\", "百度", "https://www.baidu.com"))
 	//time.Sleep(30 * time.Second)
 	Shutdown(true)
+}
+func Rew7(file string) int {
+	var cd string
+	var err error
+	tempD := Findpart()[0]
+	ext := strings.ToLower(filepath.Ext(file))
+	if ext == ".iso" || ext == ".esd" || ext == ".wim" {
+		return -1
+	}
+	if ext == ".iso" {
+		cd, err = MountISO(file, 30*time.Second)
+		if err != nil {
+			err = UnpackISO(file, tempD+"TEMPISO\\")
+			if err != nil {
+				return -2
+			}
+			cd = tempD + "TEMPISO\\"
+		}
+	}
+	fmt.Println(cd, err)
+	//path, _ := os.Getwd()
+	//img, err := ListImageInfos(path + "\\win10.esd")
+	return 0
 }

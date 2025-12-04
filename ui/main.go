@@ -2,8 +2,11 @@ package main
 
 import (
 	_ "embed"
+	"fmt"
+	"time"
 
 	"github.com/twgh/xcgui/app"
+	"github.com/twgh/xcgui/font"
 	"github.com/twgh/xcgui/imagex"
 	"github.com/twgh/xcgui/widget"
 	"github.com/twgh/xcgui/window"
@@ -19,61 +22,100 @@ const win10s = `<svg t="1764742911348" class="icon" viewBox="0 0 1024 1024" vers
 const win11s = `<svg t="1764743229360" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="8563" width="64" height="64"><path d="M74.873 70.383h416.025q4.424 0 4.424 4.424v416.025q0 4.423-4.424 4.423H74.873q-4.424 0-4.424-4.423V74.807q0-4.424 4.424-4.424z" fill="#0099FF" p-id="8564"></path><path d="M530.536 70.383h421.157q1.858 0 1.858 1.858v421.156q0 1.858-1.858 1.858H530.536q-1.858 0-1.858-1.858V72.241q0-1.858 1.858-1.858z" fill="#00D9FC" p-id="8565"></path><path d="M74.873 528.745h416.025q4.424 0 4.424 4.423v416.025q0 4.424-4.424 4.424H74.873q-4.424 0-4.424-4.424V533.168q0-4.423 4.424-4.423z" fill="#0053FF" p-id="8566"></path><path d="M530.536 528.745h421.157q1.858 0 1.858 1.858v421.156q0 1.858-1.858 1.858H530.536q-1.858 0-1.858-1.858V530.603q0-1.858 1.858-1.858z" fill="#00B1EF" p-id="8567"></path></svg>`
 
 var (
-	win7ico  *imagex.Image
-	win10ico *imagex.Image
-	win11ico *imagex.Image
+	a *app.App
+	w *window.Window
+	//按钮
+	btn_win7  *widget.Button
+	btn_win10 *widget.Button
+	btn_win11 *widget.Button
+	btn_win   *widget.Button
+
+	//文本
+	text_win7  *widget.ShapeText
+	text_win10 *widget.ShapeText
+	text_win11 *widget.ShapeText
+	text_mes   *widget.ShapeText
+
+	//gif
+	gif_wait *widget.ShapeGif
+	//进度条
+	progbar *widget.ProgressBar
 )
 
 func main() {
 	// 初始化
 	app.Init()
-	a := app.New(true)
+	a = app.New(true)
 	// 启用自适应DPI
 	a.EnableAutoDPI(true).EnableDPI(true)
-	// 创建窗口
-	w := window.New(0, 0, 600, 400, "xcgui", 0, xcc.Window_Style_Default|xcc.Window_Style_Drag_Window)
-
-	// 设置窗口边框大小：标题栏高度34
-	w.SetBorderSize(0, 34, 0, 0)
-	// 设置窗口透明类型：阴影窗口, 带透明通道, 边框阴影, 窗口透明或半透明
-	w.SetTransparentType(xcc.Window_Transparent_Shadow)
-	// 设置窗口透明度：255就是不透明
-	w.SetTransparentAlpha(240)
-	// 设置窗口阴影：阴影大小8, 深度255, 圆角内收大小10, 是否强制直角false, 阴影颜色0也就是黑色
-	w.SetShadowInfo(8, 255, 10, false, 0)
-
-	// 从内存加载图片自适应大小
+	w = window.New(0, 0, 600, 400, "ReSys", 0, xcc.Window_Style_Caption|xcc.Window_Style_Btn_Close|xcc.Window_Style_Btn_Min|xcc.Window_Style_Title|xcc.Window_Style_Icon|xcc.Window_Style_Center|xcc.Window_Style_Border|xcc.Window_Style_Drag_Border)
+	w.SetBorderSize(0, 34, 0, 0)                        //边框
+	w.SetTransparentType(xcc.Window_Transparent_Shadow) //透明类型
+	w.SetTransparentAlpha(240)                          //透明度
+	w.SetShadowInfo(8, 255, 10, false, 0)               //阴影
 	windowIcon := imagex.NewByMemAdaptive(icon, 0, 0, 0, 0)
-	// 设置程序默认窗口图标
 	a.SetWindowIcon(windowIcon.Handle)
+	//按钮
+	btn_win7 = widget.NewButton(50, 200, 100, 100, "", w.Handle)
+	btn_win10 = widget.NewButton(250, 200, 100, 100, "", w.Handle)
+	btn_win11 = widget.NewButton(450, 200, 100, 100, "", w.Handle)
+	widget.NewButton(10, 43, 60, 30, "高级模式", w.Handle)
+	btn_win7.SetIcon(imagex.NewBySvgString(win7s).EnableAutoDestroy(true).Handle)
+	btn_win10.SetIcon(imagex.NewBySvgString(win10s).EnableAutoDestroy(true).Handle)
+	btn_win11.SetIcon(imagex.NewBySvgString(win11s).EnableAutoDestroy(true).Handle)
 
-	// 创建按钮
-	btn := widget.NewButton(50, 100, 100, 100, "", w.Handle)
-	// 设置按钮图标
-	btn.SetIcon(imagex.NewBySvgString(win7s).EnableAutoDestroy(true).Handle)
-	btn1 := widget.NewButton(250, 100, 100, 100, "", w.Handle)
-	btn1.SetIcon(imagex.NewBySvgString(win10s).EnableAutoDestroy(true).Handle)
-	btn2 := widget.NewButton(450, 100, 100, 100, "", w.Handle)
-	btn2.SetIcon(imagex.NewBySvgString(win11s).EnableAutoDestroy(true).Handle)
-	widget.NewShapeText(50, 50, 100, 50, "重装win7", w.Handle)
+	//文本
+	text_win7 = widget.NewShapeText(50, 150, 100, 50, "重装 win7", w.Handle)
+	text_win10 = widget.NewShapeText(250, 150, 100, 50, "重装win10", w.Handle)
+	text_win11 = widget.NewShapeText(450, 150, 100, 50, "重装win11", w.Handle)
+	text_mes = widget.NewShapeText(150, 50, 500, 50, "请在下方选一个系统安装", w.Handle)
+	text_win7.SetFont(font.New(15).Handle)
+	text_win10.SetFont(font.New(15).Handle)
+	text_win11.SetFont(font.New(15).Handle)
+	text_mes.SetFont(font.New(20).Handle)
+
+	//gif
+	gif_wait = widget.NewShapeGif(30, 50, 215, 80, w.Handle)
+	gif_wait.SetImage(imagex.NewByFile("wait.gif").Handle)
+	//进度条
+	progbar = widget.NewProgressBar(300, 50, 300, 30, w.Handle)
+	go test(progbar)
+
 	// 注册按钮事件
-	btn.AddEvent_BnClick(func(hEle int, pbHandled *bool) int {
-		// 是否点了确定按钮
-		var isOK bool
-		// 创建可自定义的信息框
-		md := w.Msg_Create("标题", "内容", xcc.MessageBox_Flag_Ok|xcc.MessageBox_Flag_Cancel, xcc.Window_Style_Modal)
-		// 设置窗口边框大小
-		md.SetBorderSize(0, 34, 0, 0)
-		// 设置窗口透明类型：阴影窗口, 带透明通道, 边框阴影, 窗口透明或半透明
-		md.SetTransparentType(xcc.Window_Transparent_Shadow)
-		// 设置窗口透明度：255就是不透明
-		md.SetTransparentAlpha(255)
-		// 设置窗口阴影：阴影大小4, 深度255, 圆角内收大小6, 是否强制直角false, 阴影颜色0也就是黑色
-		md.SetShadowInfo(4, 255, 6, false, 0)
-		// 遍历子控件, 找到确定按钮
-		for i := int32(0); i < md.GetChildCount(); i++ {
-			hEle := md.GetChildByIndex(i)
-			if xc.XC_IsHXCGUI(hEle, xcc.XC_BUTTON) && xc.XBtn_GetText(hEle) == "确 定" { // 是确定按钮
+	btn_win7.AddEvent_BnClick(func(hEle int, pbHandled *bool) int {
+		if Message(w, "提示", "重装系统将会清除C盘数据,是否继续?") {
+			Message(w, "提示", "你点了确定")
+
+			btn_win7.Enable(false)                                         //禁用
+			btn_win7.Show(false)                                           //隐藏(无用)
+			btn_win7.SetPosition(2048, 2048, true, xcc.AdjustLayout_No, 0) //移动
+
+			btn_win7.SetPosition(50, 200, true, xcc.AdjustLayout_No, 0) //移回
+		}
+		return 0
+	})
+
+	w.Show(true)
+	a.Run()
+	a.Exit()
+}
+
+// 简单消息框
+func Message(w *window.Window, title, text string) bool {
+	isOK := false
+	//创建消息窗口
+	md := w.Msg_Create(title, text,
+		xcc.MessageBox_Flag_Ok|xcc.MessageBox_Flag_Cancel,
+		xcc.Window_Style_Modal)
+	md.SetBorderSize(0, 34, 0, 0)                        //边框
+	md.SetTransparentType(xcc.Window_Transparent_Shadow) //透明类型
+	md.SetTransparentAlpha(240)                          //透明度
+	md.SetShadowInfo(4, 255, 6, false, 0)                //阴影
+	// 找到 确定 并返回
+	for i := int32(0); i < md.GetChildCount(); i++ {
+		hEle := md.GetChildByIndex(i)
+		if xc.XC_IsHXCGUI(hEle, xcc.XC_BUTTON) {
+			if xc.XBtn_GetText(hEle) == "确 定" {
 				btn := widget.NewButtonByHandle(hEle)
 				btn.AddEvent_BnClick(func(hEle int, pbHandled *bool) int {
 					isOK = true
@@ -82,18 +124,21 @@ func main() {
 				break
 			}
 		}
-		// 显示模态窗口
-		md.DoModal()
-		if isOK {
-			w.MessageBox("提示", "你点击了确定按钮", xcc.MessageBox_Flag_Ok, xcc.Window_Style_Default)
-		}
-		return 0
-	})
+	}
 
-	// 显示窗口
-	w.Show(true)
-	// 运行消息循环
-	a.Run()
-	// 退出界面库释放资源
-	a.Exit()
+	md.DoModal()
+
+	return isOK
+}
+func test(p *widget.ProgressBar) {
+
+	s := 0
+	for i := 0; i <= 100; i++ {
+		q := s + i
+		fmt.Println(q)
+		time.Sleep(100 * time.Millisecond)
+		p.SetPos(int32(q))
+		p.Redraw(false)
+	}
+
 }

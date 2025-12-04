@@ -1,4 +1,6 @@
 github.com/kdomanski/iso9660 v0.4.0 h1:BPKKdcINz3m0MdjIMwS0wx1nofsOjxOq8TOr45WGHFg=
 github.com/kdomanski/iso9660 v0.4.0/go.mod h1:OxUSupHsO9ceI8lBLPJKWBTphLemjrCQY8LPXM7qSzU=
+github.com/twgh/xcgui v1.3.398 h1:nuBC5NOpy6hgCBQ95uq7XPvnwORvkI+ND7wWsAuDYG0=
+github.com/twgh/xcgui v1.3.398/go.mod h1:bjaLKS7TrQEmHUm990PSK7e20ntkdLs3jBanwT4GR10=
 golang.org/x/text v0.31.0 h1:aC8ghyu4JhP8VojJ2lEHBnochRno1sgL6nEi9WGFGMM=
 golang.org/x/text v0.31.0/go.mod h1:tKRAlv61yKIjGGHX/4tP1LTbc13YSec1pxVEWXzfoeM=
