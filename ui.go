@@ -73,13 +73,14 @@ func Uiinit() {
 	text_win10.SetFont(font.New(15).Handle)
 	text_win11.SetFont(font.New(15).Handle)
 	text_mes.SetFont(font.New(20).Handle)
+	widget.NewShapeText(100, 200, 100, 30, "下载数据", w.Handle)
 
 	//gif
 	gif_wait = widget.NewShapeGif(30, 50, 215, 80, w.Handle)
 	gif_wait.SetImage(imagex.NewByFile("wait.gif").Handle)
 	//进度条
 	progbar = widget.NewProgressBar(300, 50, 300, 30, w.Handle)
-
+	progbar.SetPos(0)
 }
 
 // 简单消息框

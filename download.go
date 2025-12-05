@@ -6,247 +6,266 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
-	"syscall"
+	"time"
+
+	"github.com/anacrolix/torrent"
 )
 
-type progInfo struct {
-	pct   int
-	speed int64
-	done  int64
-	total int64
+// trackers.txt订阅URL列表
+var trackerTxtURLs = []string{
+	"https://raw.githubusercontent.com/adysec/tracker/main/trackers_best.txt",
+	"https://down.adysec.com/trackers_best.txt",
 }
 
-// 解析 aria2 的大小字符串，例如 "467MiB"、"2.4GiB"、"0B"
-func parseSize(s string) int64 {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return 0
-	}
-	re := regexp.MustCompile(`^([0-9]+(?:\.[0-9]+)?)([KMGTP]?i?B)$`)
-	m := re.FindStringSubmatch(s)
-	if len(m) != 3 {
-		return 0
-	}
-	valStr, unit := m[1], m[2]
-	fv, err := strconv.ParseFloat(valStr, 64)
-	if err != nil {
-		return 0
-	}
-	mul := float64(1)
-	switch unit {
-	case "B":
-		mul = 1
-	case "KiB":
-		mul = 1024
-	case "MiB":
-		mul = 1024 * 1024
-	case "GiB":
-		mul = 1024 * 1024 * 1024
-	case "TiB":
-		mul = 1024 * 1024 * 1024 * 1024
-	default:
-		mul = 1
-	}
-	return int64(fv*mul + 0.5)
-}
+// 最后用
+const fallbackTrackerURL = "https://example.com/fallback-trackers.txt"
 
-// 调用运行目录下的 aria2c.exe 下载BT的magnet链接。
-// magnet: 必须是 "magnet:?xt=urn:btih:..." 开头的字符串
-// dir:    下载保存目录，为空则用当前目录
-// prog:   实时进度回调，0~100
+// 下载bt
+// dir:    下载保存目录，空字符串则使用当前目录
+// prog:   进度回调（0~100，speed 为 B/s，done/total 为字节数）
 func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)) error {
+	magnet = strings.TrimSpace(magnet)
 	if !strings.HasPrefix(strings.ToLower(magnet), "magnet:?xt=urn:btih:") {
 		return fmt.Errorf("不是合法的 BT 磁力链接: %s", magnet)
 	}
+
 	if dir == "" {
 		dir = "."
 	}
-
-	// 找到当前程序所在目录，拼出 aria2c.exe 路径
-	exePath, err := os.Executable()
+	absDir, err := filepath.Abs(dir)
 	if err != nil {
-		return fmt.Errorf("获取自身路径失败: %w", err)
+		return fmt.Errorf("解析目录失败: %w", err)
 	}
+	if err := os.MkdirAll(absDir, 0o755); err != nil {
+		return fmt.Errorf("创建下载目录失败: %w", err)
+	}
+
+	// 运行目录下的本地 trackers.txt
+	exePath, _ := os.Executable()
 	exeDir := filepath.Dir(exePath)
-	ariaPath := filepath.Join(exeDir, "aria2c.exe")
+	localTrackerPath := filepath.Join(exeDir, "trackers.txt")
 
-	if _, err := os.Stat(ariaPath); err != nil {
-		return fmt.Errorf("未找到 aria2c.exe: %s (请放在程序同目录)", ariaPath)
+	trackers, err := loadTrackersWithFallback(trackerTxtURLs, fallbackTrackerURL, localTrackerPath)
+	if err != nil {
+		fmt.Println("警告: 加载 trackers 失败，将仅依赖 DHT/PEX:", err)
 	}
 
-	// 默认内置几条常用公共 trackers
-	trackers := []string{
-		"udp://tracker.opentrackr.org:1337/announce",
-		"udp://open.stealth.si:80/announce",
-		"udp://tracker.torrent.eu.org:451/announce",
-		"udp://exodus.desync.com:6969/announce",
-	}
+	cfg := torrent.NewDefaultClientConfig()
+	cfg.DataDir = absDir // 用数据目录实现断点续传
+	cfg.Seed = false     // 下载完不长期做种
+	cfg.NoUpload = false // 按需上传，保持默认即可
 
-	//读取运行目录下的trackers.txt
-	trkFile := filepath.Join(exeDir, "trackers.txt")
-	if f, err := os.Open(trkFile); err == nil {
-		sc := bufio.NewScanner(f)
-		for sc.Scan() {
-			line := strings.TrimSpace(sc.Text())
-			if line == "" {
-				continue
-			}
-			// 支持注释行
-			if strings.HasPrefix(line, "#") || strings.HasPrefix(line, "//") {
-				continue
-			}
-			trackers = append(trackers, line)
-		}
-		_ = f.Close()
+	cl, err := torrent.NewClient(cfg)
+	if err != nil {
+		return fmt.Errorf("创建 BT 客户端失败: %w", err)
 	}
+	defer cl.Close()
 
-	trkArg := ""
+	spec, err := torrent.TorrentSpecFromMagnetUri(magnet)
+	if err != nil {
+		return fmt.Errorf("解析 magnet 失败: %w", err)
+	}
 	if len(trackers) > 0 {
-		trkArg = "--bt-tracker=" + strings.Join(trackers, ",")
+		spec.Trackers = [][]string{trackers} // 所有 tracker 放在同一 tier
 	}
 
-	args := []string{
-		"--enable-color=false",
-		"--summary-interval=1", // 每秒输出一次进度
-		"--console-log-level=notice",
-		"--enable-dht=true",
-		"--enable-dht6=false",
-		"--bt-enable-lpd=true",
-		"--enable-peer-exchange=true",
-		"--bt-save-metadata=true",
-		"--bt-max-peers=55",
-		"--seed-time=0",   // 下完就退出
-		"--continue=true", // 允许断点续传
-		"--bt-max-peers=32",
-	}
-
-	// 有 trackers 参数就加上
-	if trkArg != "" {
-		args = append(args, trkArg)
-	}
-
-	// 下载目录和 magnet
-	args = append(args,
-		"-d", dir,
-		magnet,
-	)
-
-	cmd := exec.Command(ariaPath, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		HideWindow: true,
-	}
-
-	stdout, err := cmd.StdoutPipe()
+	t, _, err := cl.AddTorrentSpec(spec)
 	if err != nil {
-		return fmt.Errorf("获取 stdout 失败: %w", err)
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("获取 stderr 失败: %w", err)
-	}
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("启动 aria2c 失败: %w", err)
+		return fmt.Errorf("添加 torrent 失败: %w", err)
 	}
 
-	// 单独丢弃 stderr，避免阻塞
-	go func() {
-		_, _ = io.Copy(io.Discard, stderr)
-	}()
+	// 等待获取种子信息（文件大小等）
+	<-t.GotInfo()
 
-	reMain := regexp.MustCompile(`#\S+\s+([0-9.]+[KMGTP]?i?B)/([0-9.]+[KMGTP]?i?B)\(([0-9.]+)%\)`)
-	reSpeed := regexp.MustCompile(`DL:([0-9.]+[KMGTP]?i?B)`)
+	// 提高并发连接数
+	t.SetMaxEstablishedConns(80)
 
-	var cand *progInfo
-	var last *progInfo
+	// 整个种子都下载
+	t.DownloadAll()
 
-	sc := bufio.NewScanner(stdout)
-	for sc.Scan() {
-		line := sc.Text()
+	var lastDone int64
+	var lastTime time.Time
 
-		// 解析主进度行
-		if m := reMain.FindStringSubmatch(line); len(m) == 4 {
-			doneStr := m[1]
-			totalStr := m[2]
-			pctStr := m[3]
+	for {
+		total := t.Length()
+		done := t.BytesCompleted()
 
-			doneBytes := parseSize(doneStr)
-			totalBytes := parseSize(totalStr)
-
-			fv, err := strconv.ParseFloat(pctStr, 64)
-			if err != nil {
-				fv = 0
-			}
-			pct := int(fv + 0.5)
+		// 计算百分比
+		pct := 0
+		if total > 0 {
+			pct = int(float64(done) * 100 / float64(total))
 			if pct < 0 {
 				pct = 0
 			}
 			if pct > 100 {
 				pct = 100
 			}
-
-			// 解析速度，可能没有DL字段
-			var speedBytes int64
-			if m2 := reSpeed.FindStringSubmatch(line); len(m2) == 2 {
-				speedBytes = parseSize(m2[1])
-			}
-
-			cand = &progInfo{
-				pct:   pct,
-				speed: speedBytes,
-				done:  doneBytes,
-				total: totalBytes,
-			}
 		}
 
-		// FILE行里可以区分是不是metadata任务
-		if strings.Contains(line, "FILE:") {
-			if strings.Contains(line, "[MEMORY][METADATA]") {
-				cand = nil
-				continue
-			}
-			if cand != nil {
-				info := *cand // 拷贝一份
-				cand = nil
-
-				if prog != nil && (last == nil || info.pct != last.pct) {
-					prog(info.pct, info.speed, info.done, info.total)
-					last = &info
+		// 计算下载速度
+		now := time.Now()
+		var speed int64
+		if !lastTime.IsZero() {
+			delta := done - lastDone
+			dt := now.Sub(lastTime).Seconds()
+			if dt > 0 && delta >= 0 {
+				bps := float64(delta) / dt // bytes per second
+				if bps < 0 {
+					bps = 0
 				}
+				speed = int64(bps + 0.5) // 四舍五入到整数 B/s
 			}
 		}
-	}
-	_ = sc.Err()
+		lastTime = now
+		lastDone = done
 
-	if err := cmd.Wait(); err != nil {
-		if prog != nil && last != nil {
-			prog(last.pct, last.speed, last.done, last.total)
+		if prog != nil {
+			prog(pct, speed, done, total)
 		}
-		return fmt.Errorf("aria2c 退出错误: %w", err)
+
+		// BytesMissing == 0 表示管理器认为没有缺失的数据了
+		if total > 0 && t.BytesMissing() == 0 {
+			break
+		}
+
+		time.Sleep(500 * time.Millisecond) // 500ms回调
 	}
 
-	// 成功结束但没有 100%，补一次 100%
+	// 补一次 100%
 	if prog != nil {
-		if last != nil && last.pct < 100 {
-			done := last.total
-			total := last.total
-			prog(100, 0, done, total)
-		} else if last == nil {
-			// 理论上不会到这
-			prog(100, 0, 0, 0)
+		total := t.Length()
+		if total == 0 {
+			total = lastDone
 		}
+		prog(100, 0, total, total)
 	}
+
 	return nil
 }
 
-// CheckFileSHA1 计算文件的 SHA1，并和给定的 sha1Hex 比较。
-// - path: 文件路径
-// - sha1Hex: 期望的 SHA1 字符串（不区分大小写，可带/不带空格）
+func loadTrackersWithFallback(urls []string, fallbackURL, localPath string) ([]string, error) {
+	httpClient := &http.Client{
+		Timeout: 8 * time.Second,
+	}
+
+	var all []string
+	var firstErr error
+
+	for _, u := range urls {
+		u = strings.TrimSpace(u)
+		if u == "" {
+			continue
+		}
+		lines, err := fetchTrackersOne(httpClient, u)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		all = append(all, lines...)
+	}
+
+	if len(all) == 0 && strings.TrimSpace(fallbackURL) != "" {
+		lines, err := fetchTrackersOne(httpClient, fallbackURL)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+		} else {
+			all = append(all, lines...)
+		}
+	}
+
+	// URL失败，用trackers.txt
+	if len(all) == 0 && strings.TrimSpace(localPath) != "" {
+		f, err := os.Open(localPath)
+		if err == nil {
+			defer f.Close()
+			sc := bufio.NewScanner(f)
+			for sc.Scan() {
+				line := strings.TrimSpace(sc.Text())
+				if line == "" {
+					continue
+				}
+				if strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") || strings.HasPrefix(line, "//") {
+					continue
+				}
+				all = append(all, line)
+			}
+			if err := sc.Err(); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		} else {
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+
+	if len(all) == 0 {
+		if firstErr != nil {
+			return nil, firstErr
+		}
+		return nil, fmt.Errorf("未能从任何来源加载 trackers")
+	}
+
+	return uniqueStrings(all), nil
+}
+
+func fetchTrackersOne(c *http.Client, url string) ([]string, error) {
+	resp, err := c.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("GET %s 失败: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GET %s 返回状态码 %d", url, resp.StatusCode)
+	}
+
+	var res []string
+	sc := bufio.NewScanner(resp.Body)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") || strings.HasPrefix(line, "//") {
+			continue
+		}
+		res = append(res, line)
+	}
+	if err := sc.Err(); err != nil {
+		return nil, fmt.Errorf("读取 %s 失败: %w", url, err)
+	}
+	return res, nil
+}
+
+func uniqueStrings(in []string) []string {
+	m := make(map[string]struct{})
+	var out []string
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if _, ok := m[s]; ok {
+			continue
+		}
+		m[s] = struct{}{}
+		out = append(out, s)
+	}
+	return out
+}
+
+// 计算文件的 SHA1，并和sha1Hex比较。
+// path: 文件路径
+// sha1Hex: 期望的 SHA1 字符串（不区分大小写，可带/不带空格）
 // 返回：是否匹配、实际计算出的 SHA1（大写）、错误信息
 func CheckFileSHA1(path, sha1Hex string) (bool, string, error) {
 	f, err := os.Open(path)
@@ -279,7 +298,7 @@ func CheckFileSHA1(path, sha1Hex string) (bool, string, error) {
 
 	// 规范化传入的SHA1字符串
 	exp := strings.TrimSpace(sha1Hex)
-	// 有些情况下可能会带空格或其他东西，这里只保留前 40 个十六进制字符
+	// 只保留前 40 个十六进制字符
 	exp = strings.ToUpper(exp)
 	if len(exp) >= 40 {
 		exp = exp[:40]
