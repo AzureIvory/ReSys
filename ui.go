@@ -35,6 +35,7 @@ var (
 	text_win10 *widget.ShapeText
 	text_win11 *widget.ShapeText
 	text_mes   *widget.ShapeText
+	text_down  *widget.ShapeText
 
 	//gif
 	gif_wait *widget.ShapeGif
@@ -69,17 +70,18 @@ func Uiinit() {
 	text_win10 = widget.NewShapeText(250, 150, 100, 50, "重装win10", w.Handle)
 	text_win11 = widget.NewShapeText(450, 150, 100, 50, "重装win11", w.Handle)
 	text_mes = widget.NewShapeText(150, 50, 500, 50, "请在下方选一个系统安装", w.Handle)
+	text_down = widget.NewShapeText(2048, 2048, 100, 30, "下载数据", w.Handle)
 	text_win7.SetFont(font.New(15).Handle)
 	text_win10.SetFont(font.New(15).Handle)
 	text_win11.SetFont(font.New(15).Handle)
 	text_mes.SetFont(font.New(20).Handle)
-	widget.NewShapeText(100, 200, 100, 30, "下载数据", w.Handle)
+	text_down.SetFont(font.New(15).Handle)
 
 	//gif
-	gif_wait = widget.NewShapeGif(30, 50, 215, 80, w.Handle)
+	gif_wait = widget.NewShapeGif(2048, 2048, 215, 80, w.Handle)
 	gif_wait.SetImage(imagex.NewByFile("wait.gif").Handle)
 	//进度条
-	progbar = widget.NewProgressBar(300, 50, 300, 30, w.Handle)
+	progbar = widget.NewProgressBar(2048, 2048, 300, 30, w.Handle)
 	progbar.SetPos(0)
 }
 
@@ -130,13 +132,28 @@ func Click_w7() {
 	btn_win7.AddEvent_BnClick(func(hEle int, pbHandled *bool) int {
 		if Message(w, "提示", "重装系统将会清除C盘数据,是否继续?") {
 			//点了确定后
-
-			btn_win7.Enable(false)                                         //禁用
-			btn_win7.Show(false)                                           //隐藏(无用)
-			btn_win7.SetPosition(2048, 2048, true, xcc.AdjustLayout_No, 0) //移动
-
-			btn_win7.SetPosition(50, 200, true, xcc.AdjustLayout_No, 0) //移回
+			win2()
 		}
 		return 0
 	})
+}
+func win2() {
+	//禁用
+	btn_win7.Enable(false)
+	btn_win10.Enable(false)
+	btn_win11.Enable(false)
+
+	//移动
+	btn_win7.SetPosition(2048, 2048, true, xcc.AdjustLayout_No, 0)
+	btn_win10.SetPosition(2048, 2048, true, xcc.AdjustLayout_No, 0)
+	btn_win11.SetPosition(2048, 2048, true, xcc.AdjustLayout_No, 0)
+
+	text_win7.SetPosition(2048, 2048)
+	text_win10.SetPosition(2048, 2048)
+	text_win11.SetPosition(2048, 2048)
+	text_mes.SetPosition(2048, 2048)
+
+	gif_wait.SetPosition(50, 60)
+	progbar.SetPos(0)
+	progbar.SetPosition(70, 60, true, xcc.AdjustLayout_No, 0)
 }

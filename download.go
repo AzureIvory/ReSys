@@ -55,9 +55,10 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 	}
 
 	cfg := torrent.NewDefaultClientConfig()
-	cfg.DataDir = absDir // 用数据目录实现断点续传
-	cfg.Seed = false     // 下载完不长期做种
-	cfg.NoUpload = false // 按需上传，保持默认即可
+	cfg.DataDir = absDir          // 用数据目录实现断点续传
+	cfg.Seed = false              // 下载完不长期做种
+	cfg.NoUpload = false          // 按需上传，保持默认即可
+	cfg.DownloadRateLimiter = nil //不限下载速度
 
 	cl, err := torrent.NewClient(cfg)
 	if err != nil {
@@ -78,11 +79,11 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 		return fmt.Errorf("添加 torrent 失败: %w", err)
 	}
 
-	// 等待获取种子信息（文件大小等）
+	// 等待获取种子信息
 	<-t.GotInfo()
 
-	// 提高并发连接数
-	t.SetMaxEstablishedConns(80)
+	// 并发连接数
+	t.SetMaxEstablishedConns(512)
 
 	// 整个种子都下载
 	t.DownloadAll()

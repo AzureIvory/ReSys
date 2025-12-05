@@ -1401,8 +1401,8 @@ func Rew7(file string) int {
 func test1() {
 	bt := "magnet:?xt=urn:btih:585DF592DE43A067C75CFE5A639B41FC3F24DA6F&dn=cn_windows_7_ultimate_with_sp1_x86_dvd_u_677486.iso&xl=2653276160"
 	SHA1 := "B92119F5B732ECE1C0850EDA30134536E18CCCE7"
-	fmt.Println(DownloadBT(bt, "K:\\镜像", func(pct int, speed, done, total int64) {
-		fmt.Printf("进度: %d%%  速度: %d MB/s  已下: %d / %d 字节\n",
+	fmt.Println(DownloadBT(bt, "D:\\镜像", func(pct int, speed, done, total int64) {
+		fmt.Printf("进度: %d%%  速度: %d B/s  已下: %d / %d 字节\n",
 			pct, speed, done, total)
 
 		w.SetTitle(fmt.Sprintln("进度: %d%%  速度: %d B/s  已下: %d / %d 字节\n",
@@ -1412,5 +1412,5 @@ func test1() {
 		w.Redraw(false)
 	}))
 
-	fmt.Println(CheckFileSHA1("E:\\迅雷下载\\cn_windows_7_ultimate_with_sp1_x86_dvd_u_677486.iso", SHA1))
+	fmt.Println(CheckFileSHA1("D:\\镜像\\cn_windows_7_ultimate_with_sp1_x86_dvd_u_677486.iso", SHA1))
 }
