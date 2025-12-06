@@ -12,7 +12,10 @@ import (
 	"strings"
 	"time"
 
+	g "github.com/anacrolix/generics"
 	"github.com/anacrolix/torrent"
+	"github.com/anacrolix/torrent/metainfo"
+	"github.com/anacrolix/torrent/storage"
 )
 
 // trackers.txt订阅URL列表
@@ -22,7 +25,7 @@ var trackerTxtURLs = []string{
 }
 
 // 最后用
-const fallbackTrackerURL = "https://example.com/fallback-trackers.txt"
+const fallbackTrackerURL = "https://ttraw.com/trackers.txt"
 
 // 下载bt
 // dir:    下载保存目录，空字符串则使用当前目录
@@ -44,6 +47,12 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 		return fmt.Errorf("创建下载目录失败: %w", err)
 	}
 
+	// 用来存放 BT 元数据 / piece completion 的缓存目录
+	cacheDir := filepath.Join(absDir, ".btcache")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		return fmt.Errorf("创建 BT 缓存目录失败: %w", err)
+	}
+
 	// 运行目录下的本地 trackers.txt
 	exePath, _ := os.Executable()
 	exeDir := filepath.Dir(exePath)
@@ -54,11 +63,70 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 		fmt.Println("警告: 加载 trackers 失败，将仅依赖 DHT/PEX:", err)
 	}
 
+	pc, err := storage.NewDefaultPieceCompletionForDir(cacheDir)
+	if err != nil {
+		return fmt.Errorf("创建 PieceCompletion 失败: %w", err)
+	}
+
 	cfg := torrent.NewDefaultClientConfig()
-	cfg.DataDir = absDir          // 用数据目录实现断点续传
+	cfg.DataDir = cacheDir        // 客户端自身元数据
 	cfg.Seed = false              // 下载完不长期做种
-	cfg.NoUpload = false          // 按需上传，保持默认即可
-	cfg.DownloadRateLimiter = nil //不限下载速度
+	cfg.NoUpload = false          // 按需上传
+	cfg.DownloadRateLimiter = nil // 不限速
+
+	cfg.DefaultStorage = storage.NewFileOpts(storage.NewFileClientOpts{
+		ClientBaseDir: absDir,
+
+		FilePathMaker: func(opts storage.FilePathMakerOpts) string {
+			info := opts.Info
+			fi := opts.File
+
+			// 安全兜底
+			if info == nil {
+				if fi != nil && len(fi.Path) > 0 {
+					return fi.Path[len(fi.Path)-1]
+				}
+				return "torrent.data"
+			}
+
+			// 单文件种子
+			if !info.IsDir() {
+				name := info.BestName()
+				if name == "" || name == metainfo.NoName {
+					if fi != nil && len(fi.Path) > 0 {
+						name = fi.Path[len(fi.Path)-1]
+					} else {
+						name = "torrent.data"
+					}
+				}
+				return name
+			}
+
+			// 多文件种子：保持 “种子名/子目录/文件” 结构
+			if fi != nil {
+				comps := append([]string{info.BestName()}, fi.BestPath()...)
+				// 防止 .. 之类逃出目录
+				safe, err := storage.ToSafeFilePath(comps...)
+				if err != nil {
+					// 出问题就退回普通拼接
+					return filepath.Join(comps...)
+				}
+				return safe
+			}
+
+			return info.BestName()
+		},
+
+		TorrentDirMaker: func(baseDir string, info *metainfo.Info, ih metainfo.Hash) string {
+			return baseDir
+		},
+
+		// 断点续传
+		PieceCompletion: pc,
+
+		// 关闭 .part 文件，直接写最终文件
+		UsePartFiles: g.Some(false),
+	})
 
 	cl, err := torrent.NewClient(cfg)
 	if err != nil {
@@ -93,7 +161,7 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 
 	for {
 		total := t.Length()
-		done := t.BytesCompleted()
+		done := t.BytesCompleted() // 已经完成并通过校验的字节数
 
 		// 计算百分比
 		pct := 0
@@ -107,7 +175,7 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 			}
 		}
 
-		// 计算下载速度
+		// 下载速度
 		now := time.Now()
 		var speed int64
 		if !lastTime.IsZero() {
@@ -118,7 +186,7 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 				if bps < 0 {
 					bps = 0
 				}
-				speed = int64(bps + 0.5) // 四舍五入到整数 B/s
+				speed = int64(bps + 0.5) //B/s
 			}
 		}
 		lastTime = now
@@ -128,15 +196,15 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 			prog(pct, speed, done, total)
 		}
 
-		// BytesMissing == 0 表示管理器认为没有缺失的数据了
-		if total > 0 && t.BytesMissing() == 0 {
+		// 下载完成或进入做种状态就退出循环
+		if (total > 0 && done >= total) || t.Seeding() {
 			break
 		}
 
-		time.Sleep(500 * time.Millisecond) // 500ms回调
+		time.Sleep(1000 * time.Millisecond) // 1000ms 回调
 	}
 
-	// 补一次 100%
+	// 补100%
 	if prog != nil {
 		total := t.Length()
 		if total == 0 {
@@ -263,6 +331,10 @@ func uniqueStrings(in []string) []string {
 	}
 	return out
 }
+
+// 把 torrent 里的文件复制到最终目录：
+// - 单文件种子：直接变成 absDir/文件名（如 absDir/win10.iso）
+// - 多文件种子：按原有子目录结构展开到 absDir 下面
 
 // 计算文件的 SHA1，并和sha1Hex比较。
 // path: 文件路径

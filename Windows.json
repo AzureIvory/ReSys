@@ -1,0 +1,86 @@
+{
+    "win7" :{
+        "Windows 7 Ultimate with Service Pack 1 (x64) - DVD (Chinese-Simplified)" :{
+            "arch": "64",
+            "type": "bt",
+            "SHA1": "2CE0B2DB34D76ED3F697CE148CB7594432405E23",
+            "link": "magnet:?xt=urn:btih:E86414F638E11104248108B155BE9408A8362509&dn=cn_windows_7_ultimate_with_sp1_x64_dvd_u_677408.iso&xl=3420557312",
+            "size": "3.19GB",
+            "file": "cn_windows_7_ultimate_with_sp1_x64_dvd_u_677408.iso"
+        },
+        "Windows 7 Ultimate with Service Pack 1 (x86) - DVD (Chinese-Simplified)" :{
+            "arch":"32",
+            "type": "bt",
+            "SHA1": "B92119F5B732ECE1C0850EDA30134536E18CCCE7",
+            "link": "magnet:?xt=urn:btih:585DF592DE43A067C75CFE5A639B41FC3F24DA6F&dn=cn_windows_7_ultimate_with_sp1_x86_dvd_u_677486.iso&xl=2653276160",
+            "size": "2.47GB",
+            "file": "cn_windows_7_ultimate_with_sp1_x86_dvd_u_677486.iso"
+
+        },
+        "Windows 7 Ultimate with Service Pack 1 (7601.24214) (x64) - DVD (English)" :{
+            "arch":"32",
+            "type": "bt",
+            "SHA1": "7CC76B0015220DE956328FB934D61B710A94293D",
+            "link": "magnet:?xt=urn:btih:0499F84DB242096F2185E38B696CD3D6C8D0E62C&dn=7601.24214.180801-1700.win7sp1_ldr_escrow_CLIENT_ULTIMATE_x64FRE_en-us.iso&xl=5876357120",
+            "size": "5.47GB",
+            "file": "7601.24214.180801-1700.win7sp1_ldr_escrow_CLIENT_ULTIMATE_x64FRE_en-us.iso"
+
+        }
+        
+    },
+    "win10":{
+        "Windows 10 22H2 专业版" :{
+            "arch":"64",
+            "type": "url",
+            "SHA1": "b4c440e96bd81efc6245d5fcc4682440d738e51a",
+            "link": "http://dl.delivery.mp.microsoft.com/filestreamingservice/files/04dcfb20-5583-43e7-8be1-30501b0a1c6e/19045.3803.231204-0204.22h2_release_svc_refresh_CLIENTCONSUMER_RET_x64FRE_zh-cn.esd",
+            "size": "3.90GB",
+            "file": "19045.3803.231204-0204.22h2_release_svc_refresh_CLIENTCONSUMER_RET_x64FRE_zh-cn.esd"
+        },
+        "Windows 10 (business editions), version 22H2 (updated Oct 2025) (x64) - DVD (Chinese-Simplified)" :{
+            "arch":"64",
+            "type": "bt",
+            "SHA1": "FA15E803EEDA7F0856203F27DA81AF6468902477",
+            "link": "magnet:?xt=urn:btih:aed8ca03ed278466c4a35d509bf864051b533011&dn=zh-cn_windows_10_business_editions_version_22h2_updated_oct_2025_x64_dvd_d4e92df7.iso&xl=6985566208",
+            "size": "6.51GB",
+            "file": "zh-cn_windows_10_business_editions_version_22h2_updated_oct_2025_x64_dvd_d4e92df7.iso"
+        },
+        "Windows 10 (consumer editions), version 22H2 (updated Oct 2025) (x64) - DVD (Chinese-Simplified)" :{
+            "arch":"64",
+            "type": "bt",
+            "SHA1": "452F8C85016FF85439D55B4AED766B0DB31D709E",
+            "link": "magnet:?xt=urn:btih:d5146f69f1bb6b9d95c8270769ebca7f82c2936a&dn=zh-cn_windows_10_consumer_editions_version_22h2_updated_oct_2025_x64_dvd_38efd00d.iso&xl=7168839680",
+            "size": "6.68GB",
+            "file": "zh-cn_windows_10_consumer_editions_version_22h2_updated_oct_2025_x64_dvd_38efd00d.iso"
+        }
+
+    },
+    "win11":{
+        "Windows 11 24H2 专业版" :{
+            "arch":"64",
+            "type": "url",
+            "SHA1": "081ccd988df1ac2ceb1f731c974d357b6d113572",
+            "link": "http://dl.delivery.mp.microsoft.com/filestreamingservice/files/288a1e95-e381-478d-98a6-f40b24da3e15/26100.4349.250607-1500.ge_release_svc_refresh_CLIENTCONSUMER_RET_x64FRE_zh-cn.esd",
+            "size": "4.45GB",
+            "file": "26100.4349.250607-1500.ge_release_svc_refresh_CLIENTCONSUMER_RET_x64FRE_zh-cn.esd"
+        },
+        "Windows 11 (business editions), version 25H2 (updated Nov 2025) (x64) - DVD (Chinese-Simplified)" :{
+            "arch":"64",
+            "type": "bt",
+            "SHA1": "83E5CADE87B339D3684E54FA619FB4B5C0DDB51F",
+            "link": "magnet:?xt=urn:btih:f4b9c52702977f4fef673ae11bc93c9a5c180a45&dn=zh-cn_windows_11_business_editions_version_25h2_updated_nov_2025_x64_dvd_6ae389e3.iso&xl=7784964096",
+            "size": "7.25GB",
+            "file": "zh-cn_windows_11_business_editions_version_25h2_updated_nov_2025_x64_dvd_6ae389e3.iso"
+        },
+        "Windows 11 Enterprise LTSC 2024 (x64) - DVD (Chinese-Simplified)" :{
+            "arch":"64",
+            "type": "bt",
+            "SHA1": "AB7CD740E6CD495A69E3A90FCD7FB56BA0C5C62E",
+            "link": "magnet:?xt=urn:btih:b84e74c1dbcc88a02c5b24a6f84383f353a2e1dd&dn=zh-cn_windows_11_enterprise_ltsc_2024_x64_dvd_cff9cd2d.iso&xl=5287520256",
+            "size": "4.92GB",
+            "file": "zh-cn_windows_11_enterprise_ltsc_2024_x64_dvd_cff9cd2d.iso"
+        }
+
+    }
+
+}
