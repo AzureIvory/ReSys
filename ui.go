@@ -28,6 +28,7 @@ var (
 	btn_win7  *widget.Button
 	btn_win10 *widget.Button
 	btn_win11 *widget.Button
+	btn_adv   *widget.Button //高级模式
 	btn_win   *widget.Button
 
 	//文本
@@ -35,7 +36,7 @@ var (
 	text_win10 *widget.ShapeText
 	text_win11 *widget.ShapeText
 	text_mes   *widget.ShapeText
-	text_down  *widget.ShapeText
+	text_des   *widget.ShapeText //进度条说明
 
 	//gif
 	gif_wait *widget.ShapeGif
@@ -60,7 +61,7 @@ func Uiinit() {
 	btn_win7 = widget.NewButton(50, 200, 100, 100, "", w.Handle)
 	btn_win10 = widget.NewButton(250, 200, 100, 100, "", w.Handle)
 	btn_win11 = widget.NewButton(450, 200, 100, 100, "", w.Handle)
-	widget.NewButton(10, 43, 60, 30, "高级模式", w.Handle)
+	btn_adv = widget.NewButton(10, 43, 60, 30, "高级模式", w.Handle)
 	btn_win7.SetIcon(imagex.NewBySvgString(win7s).EnableAutoDestroy(true).Handle)
 	btn_win10.SetIcon(imagex.NewBySvgString(win10s).EnableAutoDestroy(true).Handle)
 	btn_win11.SetIcon(imagex.NewBySvgString(win11s).EnableAutoDestroy(true).Handle)
@@ -70,12 +71,12 @@ func Uiinit() {
 	text_win10 = widget.NewShapeText(250, 150, 100, 50, "重装win10", w.Handle)
 	text_win11 = widget.NewShapeText(450, 150, 100, 50, "重装win11", w.Handle)
 	text_mes = widget.NewShapeText(150, 50, 500, 50, "请在下方选一个系统安装", w.Handle)
-	text_down = widget.NewShapeText(2048, 2048, 100, 30, "下载数据", w.Handle)
+	text_des = widget.NewShapeText(2048, 2048, 100, 30, "进度说明", w.Handle)
 	text_win7.SetFont(font.New(15).Handle)
 	text_win10.SetFont(font.New(15).Handle)
 	text_win11.SetFont(font.New(15).Handle)
 	text_mes.SetFont(font.New(20).Handle)
-	text_down.SetFont(font.New(15).Handle)
+	text_des.SetFont(font.New(15).Handle)
 
 	//gif
 	gif_wait = widget.NewShapeGif(2048, 2048, 215, 80, w.Handle)
@@ -83,6 +84,9 @@ func Uiinit() {
 	//进度条
 	progbar = widget.NewProgressBar(2048, 2048, 300, 30, w.Handle)
 	progbar.SetPos(0)
+
+	//注册事件
+	Click_w7()
 }
 
 // 简单消息框
@@ -142,18 +146,22 @@ func win2() {
 	btn_win7.Enable(false)
 	btn_win10.Enable(false)
 	btn_win11.Enable(false)
+	btn_adv.Enable(false)
 
 	//移动
 	btn_win7.SetPosition(2048, 2048, true, xcc.AdjustLayout_No, 0)
 	btn_win10.SetPosition(2048, 2048, true, xcc.AdjustLayout_No, 0)
 	btn_win11.SetPosition(2048, 2048, true, xcc.AdjustLayout_No, 0)
+	btn_adv.SetPosition(2048, 2048, true, xcc.AdjustLayout_No, 0)
 
 	text_win7.SetPosition(2048, 2048)
 	text_win10.SetPosition(2048, 2048)
 	text_win11.SetPosition(2048, 2048)
 	text_mes.SetPosition(2048, 2048)
 
-	gif_wait.SetPosition(50, 60)
-	progbar.SetPos(0)
-	progbar.SetPosition(70, 60, true, xcc.AdjustLayout_No, 0)
+	gif_wait.SetPosition(192, 90)
+	progbar.SetPos(100)
+	progbar.SetPosition(150, 250, true, xcc.AdjustLayout_No, 0)
+
+	text_des.SetPosition(150, 300)
 }

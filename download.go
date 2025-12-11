@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/anacrolix/torrent/storage"
+	"github.com/cavaliergopher/grab/v3"
 )
 
 // trackers.txt订阅URL列表
@@ -332,9 +334,40 @@ func uniqueStrings(in []string) []string {
 	return out
 }
 
-// 把 torrent 里的文件复制到最终目录：
-// - 单文件种子：直接变成 absDir/文件名（如 absDir/win10.iso）
-// - 多文件种子：按原有子目录结构展开到 absDir 下面
+// DownloadLargeFile 使用 grab 下载超大文件（支持断点续传，单连接）。
+// - 会先写 dstPath+".part"，成功后再重命名为 dstPath。
+// - 如果 .part 已存在且服务器支持 Range，会自动从已有位置续传。
+func DownloadLargeFile(ctx context.Context, url, dstPath string) error {
+	if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
+		return fmt.Errorf("create dir: %w", err)
+	}
+
+	tmpPath := dstPath + ".part"
+
+	// 创建请求（目标就是临时文件路径）
+	req, err := grab.NewRequest(tmpPath, url)
+	if err != nil {
+		return fmt.Errorf("new request: %w", err)
+	}
+
+	// 绑定 ctx，支持超时/取消
+	req = req.WithContext(ctx)
+
+	client := grab.NewClient()
+	resp := client.Do(req)
+
+	// 这里简单阻塞到结束；如果需要实时进度，可以用 ticker 周期性打印 resp.Progress()
+	if err := resp.Err(); err != nil {
+		return fmt.Errorf("download failed: %w", err)
+	}
+
+	// 下载成功，重命名为最终文件
+	if err := os.Rename(tmpPath, dstPath); err != nil {
+		return fmt.Errorf("rename %s -> %s: %w", tmpPath, dstPath, err)
+	}
+
+	return nil
+}
 
 // 计算文件的 SHA1，并和sha1Hex比较。
 // path: 文件路径

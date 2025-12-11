@@ -1336,7 +1336,8 @@ func FormatPartition(diskIdx, partIdx int, fs, label string, quick bool) error {
 }
 
 func main() {
-	go test1()
+	fmt.Println(Findimg())
+	//go test1()
 	fmt.Println(Findpart())
 	//剩余空间需要大于7g（7340032）
 	fmt.Println(GetDiskKind("I"))
@@ -1383,9 +1384,9 @@ func Rew7(file string) int {
 		return -1
 	}
 	if ext == ".iso" {
-		cd, err = MountISO(file, 30*time.Second)
+		cd, err = MountISO(file, 30*time.Second) //挂载
 		if err != nil {
-			err = UnpackISO(file, tempD+"TEMPISO\\")
+			err = UnpackISO(file, tempD+"TEMPISO\\") //挂载失败就解包
 			if err != nil {
 				return -2
 			}
@@ -1393,7 +1394,7 @@ func Rew7(file string) int {
 		}
 	}
 	fmt.Println(cd, err)
-	FindFile(cd, "", 3)
+	FindFile(cd, "", 3) //搜iso镜像内的安装文件
 	//path, _ := os.Getwd()
 	//img, err := ListImageInfos(path + "\\win10.esd")
 	return 0

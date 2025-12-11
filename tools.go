@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"unsafe"
 )
@@ -1001,6 +1002,73 @@ func FindFile(root string, pattern string, maxDepth int) ([]string, error) {
 		return nil, err
 	}
 	return matches, nil
+}
+
+// 全盘寻找镜像
+func Findimg() ([]string, error) {
+	drives, err := ListDrive()
+	if err != nil {
+		return nil, err
+	}
+
+	var (
+		wg       sync.WaitGroup
+		mu       sync.Mutex
+		files    []string
+		firstErr error
+	)
+
+	patterns := []string{"*.iso", "*.esd", "*.wim"}
+	const maxDepth = 3 //搜3层目录
+
+	for _, root := range drives {
+		root := root
+		for _, pattern := range patterns {
+			pattern := pattern
+
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+
+				found, err := FindFile(root, pattern, maxDepth)
+				if err != nil {
+					mu.Lock()
+					if firstErr == nil {
+						firstErr = err
+					}
+					mu.Unlock()
+					return
+				}
+
+				if len(found) > 0 {
+					mu.Lock()
+					files = append(files, found...)
+					mu.Unlock()
+				}
+			}()
+		}
+	}
+
+	wg.Wait()
+
+	// 去重
+	if len(files) > 0 {
+		seen := make(map[string]struct{}, len(files))
+		dst := files[:0]
+		for _, p := range files {
+			if _, ok := seen[p]; ok {
+				continue
+			}
+			seen[p] = struct{}{}
+			dst = append(dst, p)
+		}
+		files = dst
+	}
+
+	if firstErr != nil && len(files) == 0 {
+		return nil, firstErr
+	}
+	return files, firstErr
 }
 
 // 返回没装系统而且有足够大小的分区数组
