@@ -1400,6 +1400,7 @@ func Rew7(file string) int {
 	return 0
 }
 func test1() {
+	//Findimg()
 	bt := "magnet:?xt=urn:btih:aed8ca03ed278466c4a35d509bf864051b533011&dn=zh-cn_windows_10_business_editions_version_22h2_updated_oct_2025_x64_dvd_d4e92df7.iso&xl=6985566208"
 	SHA1 := "FA15E803EEDA7F0856203F27DA81AF6468902477"
 	fmt.Println(DownloadBT(bt, "K:\\镜像", func(pct int, speed, done, total int64) {

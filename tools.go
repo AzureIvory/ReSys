@@ -943,7 +943,7 @@ func GetDiskKind(vol string) (string, error) {
 
 // 搜索文件
 // root：目录
-// pattern：文件，支持通配符
+// pattern：文件，支持通配符，支持*.esd|*.wim|*.iso
 // maxDepth：搜索子目录的层数
 func FindFile(root string, pattern string, maxDepth int) ([]string, error) {
 	if maxDepth < 0 {
@@ -958,6 +958,19 @@ func FindFile(root string, pattern string, maxDepth int) ([]string, error) {
 	}
 	if !fi.IsDir() {
 		return nil, fmt.Errorf("root is not directory: %s", root)
+	}
+
+	// 支持 "*.esd|*.wim|*.iso"
+	rawPats := strings.Split(pattern, "|")
+	pats := make([]string, 0, len(rawPats))
+	for _, p := range rawPats {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			pats = append(pats, p)
+		}
+	}
+	if len(pats) == 0 {
+		return nil, fmt.Errorf("empty pattern")
 	}
 
 	var matches []string
@@ -977,18 +990,19 @@ func FindFile(root string, pattern string, maxDepth int) ([]string, error) {
 			name := ent.Name()
 			full := filepath.Join(dir, name)
 
-			// 只对文件做通配符匹配
 			if ent.Type().IsRegular() {
-				ok, err := filepath.Match(pattern, name)
-				if err != nil {
-					return fmt.Errorf("bad pattern %q: %w", pattern, err)
-				}
-				if ok {
-					matches = append(matches, full)
+				for _, pat := range pats {
+					ok, err := filepath.Match(pat, name)
+					if err != nil {
+						return fmt.Errorf("bad pattern %q: %w", pat, err)
+					}
+					if ok {
+						matches = append(matches, full)
+						break
+					}
 				}
 			}
 
-			// 递归子目录，注意深度 +1
 			if ent.IsDir() && depth < maxDepth {
 				if err := walk(full, depth+1); err != nil {
 					return err
