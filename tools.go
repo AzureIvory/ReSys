@@ -528,7 +528,7 @@ func enableShutdownPrivilege() error {
 
 // Shutdown
 // reboot = true：重启，false：关机
-func Shutdown(reboot bool) error {
+func Shutdown(reboot bool) {
 	var flag uint32
 	if reboot {
 		flag = EWX_REBOOT | EWX_FORCEIFHUNG
@@ -538,13 +538,11 @@ func Shutdown(reboot bool) error {
 
 	// ExitWindowsEx
 	if err := enableShutdownPrivilege(); err == nil {
-		r, _, _ := procExitWindowsEx.Call(
+		procExitWindowsEx.Call(
 			uintptr(flag),
 			0,
 		)
-		if r != 0 {
-			return nil
-		}
+
 	}
 
 	// rundll32 + ExitWindowsEx
@@ -553,20 +551,7 @@ func Shutdown(reboot bool) error {
 	if reboot {
 		flagStr = "2" // EWX_REBOOT
 	}
-	if err := exec.Command("rundll32.exe", "user32.dll,ExitWindowsEx", flagStr, "0").Run(); err == nil {
-		return nil
-	}
-	_ = enableShutdownPrivilege()
-
-	action := uintptr(ShutdownPowerOff)
-	if reboot {
-		action = uintptr(ShutdownReboot)
-	}
-	r, _, e := procNtShutdownSystem.Call(action)
-	// NtShutdownSystem 返回 NTSTATUS，0 通常表示 STATUS_SUCCESS
-	if r == 0 {
-		return nil
-	}
+	exec.Command("rundll32.exe", "user32.dll,ExitWindowsEx", flagStr, "0").Run()
 
 	// shutdown.exe
 	var args []string
@@ -575,10 +560,16 @@ func Shutdown(reboot bool) error {
 	} else {
 		args = []string{"/s", "/t", "0", "/f"}
 	}
-	if err := exec.Command("shutdown.exe", args...).Run(); err == nil {
-		return nil
+	exec.Command("shutdown.exe", args...).Run()
+
+	//内核
+	enableShutdownPrivilege()
+	action := uintptr(ShutdownPowerOff)
+	if reboot {
+		action = uintptr(ShutdownReboot)
 	}
-	return fmt.Errorf("all shutdown/reboot methods failed, NtShutdownSystem also failed: %v", e)
+	procNtShutdownSystem.Call(action)
+
 }
 
 var (
