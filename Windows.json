@@ -60,5 +60,14 @@
             "size": "4.92GB",
             "file": "zh-cn_windows_11_enterprise_ltsc_2024_x64_dvd_cff9cd2d.iso"
         }
+    },
+    "winxp": {
+        "WinXPX86":{
+            "arch":"32",
+            "type":"url",
+            "SHA1":"",
+            "link":"http://silver.yukaidi.com/f/rOPkSN/XPX86.iso",
+            "size":""
+        }
     }
 }
