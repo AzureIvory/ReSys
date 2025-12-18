@@ -1024,7 +1024,7 @@ func Findimg() ([]string, error) {
 	)
 
 	patterns := []string{"*.iso", "*.esd", "*.wim"}
-	const maxDepth = 3 //搜3层目录
+	const maxDepth = 2 //搜2层目录
 
 	for _, root := range drives {
 		root := root
@@ -1209,6 +1209,183 @@ func RegUnloadHive(subKey string) error {
 			return fmt.Errorf("RegUnLoadKeyW(%s) failed: %v (code=%d)", subKey, e1, r0)
 		}
 		return fmt.Errorf("RegUnLoadKeyW(%s) failed: code=%d", subKey, r0)
+	}
+	return nil
+}
+
+// BuildWIM 使用 tools\wimlib-imagex.exe 将 sources（文件/目录）打包成一个 WIM 文件。
+// - sources: 需要打包的文件/目录路径数组
+// - outWim: 输出 WIM 路径，例如 "C:\\WIN11.WIM"；若已存在则覆盖（删除后重建）
+// 说明：会把每个 source 放到 WIM 根目录下：/basename。若 basename 冲突，会自动改名为 basename_2、basename_3...
+func BuildWIM(sources []string, outWim string) error {
+	if runtime.GOOS != "windows" {
+		return fmt.Errorf("BuildWIM is only supported on Windows (GOOS=%s)", runtime.GOOS)
+	}
+	if len(sources) == 0 {
+		return fmt.Errorf("sources must not be empty")
+	}
+	if strings.TrimSpace(outWim) == "" {
+		return fmt.Errorf("outWim must not be empty")
+	}
+
+	// 定位 tools\wimlib-imagex.exe（以当前可执行文件所在目录为基准）
+	selfExe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("os.Executable failed: %w", err)
+	}
+	baseDir := filepath.Dir(selfExe)
+	wimlibExe := filepath.Join(baseDir, "tools", "wimlib-imagex.exe")
+	if _, err := os.Stat(wimlibExe); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("wimlib-imagex.exe not found: %s", wimlibExe)
+		}
+		return fmt.Errorf("stat wimlib-imagex.exe failed: %w", err)
+	}
+
+	absOut, err := filepath.Abs(outWim)
+	if err != nil {
+		return fmt.Errorf("abs outWim failed: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(absOut), 0o755); err != nil {
+		return fmt.Errorf("create outWim parent dir failed: %w", err)
+	}
+	// 覆盖：若已存在则先删除（wimlib-imagex capture 通常期望创建新 WIM）
+	if _, err := os.Stat(absOut); err == nil {
+		if err := os.Remove(absOut); err != nil {
+			return fmt.Errorf("remove existing outWim failed: %w", err)
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("stat outWim failed: %w", err)
+	}
+
+	// 生成 --source-list 文件：每行 "source" "target"
+	// target 为 WIM 内路径：/name（根目录下）
+	tmp, err := os.CreateTemp("", "wim_sources_*.txt")
+	if err != nil {
+		return fmt.Errorf("create temp source-list failed: %w", err)
+	}
+	sourceListPath := tmp.Name()
+	defer func() {
+		_ = tmp.Close()
+		_ = os.Remove(sourceListPath)
+	}()
+
+	quote := func(s string) string {
+		// wimlib 允许用单/双引号包含空格的路径；Windows 路径不包含双引号，直接双引号即可。 :contentReference[oaicite:1]{index=1}
+		return `"` + s + `"`
+	}
+	uniqueName := func(base string, used map[string]int) string {
+		// 让输出名称在 WIM 根目录下唯一：foo, foo_2, foo_3...
+		// 对文件名尽量保持扩展名：a.txt -> a_2.txt
+		if base == "" || base == "." || base == `\` || base == "/" {
+			base = "root"
+		}
+		if used[base] == 0 {
+			used[base] = 1
+			return base
+		}
+		used[base]++
+		n := used[base]
+
+		ext := filepath.Ext(base)
+		stem := strings.TrimSuffix(base, ext)
+		if ext != "" && stem != "" {
+			return fmt.Sprintf("%s_%d%s", stem, n, ext)
+		}
+		return fmt.Sprintf("%s_%d", base, n)
+	}
+
+	used := map[string]int{}
+	for _, p := range sources {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			return fmt.Errorf("sources contains empty path")
+		}
+		absSrc, err := filepath.Abs(p)
+		if err != nil {
+			return fmt.Errorf("abs source failed (%q): %w", p, err)
+		}
+		if _, err := os.Stat(absSrc); err != nil {
+			return fmt.Errorf("source not accessible (%s): %w", absSrc, err)
+		}
+
+		name := uniqueName(filepath.Base(filepath.Clean(absSrc)), used)
+		target := "/" + name
+
+		line := fmt.Sprintf("%s %s\n", quote(absSrc), quote(target))
+		if _, err := tmp.WriteString(line); err != nil {
+			return fmt.Errorf("write source-list failed: %w", err)
+		}
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close source-list failed: %w", err)
+	}
+
+	// 多源捕获建议加 --norpfix（文档对 multi-source capture 有明确建议）。 :contentReference[oaicite:2]{index=2}
+	// 另外加 --check 生成完整性表（可选，但通常有益）。 :contentReference[oaicite:3]{index=3}
+	args := []string{
+		"capture",
+		sourceListPath,
+		absOut,
+		"Image",
+		"--source-list",
+		"--norpfix",
+		"--check",
+	}
+
+	cmd := exec.Command(wimlibExe, args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("wimlib-imagex capture failed: %w\nwimlib: %s\noutput:\n%s", err, wimlibExe, string(out))
+	}
+	return nil
+}
+
+// 用7z解压
+func Un7z(archivePath, destDir string) error {
+	if strings.TrimSpace(archivePath) == "" || strings.TrimSpace(destDir) == "" {
+		return fmt.Errorf("archivePath and destDir must not be empty")
+	}
+
+	// 以“当前可执行文件所在目录”为基准定位 tools\7z.exe（避免受工作目录影响）
+	selfExe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("os.Executable failed: %w", err)
+	}
+	baseDir := filepath.Dir(selfExe)
+	sevenZipExe := filepath.Join(baseDir, "tools", "7z.exe")
+
+	if _, err := os.Stat(sevenZipExe); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("7z.exe not found: %s", sevenZipExe)
+		}
+		return fmt.Errorf("stat 7z.exe failed: %w", err)
+	}
+
+	absArchive, err := filepath.Abs(archivePath)
+	if err != nil {
+		return fmt.Errorf("abs archivePath failed: %w", err)
+	}
+	absDest, err := filepath.Abs(destDir)
+	if err != nil {
+		return fmt.Errorf("abs destDir failed: %w", err)
+	}
+
+	if err := os.MkdirAll(absDest, 0o755); err != nil {
+		return fmt.Errorf("create destDir failed: %w", err)
+	}
+
+	// 7z 参数：
+	// x   : 解压并保留目录结构
+	// -y  : 全部回答 Yes
+	// -aoa: 覆盖所有已存在文件
+	// -oDIR: 输出目录（注意 -o 后面不要有空格；这里用 "-o"+absDest）
+	args := []string{"x", absArchive, "-y", "-aoa", "-o" + absDest}
+
+	cmd := exec.Command(sevenZipExe, args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("7z extract failed: %w\n7z: %s\noutput:\n%s", err, sevenZipExe, string(out))
 	}
 	return nil
 }

@@ -1336,6 +1336,8 @@ func FormatPartition(diskIdx, partIdx int, fs, label string, quick bool) error {
 }
 
 func main() {
+	BuildWIM([]string{"C:/2/"}, "C:/2/1.wim")
+	//Un7z("C:\\111111\\WePE_64_V2.3.exe", "C:\\2\\")
 	fmt.Println(Findimg())
 	//go test1()
 	fmt.Println(Findpart())

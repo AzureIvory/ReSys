@@ -59,6 +59,7 @@ func Uiinit() {
 	a.SetWindowIcon(windowIcon.Handle)
 	//按钮
 	btn_win7 = widget.NewButton(50, 200, 100, 100, "", w.Handle)
+
 	btn_win10 = widget.NewButton(250, 200, 100, 100, "", w.Handle)
 	btn_win11 = widget.NewButton(450, 200, 100, 100, "", w.Handle)
 	btn_adv = widget.NewButton(10, 43, 60, 30, "高级模式", w.Handle)
