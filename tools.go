@@ -1010,20 +1010,21 @@ func FindFile(root string, pattern string, maxDepth int) ([]string, error) {
 }
 
 // 全盘寻找镜像
-func Findimg() []string {
+func Findimg() ([]string, error) {
 	drives, err := ListDrive()
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
 	var (
-		wg    sync.WaitGroup
-		mu    sync.Mutex
-		files []string
+		wg       sync.WaitGroup
+		mu       sync.Mutex
+		files    []string
+		firstErr error
 	)
 
 	patterns := []string{"*.iso", "*.esd", "*.wim"}
-	const maxDepth = 2 // 搜 2 层目录
+	const maxDepth = 1 // 搜 2 层目录
 	const minSize = int64(700) * 1024 * 1024
 
 	skipNames := map[string]struct{}{
@@ -1033,6 +1034,9 @@ func Findimg() []string {
 
 	for _, root := range drives {
 		root := root
+		if GetDriveType(root) == driveCdrom {
+			continue
+		}
 		for _, pattern := range patterns {
 			pattern := pattern
 
@@ -1042,7 +1046,12 @@ func Findimg() []string {
 
 				found, err := FindFile(root, pattern, maxDepth)
 				if err != nil {
-					return // 忽略错误
+					mu.Lock()
+					if firstErr == nil {
+						firstErr = err
+					}
+					mu.Unlock()
+					return
 				}
 
 				if len(found) > 0 {
@@ -1083,8 +1092,7 @@ func Findimg() []string {
 
 		files = dst
 	}
-
-	// 排列：esd > wim > iso
+	//排列
 	sort.Slice(files, func(i, j int) bool {
 		pri := func(p string) int {
 			switch strings.ToLower(filepath.Ext(p)) {
@@ -1105,9 +1113,70 @@ func Findimg() []string {
 		return strings.ToLower(files[i]) < strings.ToLower(files[j])
 	})
 
-	return files
+	if firstErr != nil && len(files) == 0 {
+		return nil, firstErr
+	}
+	return files, firstErr
 }
 
+// 在所有盘符下搜索指定文件
+// pattern：文件名，支持通配符，支持*.esd|*.wim|*.iso
+// maxDepth：搜索子目录的层数
+func FindFileAll(pattern string, maxDepth int) []string {
+	drives, err := ListDrive()
+	if err != nil || len(drives) == 0 {
+		return []string{}
+	}
+
+	// 控制并发，避免全盘搜索把系统打满
+	limit := runtime.NumCPU()
+	if limit < 2 {
+		limit = 2
+	}
+	sem := make(chan struct{}, limit)
+
+	var (
+		wg  sync.WaitGroup
+		mu  sync.Mutex
+		out = make([]string, 0, 128)
+	)
+
+	for _, d := range drives {
+		driveRoot := d
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			files, e := FindFile(driveRoot, pattern, maxDepth)
+			if e != nil || len(files) == 0 {
+				return
+			}
+
+			mu.Lock()
+			out = append(out, files...)
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+
+	// 去重 + 排序
+	if len(out) == 0 {
+		return []string{}
+	}
+	seen := make(map[string]struct{}, len(out))
+	dedup := make([]string, 0, len(out))
+	for _, p := range out {
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		dedup = append(dedup, p)
+	}
+	sort.Strings(dedup)
+	return dedup
+}
 
 // 返回没装系统而且有足够大小的分区数组
 // SSD>HDD>USB
