@@ -1010,21 +1010,26 @@ func FindFile(root string, pattern string, maxDepth int) ([]string, error) {
 }
 
 // 全盘寻找镜像
-func Findimg() ([]string, error) {
+func Findimg() []string {
 	drives, err := ListDrive()
 	if err != nil {
-		return nil, err
+		return nil
 	}
 
 	var (
-		wg       sync.WaitGroup
-		mu       sync.Mutex
-		files    []string
-		firstErr error
+		wg    sync.WaitGroup
+		mu    sync.Mutex
+		files []string
 	)
 
 	patterns := []string{"*.iso", "*.esd", "*.wim"}
-	const maxDepth = 2 //搜2层目录
+	const maxDepth = 2 // 搜 2 层目录
+	const minSize = int64(700) * 1024 * 1024
+
+	skipNames := map[string]struct{}{
+		"03pe.wim":    {},
+		"11pex64.wim": {},
+	}
 
 	for _, root := range drives {
 		root := root
@@ -1037,12 +1042,7 @@ func Findimg() ([]string, error) {
 
 				found, err := FindFile(root, pattern, maxDepth)
 				if err != nil {
-					mu.Lock()
-					if firstErr == nil {
-						firstErr = err
-					}
-					mu.Unlock()
-					return
+					return // 忽略错误
 				}
 
 				if len(found) > 0 {
@@ -1056,25 +1056,58 @@ func Findimg() ([]string, error) {
 
 	wg.Wait()
 
-	// 去重
+	// 去重 + 过滤
 	if len(files) > 0 {
 		seen := make(map[string]struct{}, len(files))
 		dst := files[:0]
+
 		for _, p := range files {
-			if _, ok := seen[p]; ok {
+			lp := strings.ToLower(p)
+			base := strings.ToLower(filepath.Base(lp))
+
+			if _, ok := skipNames[base]; ok {
 				continue
 			}
-			seen[p] = struct{}{}
+
+			fi, err := os.Stat(p)
+			if err != nil || fi.IsDir() || fi.Size() < minSize {
+				continue
+			}
+
+			if _, ok := seen[lp]; ok {
+				continue
+			}
+			seen[lp] = struct{}{}
 			dst = append(dst, p)
 		}
+
 		files = dst
 	}
 
-	if firstErr != nil && len(files) == 0 {
-		return nil, firstErr
-	}
-	return files, firstErr
+	// 排列：esd > wim > iso
+	sort.Slice(files, func(i, j int) bool {
+		pri := func(p string) int {
+			switch strings.ToLower(filepath.Ext(p)) {
+			case ".esd":
+				return 0
+			case ".wim":
+				return 1
+			case ".iso":
+				return 2
+			default:
+				return 3
+			}
+		}
+		pi, pj := pri(files[i]), pri(files[j])
+		if pi != pj {
+			return pi < pj
+		}
+		return strings.ToLower(files[i]) < strings.ToLower(files[j])
+	})
+
+	return files
 }
+
 
 // 返回没装系统而且有足够大小的分区数组
 // SSD>HDD>USB

@@ -1153,6 +1153,10 @@ $scripts = @(
 	{
 		cmd.exe /c "rmdir C:\Windows.old";
 	};
+	{
+    Start-Sleep -Seconds 3
+    Start-Process -FilePath "C:\Users\Public\Desktop\Readme.pdf"
+	};
 );
 
 &amp; {

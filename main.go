@@ -1335,15 +1335,73 @@ func FormatPartition(diskIdx, partIdx int, fs, label string, quick bool) error {
 	return nil
 }
 
+func PE() int {
+	path, err := os.Getwd()
+	text_des.SetText("正在寻找镜像...")
+	img := Findimg()
+	if img == nil {
+		text_des.SetText("未找到镜像文件！")
+		Message(w, "错误", "未找到镜像文件！")
+		os.Exit(-1)
+		return -1
+	}
+	part := ""
+	drives, err := ListDrive()
+
+	if err != nil {
+		return -1
+	}
+	for _, root := range drives {
+		if _, err := os.Stat(filepath.Join(root, "reinstall_win.dat")); err == nil {
+			part = root
+		}
+	}
+
+	fmt.Println(part)
+	text_des.SetText("正在格式化分区...")
+	if Format(part, "ntfs", "Windows", true) != nil {
+		Message(w, "错误", "格式化失败！")
+		os.Exit(-1)
+	}
+	text_des.SetText("正在应用{" + img[0] + "}镜像...")
+
+	if strings.ToLower(filepath.Ext(img[0])) == ".esd" {
+		if ApplyEsdImage(img[0], 1, part) != nil {
+			Message(w, "错误", "应用镜像失败！")
+			os.Exit(-1)
+		}
+	}
+	if strings.ToLower(filepath.Ext(img[0])) == ".wim" {
+		if ApplyWimImage(img[0], 1, part) != nil {
+			Message(w, "错误", "应用镜像失败！")
+			os.Exit(-1)
+		}
+	}
+	if strings.ToLower(filepath.Ext(img[0])) == ".iso" {
+		//MountISO(img[0], 30*time.Second)
+		Message(w, "错误", "iso镜像暂时不支持！")
+		os.Exit(-1)
+	}
+	text_des.SetText("正在修复引导...")
+	if FixBoot(part, "", "zh-cn") != nil {
+		Message(w, "错误", "修复引导失败！")
+		os.Exit(-1)
+	}
+	text_des.SetText("正在处理自动应答文件...")
+
+	Copy(filepath.Join(path, "win10.xml"), filepath.Join(part, "Windows\\Panther\\Unattend.xml"), true, true)
+	Copy(filepath.Join(path, "HEU_KMS_Activator.exe"), filepath.Join(part, "HEU_KMS_Activator.exe"), true, true)
+	CreateShortcut(filepath.Join(part, "Users\\Public\\Desktop\\"), "应用商店", "store.ttraw.com")
+	Copy(filepath.Join(path, "drive10.exe"), filepath.Join(part, "drive.exe"), true, true)
+	text_des.SetText("操作完成，正在重启...")
+	Shutdown(true)
+	return 0
+}
+
 func main() {
-	BuildWIM([]string{"C:/2/"}, "C:/2/1.wim")
-	//Un7z("C:\\111111\\WePE_64_V2.3.exe", "C:\\2\\")
-	fmt.Println(Findimg())
-	//go test1()
-	fmt.Println(Findpart())
-	//剩余空间需要大于7g（7340032）
-	fmt.Println(GetDiskKind("I"))
 	Uiinit()
+	PE()
+
 	w.Show(true)
 	a.Run()
 	//窗口关闭后执行

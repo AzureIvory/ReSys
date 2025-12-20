@@ -72,7 +72,7 @@ func Uiinit() {
 	text_win10 = widget.NewShapeText(250, 150, 100, 50, "重装win10", w.Handle)
 	text_win11 = widget.NewShapeText(450, 150, 100, 50, "重装win11", w.Handle)
 	text_mes = widget.NewShapeText(150, 50, 500, 50, "请在下方选一个系统安装", w.Handle)
-	text_des = widget.NewShapeText(2048, 2048, 100, 30, "进度说明", w.Handle)
+	text_des = widget.NewShapeText(2048, 2048, 300, 30, "进度说明", w.Handle)
 	text_win7.SetFont(font.New(15).Handle)
 	text_win10.SetFont(font.New(15).Handle)
 	text_win11.SetFont(font.New(15).Handle)
@@ -87,7 +87,7 @@ func Uiinit() {
 	progbar.SetPos(0)
 
 	//注册事件
-	Click_w7()
+	win2()
 }
 
 // 简单消息框
