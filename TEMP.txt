@@ -48,33 +48,6 @@ OSName=
 
 
 
-[Windows.10.22H2...64.................]
-
-describe=..........,............360........QQ............
-
-Time=2025-12-15
-
-Bit=11.7.GB
-
-OSUrl=http://silver.yukaidi.com/f/M930s5/Windows10_22H2_X64_RjzxCJ251215V2.esd
-
-OSUrl2=http://pan.yyej.com/f/GOR0IX/Windows10_22H2_X64_RjzxCJ251215V2.esd
-
-OSFile=Windows10_22H2_X64_RjzxCJ251215V2.esd
-
-Index=1
-
-UEFI=1
-
-ICON=10
-
-mD5=
-
-UjyOS=1
-
-OSName=WINDOWS.10.64..
-
-
 [Windows.11.23H2..............._........]
 
 describe=..............,............360........QQ............
@@ -241,87 +214,6 @@ OSName=
 
 
 
-[Windows.10.LTSC2021...64.._..............]
-
-describe=..........,............360........QQ............
-
-Time=2025-12-15
-
-Bit=11.3.GB
-
-OSUrl=http://silver.yukaidi.com/f/86jzF5/Windows10_LTSC_2021_X64_RjzxCJ251215V2.esd
-
-OSUrl2=http://pan.yyej.com/f/WP6YHX/Windows10_LTSC_2021_X64_RjzxCJ251215V2.esd
-
-OSFile=Windows10_LTSC_2021_X64_RjzxCJ251215V2.esd
-
-Index=1
-
-UEFI=1
-
-ICON=10
-
-mD5=
-
-UjyOS=1
-
-
-
-[Windows.11.LTSC2024...64.................]
-
-describe=..........,............360........QQ............
-
-Time=2025-12-15
-
-Bit=11.4.GB
-
-OSUrl=http://silver.yukaidi.com/f/Px4GFP/Windows11_LTSC_2024_X64_RjzxCJ251215V2.esd
-
-OSUrl2=http://pan.yyej.com/f/wwP8SW/Windows11_LTSC_2024_X64_RjzxCJ251215V2.esd
-
-OSFile=Windows11_LTSC_2024_X64_RjzxCJ251215V2.esd
-
-Index=1
-
-UEFI=1
-
-ICON=11
-
-mD5=
-
-UjyOS=1
-
-OSName=
-
-
-
-[Windows.11.23H2...64.................]
-
-describe=..........,............360........QQ............
-
-Time=2025-12-15
-
-Bit=11.7.GB
-
-OSUrl=http://silver.yukaidi.com/f/kM4vCp/Windows11_23H2_X64_RjzxCJ251215V2.esd
-
-OSUrl2=http://pan.yyej.com/f/3OrwHV/Windows11_23H2_X64_RjzxCJ251215V2.esd
-
-OSFile=Windows11_23H2_X64_RjzxCJ251215V2.esd
-
-Index=1
-
-UEFI=1
-
-ICON=11
-
-mD5=
-
-UjyOS=1
-
-OSName=WINDOWS.11.64..
-
-
 
 [Windows.11.23H2...64........._....]
 
@@ -445,36 +337,6 @@ mD5=
 
 
 
-
-
-[Windows.7.........64.._..............]
-
-describe=..........,............360........QQ............
-
-Time=2025-12-15
-
-Bit=8.3GB
-
-OSUrl=http://silver.yukaidi.com/f/Y1LZsG/Win7_X64_RjzxCJ251215.esd
-
-OSUrl2=http://pan.yyej.com/f/R0vDHZ/Win7_X64_RjzxCJ251215.esd
-
-OSFile=Win7_X64_RjzxCJ251215.esd
-
-Index=1
-
-UEFI=1
-
-ICON=7
-
-MD5=
-
-UjyOS=1
-
-OSName=WINDOWS.7.64..
-
-
-
 [Windows.7........64.._....]
 
 describe=........ESU...._.........._......
@@ -586,35 +448,6 @@ ICON=10
 
 
 
-
-[Windows.7_........32.._..............]
-
-describe=..........,............360........QQ............
-
-Time=2025-12-15
-
-Bit=4.GB
-
-OSUrl=http://silver.yukaidi.com/f/xVXJf3/Win7_X86_RjzxCJ251215.esd
-
-OSUrl2=http://pan.yyej.com/f/Lwy8IJ/Win7_X86_RjzxCJ251215.esd
-
-OSFile=Win7_X86_RjzxCJ251215.esd
-
-Index=1
-
-UEFI=0
-
-ICON=7
-
-md5=
-
-UjyOS=1
-
-OSName=WINDOWS.7.32..
-
-
-
 [Windows.7........32.._....]
 
 describe=........ESU...._.........._......
@@ -666,52 +499,6 @@ UjyOS=1
 
 OSName=WINDOWS.XP.32..
 
-
-[..........Windows.7........64...GHO-....]
-
-describe=......Win7........................
-
-Time=2022-03-18
-
-Bit=6.05GB
-
-OSUrl=http://pan.yyej.com/f/mrAip/Win7_x64_22.3.GHO
-
-OSUrl2=http://silver.yukaidi.com/f/waw8CL/
-Win7_x64_22.3.GHO
-
-OSFile=Win7_x64.GHO
-
-Index=1
-
-UEFI=1
-
-ICON=7
-
-MD5=
-
-
-[..........Windows.7..........32...GHO-....]
-
-describe=......Win7........................
-
-Time=2022-03-18
-
-Bit=3.7GB
-
-OSUrl=http://pan.yyej.com/f/56vTx/Win7_x86_22.3.GHO
-
-OSUrl2=http://silver.yukaidi.com/f/Z6OncM/Win7_x86_22.3.GHO
-
-OSFile=Win7_x86_22.3.GHO
-
-Index=1
-
-UEFI=0
-
-ICON=7
-
-md5=
 
 
 
@@ -1123,8 +910,6 @@ Index=5
 UEFI=2
 
 ICON=10
-
-
 
 
 

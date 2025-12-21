@@ -377,7 +377,7 @@ func extractPercent(line string) float64 {
 	return v
 }
 
-// ApplyImage 会优先使用DISM，失败后wimlib-imagex
+// 会优先使用DISM，失败后wimlib-imagex
 // imagePath:WIM 或 ESD 路径
 // index:镜像索引（1 开始）
 // targetVol:目标卷，如 "C:"、"C:\"
@@ -475,7 +475,7 @@ func ApplyImage(imagePath string, index int, targetVol string) error {
 	}
 }
 
-// ApplyWimImage 安装 WIM 镜像到指定卷。
+// 安装 WIM 镜像到指定卷。
 // wimPath:wim路径
 // index:要安装的索引
 // targetVol:目标卷，如"C:"、"C:\"
@@ -487,9 +487,65 @@ func ApplyWimImage(wimPath string, index int, targetVol string) error {
 	return ApplyImage(wimPath, index, targetVol)
 }
 
-// 安装ESD镜像到指定卷。
+// 安装ESD镜像到指定卷
 func ApplyEsdImage(esdPath string, index int, targetVol string) error {
 	return ApplyImage(esdPath, index, targetVol)
+}
+
+// 安装ISO镜像到指定卷
+func ApplyISOImage(isoPath string, index int, targetVol string) error {
+	isoRoot, err := MountISO(isoPath, 30*time.Second)
+	if err != nil {
+		parts := Findpart()
+		if len(parts) == 0 {
+			return fmt.Errorf("未找到可用分区用于解包ISO！")
+		}
+		var lastErr error
+		for _, part := range parts {
+			tempDir := filepath.Join(part, "TEMPISO")
+			if err := os.MkdirAll(tempDir, 0755); err != nil {
+				lastErr = err
+				continue
+			}
+			if err := UnpackISO(isoPath, tempDir); err != nil {
+				lastErr = err
+				continue
+			}
+			isoRoot = tempDir
+			lastErr = nil
+			break
+		}
+		if lastErr != nil || isoRoot == "" {
+			return fmt.Errorf("解包ISO失败！")
+		}
+	}
+
+	installPath := filepath.Join(isoRoot, "sources", "install.wim")
+	if _, err := os.Stat(installPath); err != nil {
+		installPath = filepath.Join(isoRoot, "sources", "install.esd")
+	}
+	if _, err := os.Stat(installPath); err != nil {
+		found, findErr := FindFile(isoRoot, "install.wim|install.esd", 3)
+		if findErr != nil || len(found) == 0 {
+			return fmt.Errorf("ISO中未找到安装镜像！")
+		}
+		installPath = found[0]
+	}
+
+	if strings.EqualFold(filepath.Ext(installPath), ".esd") {
+		if ApplyEsdImage(installPath, index, targetVol) != nil {
+			return fmt.Errorf("应用镜像失败！")
+		}
+		return nil
+	}
+	if strings.EqualFold(filepath.Ext(installPath), ".wim") {
+		if ApplyWimImage(installPath, index, targetVol) != nil {
+			return fmt.Errorf("应用镜像失败！")
+		}
+		return nil
+	}
+
+	return fmt.Errorf("ISO安装镜像类型不支持！")
 }
 
 var (
@@ -1434,9 +1490,17 @@ func PE() int {
 		}
 	}
 	if strings.ToLower(filepath.Ext(img[0])) == ".iso" {
-		//MountISO(img[0], 30*time.Second)
-		uiShowError("错误", "iso镜像暂时不支持！")
-		os.Exit(-1)
+		app.CallUT(func() {
+			text_des.SetText("正在处理ISO镜像...")
+			progbar.SetPos(10)
+			progbar.Redraw(false)
+			text_des.Redraw()
+			w.Redraw(false)
+		})
+		if err := ApplyISOImage(img[0], 1, part); err != nil {
+			uiShowError("错误", "安装ISO镜像失败！"+err.Error())
+			os.Exit(-1)
+		}
 	}
 	text_des.SetText("正在修复引导...")
 	if FixBoot(part, "", "zh-cn") != nil {
@@ -1469,7 +1533,7 @@ func main() {
 	Uiinit()
 
 	w.Show(true)
-	go PE()
+	//go PE()
 	a.Run()
 	//窗口关闭后执行
 	a.Exit()
