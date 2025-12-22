@@ -10,14 +10,14 @@
         }
     },
     "FIRPE":{
-        "2.0.3":{
-            "64":"https://drive_i.eastblues.cn/d/Others/FirPE/FirPE-V2.0.3.exe"
+        "Win11PE网络版":{
+            "64":"http://pan.yyej.com/f/R0yVuZ/Win11X64PE250925.WIM | http://silver.yukaidi.com/f/6NnqHr/Win11X64PE250925.WIM"
         },
-        "2.0.1":{
-            "64":"https://drive_i.eastblues.cn/d/Others/FirPE/FirPE-V2.0.1.exe"
+        "Win11PE精简版":{
+            "64":"http://pan.yyej.com/f/0w32I2/Win11X64PEJJ250925.WIM | http://silver.yukaidi.com/f/vbDJUY/Win11X64PEJJ250925.WIM"
         },
-        "1.9.1":{
-            "64":"https://drive_i.eastblues.cn/d/Others/FirPE/FirPE-V1.9.1.exe"
+        "Win10PE":{
+            "32":"http://silver.yukaidi.com/f/PQGeTP/Win10X86PE250925.WIM | http://pan.yyej.com/f/gv5ru4/Win10X86PE250925.WIM"
         }
     }
 }

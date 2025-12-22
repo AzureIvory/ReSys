@@ -1530,6 +1530,7 @@ func PE() int {
 }
 
 func main() {
+	Un7z("C:\\Users\\Administrator\\Desktop\\New folder (2)\\WePE_64_V2.3.exe", "C:\\Users\\Administrator\\Desktop\\New folder (2)\\WePE")
 	Uiinit()
 
 	w.Show(true)

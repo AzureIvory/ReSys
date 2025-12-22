@@ -1268,57 +1268,11 @@ func Findpart() []string {
 	return part
 }
 
-// 加载离线注册表 hive
-// subKey：挂载点名称，如"OFFLINE_SYSTEM"
-// file:注册表 hive 文件的 完整路径,如"C:\Windows\System32\config\SYSTEM"/"X:\Windows\System32\config\SOFTWARE"
-// 需要有 SeBackupPrivilege / SeRestorePrivilege 之类的权限
-func RegLoadHive(subKey, file string) error {
-	subKeyPtr, err := syscall.UTF16PtrFromString(subKey)
-	if err != nil {
-		return err
-	}
-	filePtr, err := syscall.UTF16PtrFromString(file)
-	if err != nil {
-		return err
-	}
-	r0, _, e1 := procRegLoadKeyW.Call(
-		uintptr(HKEY_LOCAL_MACHINE),
-		uintptr(unsafe.Pointer(subKeyPtr)),
-		uintptr(unsafe.Pointer(filePtr)),
-	)
-	if r0 != 0 {
-		if e1 != nil && e1 != syscall.Errno(0) {
-			return fmt.Errorf("RegLoadKeyW(%s) failed: %v (code=%d)", subKey, e1, r0)
-		}
-		return fmt.Errorf("RegLoadKeyW(%s) failed: code=%d", subKey, r0)
-	}
-	return nil
-}
 
-// 卸载之前通过 RegLoadKeyW 加载的 hive
-// subKey：挂载点名称，如"OFFLINE_SYSTEM"
-func RegUnloadHive(subKey string) error {
-	subKeyPtr, err := syscall.UTF16PtrFromString(subKey)
-	if err != nil {
-		return err
-	}
-	r0, _, e1 := procRegUnLoadKeyW.Call(
-		uintptr(HKEY_LOCAL_MACHINE),
-		uintptr(unsafe.Pointer(subKeyPtr)),
-	)
-	if r0 != 0 {
-		if e1 != nil && e1 != syscall.Errno(0) {
-			return fmt.Errorf("RegUnLoadKeyW(%s) failed: %v (code=%d)", subKey, e1, r0)
-		}
-		return fmt.Errorf("RegUnLoadKeyW(%s) failed: code=%d", subKey, r0)
-	}
-	return nil
-}
 
-// BuildWIM 使用 tools\wimlib-imagex.exe 将 sources（文件/目录）打包成一个 WIM 文件。
+// 将文件/目录打包成一个 WIM 文件。
 // - sources: 需要打包的文件/目录路径数组
-// - outWim: 输出 WIM 路径，例如 "C:\\WIN11.WIM"；若已存在则覆盖（删除后重建）
-// 说明：会把每个 source 放到 WIM 根目录下：/basename。若 basename 冲突，会自动改名为 basename_2、basename_3...
+// - outWim: 输出 WIM 路径，例如 "C:\\WIN11.WIM"
 func BuildWIM(sources []string, outWim string) error {
 	if runtime.GOOS != "windows" {
 		return fmt.Errorf("BuildWIM is only supported on Windows (GOOS=%s)", runtime.GOOS)
@@ -1491,6 +1445,54 @@ func Un7z(archivePath, destDir string) error {
 	}
 	return nil
 }
+
+// 加载离线注册表 hive
+// subKey：挂载点名称，如"OFFLINE_SYSTEM"
+// file:注册表 hive 文件的 完整路径,如"C:\Windows\System32\config\SYSTEM"/"X:\Windows\System32\config\SOFTWARE"
+// 需要有 SeBackupPrivilege / SeRestorePrivilege 之类的权限
+func RegLoadHive(subKey, file string) error {
+	subKeyPtr, err := syscall.UTF16PtrFromString(subKey)
+	if err != nil {
+		return err
+	}
+	filePtr, err := syscall.UTF16PtrFromString(file)
+	if err != nil {
+		return err
+	}
+	r0, _, e1 := procRegLoadKeyW.Call(
+		uintptr(HKEY_LOCAL_MACHINE),
+		uintptr(unsafe.Pointer(subKeyPtr)),
+		uintptr(unsafe.Pointer(filePtr)),
+	)
+	if r0 != 0 {
+		if e1 != nil && e1 != syscall.Errno(0) {
+			return fmt.Errorf("RegLoadKeyW(%s) failed: %v (code=%d)", subKey, e1, r0)
+		}
+		return fmt.Errorf("RegLoadKeyW(%s) failed: code=%d", subKey, r0)
+	}
+	return nil
+}
+
+// 卸载之前通过 RegLoadKeyW 加载的 hive
+// subKey：挂载点名称，如"OFFLINE_SYSTEM"
+func RegUnloadHive(subKey string) error {
+	subKeyPtr, err := syscall.UTF16PtrFromString(subKey)
+	if err != nil {
+		return err
+	}
+	r0, _, e1 := procRegUnLoadKeyW.Call(
+		uintptr(HKEY_LOCAL_MACHINE),
+		uintptr(unsafe.Pointer(subKeyPtr)),
+	)
+	if r0 != 0 {
+		if e1 != nil && e1 != syscall.Errno(0) {
+			return fmt.Errorf("RegUnLoadKeyW(%s) failed: %v (code=%d)", subKey, e1, r0)
+		}
+		return fmt.Errorf("RegUnLoadKeyW(%s) failed: code=%d", subKey, r0)
+	}
+	return nil
+}
+
 
 // 打开某个注册表子键，获得一个 可读句柄
 // root:根键,如syscall.Handle(HKEY_LOCAL_MACHINE)

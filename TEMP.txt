@@ -1,3 +1,6 @@
+系统链接：https://www.51cxsoft.com/EasyRC/OSList.html
+PE链接：https://www.51cxsoft.com/EasyRC/PEDownload.html
+
 
 WinXPX86Url=http://silver.yukaidi.com/f/rOPkSN/XPX86.iso
 
