@@ -434,7 +434,7 @@ func ApplyImage(imagePath string, index int, targetVol string) error {
 		targetRoot,
 	}
 	exePath, _ := os.Executable()
-	exePath = filepath.Join(filepath.Dir(exePath), "wimlib-imagex.exe")
+	exePath = filepath.Join(filepath.Dir(exePath), "tools\\wimlib-imagex.exe")
 
 	wimOnLine := func(line string) {
 		if ImageProgress == nil {
@@ -1259,7 +1259,9 @@ func ListImageInfos(imagePath string) ([]ImageMeta, error) {
 	}
 
 	// wimlib-imagex
-	if out, err := runCmd("wimlib-imagex.exe", nil, "info", imagePath); err == nil {
+	exePath, _ := os.Executable()
+	exePath = filepath.Join(filepath.Dir(exePath), "tools\\wimlib-imagex.exe")
+	if out, err := runCmd(exePath, nil, "info", imagePath); err == nil {
 		if imgs, perr := parseImageInfoText(out); perr == nil && len(imgs) > 0 {
 			fmt.Println("[ListImageInfos] use wimlib-imagex result")
 			return imgs, nil

@@ -128,7 +128,6 @@ func CreateShortcut(dir, name, target string) (string, error) {
 		}
 		name += ext
 	} else if ext != ".lnk" && ext != ".url" {
-		// 非 .lnk/.url 的一律当 .lnk 用
 		ext = ".lnk"
 	}
 
@@ -137,7 +136,6 @@ func CreateShortcut(dir, name, target string) (string, error) {
 		return "", fmt.Errorf("abs path: %w", err)
 	}
 
-	// 先处理 .url：直接写文本文件
 	if isURL || ext == ".url" {
 		if err := writeURLShortcut(fullPath, target); err != nil {
 			return "", err
@@ -145,14 +143,13 @@ func CreateShortcut(dir, name, target string) (string, error) {
 		return fullPath, nil
 	}
 
-	// 走到这里就是普通 .lnk（指向文件/程序）
 
-	// 用 WinAPI+COM(IShellLinkW + IPersistFile) 创建 .lnk
+	// WinAPI+COM(IShellLinkW + IPersistFile) 创建 .lnk
 	if err := createShellLinkCOM(fullPath, target); err == nil {
 		return fullPath, nil
 	}
 
-	// COM 失败：退回写一个 .url，当作简易快捷方式
+	// COM 失败
 	urlPath := strings.TrimSuffix(fullPath, filepath.Ext(fullPath)) + ".url"
 	if err := writeURLShortcut(urlPath, target); err != nil {
 		return "", fmt.Errorf("create .lnk via COM failed AND fallback .url failed: %w", err)
@@ -161,7 +158,6 @@ func CreateShortcut(dir, name, target string) (string, error) {
 }
 
 //.url + COM 创建 .lnk
-
 func writeURLShortcut(path, target string) error {
 	content := "[InternetShortcut]\r\nURL=" + target + "\r\n"
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
@@ -171,7 +167,7 @@ func writeURLShortcut(path, target string) error {
 }
 
 func createShellLinkCOM(linkPath, targetPath string) error {
-	// 为了满足 COM 单线程模型，把 goroutine 固定在一个 OS 线程上
+	// 固定在一个线程上
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -194,7 +190,7 @@ func createShellLinkCOM(linkPath, targetPath string) error {
 	if hresultFailed(hr) || psl == nil {
 		return fmt.Errorf("CoCreateInstance(IShellLinkW) failed: 0x%08X", uint32(hr))
 	}
-	// 记得 Release
+	// Release
 	defer syscall.SyscallN(psl.lpVtbl.Release, uintptr(unsafe.Pointer(psl)))
 
 	// 设置目标路径
@@ -260,7 +256,6 @@ func Copy(src, dst string, overwrite, createDir bool) error {
 		return fmt.Errorf("Copy: src not found: %w", err)
 	}
 
-	// 负责单个文件的拷贝逻辑
 	copyOneFile := func(srcFile, dstFile string, overwrite, createDir bool) error {
 		fi, err := os.Stat(srcFile)
 		if err != nil {
@@ -270,7 +265,7 @@ func Copy(src, dst string, overwrite, createDir bool) error {
 			return fmt.Errorf("Copy: src is not a regular file: %s", srcFile)
 		}
 
-		// 目标存在处理
+		// 目标存在
 		if dfi, err := os.Stat(dstFile); err == nil {
 			if dfi.IsDir() {
 				return fmt.Errorf("Copy: dst is a directory: %s", dstFile)
@@ -300,7 +295,7 @@ func Copy(src, dst string, overwrite, createDir bool) error {
 			}
 		}
 
-		// 标准库 io.Copy
+		// io.Copy
 		if err := func() error {
 			in, err := os.Open(srcFile)
 			if err != nil {
@@ -422,7 +417,7 @@ func Copy(src, dst string, overwrite, createDir bool) error {
 		})
 	}
 
-	// 单文件分支
+	// 单文件
 	return copyOneFile(src, dst, overwrite, createDir)
 }
 
@@ -600,16 +595,14 @@ func DetectWin(drive string) (string, error) {
 		return "", fmt.Errorf("no Windows directory on %s", root)
 	}
 
-	// 目录方式先收集一些信息
 	pfDir := filepath.Join(root, "Program Files")
-	_ = dirExists(pfDir) // 目前只用来兜底
+	_ = dirExists(pfDir)
 	pfxDir := filepath.Join(root, "Program Files (x86)")
 	syswowDir := filepath.Join(winDir, "SysWOW64")
 
 	hasPFx86 := dirExists(pfxDir)
 	hasSysWOW := dirExists(syswowDir)
 
-	// 离线注册表 hive 路径
 	softwareHive := filepath.Join(winDir, "System32", "config", "SOFTWARE")
 	if _, err := os.Stat(softwareHive); err != nil {
 		return "", fmt.Errorf("SOFTWARE hive not found: %w", err)
@@ -620,13 +613,12 @@ func DetectWin(drive string) (string, error) {
 		hasSystemHive = true
 	}
 
-	// 加载 SOFTWARE
 	if err := RegLoadHive("Offline_SOFTWARE", softwareHive); err != nil {
 		return "", fmt.Errorf("load SOFTWARE hive: %w", err)
 	}
 	defer RegUnloadHive("Offline_SOFTWARE")
 
-	// 尝试加载 SYSTEM
+
 	systemLoaded := false
 	if hasSystemHive {
 		if err := RegLoadHive("Offline_SYSTEM", systemHive); err == nil {
@@ -663,7 +655,7 @@ func DetectWin(drive string) (string, error) {
 		case strings.Contains(upperPN, "WINDOWS 10"):
 			osName = "Windows 10"
 		default:
-			// 用 build 号粗略区分 10 / 11
+			// 用build号区分 10 / 11
 			buildStr, _ := RegGetString(h, "CurrentBuildNumber")
 			if b, err := strconv.Atoi(buildStr); err == nil && b >= 22000 {
 				osName = "Windows 11"
@@ -708,12 +700,10 @@ func detectArch(root string, hasPFx86, hasSysWOW, systemLoaded bool) string {
 		}
 	}
 
-	// 只有 Program Files 就按 32 位算
+	// 只有Program Files就按32位算
 	if dirExists(filepath.Join(root, "Program Files")) {
 		return "x86"
 	}
-
-	// 实在看不出来就统一当 x86
 	return "x86"
 }
 
@@ -744,7 +734,7 @@ func normalizeRoot(drive string) (string, error) {
 	return s, nil
 }
 
-// 获取磁盘剩余空间相关
+// 磁盘相关
 const (
 	ioctlStorageQueryProperty = 0x002D1400 // IOCTL_STORAGE_QUERY_PROPERTY
 )
@@ -815,7 +805,7 @@ func GetDiskKind(vol string) (string, error) {
 	// 先看逻辑盘类型
 	dt := GetDriveType(root)
 
-	// 光驱 / 挂载的 ISO（Windows 自带挂载会是 CDROM 类型）
+	// 光驱 / 挂载的 ISO
 	if dt == driveCdrom {
 		return "CDROM", nil
 	}
@@ -857,7 +847,7 @@ func GetDiskKind(vol string) (string, error) {
 	}
 	defer syscall.CloseHandle(hDisk)
 
-	// 先查 BusType，看是不是 USB 之类的移动设备
+	// 看是不是 USB 之类的移动设备
 	busType := uint32(busTypeUnknown)
 	{
 		q := storagePropertyQuery{
@@ -883,7 +873,7 @@ func GetDiskKind(vol string) (string, error) {
 		}
 	}
 
-	// USB 总线 / DRIVE_REMOVABLE 一律认为是移动设备
+	// USB 总线 / DRIVE_REMOVABLE 认为是移动设备
 	if dt == driveRemov || busType == busTypeUsb {
 		return "Removable", nil
 	}
@@ -1128,7 +1118,7 @@ func FindFileAll(pattern string, maxDepth int) []string {
 		return []string{}
 	}
 
-	// 控制并发，避免全盘搜索把系统打满
+	// 控制并发
 	limit := runtime.NumCPU()
 	if limit < 2 {
 		limit = 2
@@ -1284,7 +1274,6 @@ func BuildWIM(sources []string, outWim string) error {
 		return fmt.Errorf("outWim must not be empty")
 	}
 
-	// 定位 tools\wimlib-imagex.exe（以当前可执行文件所在目录为基准）
 	selfExe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("os.Executable failed: %w", err)
@@ -1305,7 +1294,7 @@ func BuildWIM(sources []string, outWim string) error {
 	if err := os.MkdirAll(filepath.Dir(absOut), 0o755); err != nil {
 		return fmt.Errorf("create outWim parent dir failed: %w", err)
 	}
-	// 覆盖：若已存在则先删除（wimlib-imagex capture 通常期望创建新 WIM）
+	// 覆盖
 	if _, err := os.Stat(absOut); err == nil {
 		if err := os.Remove(absOut); err != nil {
 			return fmt.Errorf("remove existing outWim failed: %w", err)
@@ -1315,7 +1304,6 @@ func BuildWIM(sources []string, outWim string) error {
 	}
 
 	// 生成 --source-list 文件：每行 "source" "target"
-	// target 为 WIM 内路径：/name（根目录下）
 	tmp, err := os.CreateTemp("", "wim_sources_*.txt")
 	if err != nil {
 		return fmt.Errorf("create temp source-list failed: %w", err)
@@ -1332,7 +1320,6 @@ func BuildWIM(sources []string, outWim string) error {
 	}
 	uniqueName := func(base string, used map[string]int) string {
 		// 让输出名称在 WIM 根目录下唯一：foo, foo_2, foo_3...
-		// 对文件名尽量保持扩展名：a.txt -> a_2.txt
 		if base == "" || base == "." || base == `\` || base == "/" {
 			base = "root"
 		}
@@ -1377,8 +1364,6 @@ func BuildWIM(sources []string, outWim string) error {
 		return fmt.Errorf("close source-list failed: %w", err)
 	}
 
-	// 多源捕获建议加 --norpfix（文档对 multi-source capture 有明确建议）。 :contentReference[oaicite:2]{index=2}
-	// 另外加 --check 生成完整性表（可选，但通常有益）。 :contentReference[oaicite:3]{index=3}
 	args := []string{
 		"capture",
 		sourceListPath,
@@ -1403,7 +1388,6 @@ func Un7z(archivePath, destDir string) error {
 		return fmt.Errorf("archivePath and destDir must not be empty")
 	}
 
-	// 以“当前可执行文件所在目录”为基准定位 tools\7z.exe（避免受工作目录影响）
 	selfExe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("os.Executable failed: %w", err)
@@ -1433,9 +1417,9 @@ func Un7z(archivePath, destDir string) error {
 
 	// 7z 参数：
 	// x   : 解压并保留目录结构
-	// -y  : 全部回答 Yes
+	// -y  : 全部回答Yes
 	// -aoa: 覆盖所有已存在文件
-	// -oDIR: 输出目录（注意 -o 后面不要有空格；这里用 "-o"+absDest）
+	// -oDIR: 输出目录
 	args := []string{"x", absArchive, "-y", "-aoa", "-o" + absDest}
 
 	cmd := exec.Command(sevenZipExe, args...)

@@ -23,31 +23,6 @@ Win10x64Url=http://silver.yukaidi.com/f/DrY6t8/10x64.iso
 Win10x64File=WanDrv.iso
 
 
-[Windows.11.25H2...64.................]
-
-describe=..........,............360........QQ............
-
-Time=2025-12-15
-
-Bit=11.5.GB
-
-OSUrl=http://silver.yukaidi.com/f/vOl5hY/Win11_25H2_X64_RjzxCJ251215V2.esd
-
-OSUrl2=http://pan.yyej.com/f/A3NjuK/Win11_25H2_X64_RjzxCJ251215V2.esd
-
-OSFile=Win11_25H2_X64_RjzxCJ251215V2.esd
-
-Index=1
-
-UEFI=1
-
-ICON=11
-
-mD5=
-
-UjyOS=1
-
-OSName=
 
 
 
