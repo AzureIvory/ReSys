@@ -143,7 +143,6 @@ func CreateShortcut(dir, name, target string) (string, error) {
 		return fullPath, nil
 	}
 
-
 	// WinAPI+COM(IShellLinkW + IPersistFile) 创建 .lnk
 	if err := createShellLinkCOM(fullPath, target); err == nil {
 		return fullPath, nil
@@ -157,7 +156,7 @@ func CreateShortcut(dir, name, target string) (string, error) {
 	return urlPath, nil
 }
 
-//.url + COM 创建 .lnk
+// .url + COM 创建 .lnk
 func writeURLShortcut(path, target string) error {
 	content := "[InternetShortcut]\r\nURL=" + target + "\r\n"
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
@@ -618,7 +617,6 @@ func DetectWin(drive string) (string, error) {
 	}
 	defer RegUnloadHive("Offline_SOFTWARE")
 
-
 	systemLoaded := false
 	if hasSystemHive {
 		if err := RegLoadHive("Offline_SYSTEM", systemHive); err == nil {
@@ -954,28 +952,55 @@ func FindFile(root string, pattern string, maxDepth int) ([]string, error) {
 		return nil, fmt.Errorf("empty pattern")
 	}
 
-	var matches []string
+	// 不进入这些目录
+	skipDirs := map[string]struct{}{
+		"system volume information": {},
+		"$recycle.bin":              {},
+		"windows":                   {},
+	}
 
-	var walk func(dir string, depth int) error
-	walk = func(dir string, depth int) error {
+	var matches []string
+	var fatalErr error
+
+	var walk func(dir string, depth int)
+	walk = func(dir string, depth int) {
+		if fatalErr != nil {
+			return
+		}
 		if depth > maxDepth {
-			return nil
+			return
 		}
 
 		ents, err := os.ReadDir(dir)
 		if err != nil {
-			return fmt.Errorf("readdir %s: %w", dir, err)
+			return
 		}
 
 		for _, ent := range ents {
+			if fatalErr != nil {
+				return
+			}
+
 			name := ent.Name()
 			full := filepath.Join(dir, name)
 
+			if ent.IsDir() {
+				if _, ok := skipDirs[strings.ToLower(name)]; ok {
+					continue
+				}
+				if depth < maxDepth {
+					walk(full, depth+1)
+				}
+				continue
+			}
+
+			// 通配符匹配
 			if ent.Type().IsRegular() {
 				for _, pat := range pats {
 					ok, err := filepath.Match(pat, name)
 					if err != nil {
-						return fmt.Errorf("bad pattern %q: %w", pat, err)
+						fatalErr = fmt.Errorf("bad pattern %q: %w", pat, err)
+						return
 					}
 					if ok {
 						matches = append(matches, full)
@@ -983,18 +1008,13 @@ func FindFile(root string, pattern string, maxDepth int) ([]string, error) {
 					}
 				}
 			}
-
-			if ent.IsDir() && depth < maxDepth {
-				if err := walk(full, depth+1); err != nil {
-					return err
-				}
-			}
 		}
-		return nil
 	}
 
-	if err := walk(root, 0); err != nil {
-		return nil, err
+	walk(root, 0)
+
+	if fatalErr != nil {
+		return nil, fatalErr
 	}
 	return matches, nil
 }
@@ -1258,8 +1278,6 @@ func Findpart() []string {
 	return part
 }
 
-
-
 // 将文件/目录打包成一个 WIM 文件。
 // - sources: 需要打包的文件/目录路径数组
 // - outWim: 输出 WIM 路径，例如 "C:\\WIN11.WIM"
@@ -1303,23 +1321,20 @@ func BuildWIM(sources []string, outWim string) error {
 		return fmt.Errorf("stat outWim failed: %w", err)
 	}
 
-	// 生成 --source-list 文件：每行 "source" "target"
-	tmp, err := os.CreateTemp("", "wim_sources_*.txt")
-	if err != nil {
-		return fmt.Errorf("create temp source-list failed: %w", err)
+	// ---------- 工具函数 ----------
+	run := func(args []string) error {
+		cmd := exec.Command(wimlibExe, args...)
+		out, e := cmd.CombinedOutput()
+		if e != nil {
+			return fmt.Errorf("wimlib-imagex failed: %w\nexe: %s\nargs: %v\noutput:\n%s",
+				e, wimlibExe, args, string(out))
+		}
+		return nil
 	}
-	sourceListPath := tmp.Name()
-	defer func() {
-		_ = tmp.Close()
-		_ = os.Remove(sourceListPath)
-	}()
 
-	quote := func(s string) string {
-		// wimlib 允许用单/双引号包含空格的路径；Windows 路径不包含双引号，直接双引号即可。 :contentReference[oaicite:1]{index=1}
-		return `"` + s + `"`
-	}
+	quote := func(s string) string { return `"` + s + `"` }
+
 	uniqueName := func(base string, used map[string]int) string {
-		// 让输出名称在 WIM 根目录下唯一：foo, foo_2, foo_3...
 		if base == "" || base == "." || base == `\` || base == "/" {
 			base = "root"
 		}
@@ -1329,7 +1344,6 @@ func BuildWIM(sources []string, outWim string) error {
 		}
 		used[base]++
 		n := used[base]
-
 		ext := filepath.Ext(base)
 		stem := strings.TrimSuffix(base, ext)
 		if ext != "" && stem != "" {
@@ -1337,6 +1351,79 @@ func BuildWIM(sources []string, outWim string) error {
 		}
 		return fmt.Sprintf("%s_%d", base, n)
 	}
+
+	// ---------- 关键修复：单目录 => 直接作为 WIM 根目录 ----------
+	if len(sources) == 1 {
+		p := strings.TrimSpace(sources[0])
+		if p == "" {
+			return fmt.Errorf("sources contains empty path")
+		}
+		absSrc, err := filepath.Abs(p)
+		if err != nil {
+			return fmt.Errorf("abs source failed (%q): %w", p, err)
+		}
+		fi, err := os.Stat(absSrc)
+		if err != nil {
+			return fmt.Errorf("source not accessible (%s): %w", absSrc, err)
+		}
+
+		// 如果是目录：直接 capture 目录，让目录内容成为镜像根
+		if fi.IsDir() {
+			args := []string{
+				"capture",
+				absSrc,
+				absOut,
+				"Image",
+				"--check",
+				"--compress=LZX",
+				// 需要的话你也可以加： "--boot"
+			}
+			return run(args)
+		}
+
+		// 如果只有一个文件：退回 source-list，把它放到根目录下（/filename）
+		// （PE 场景一般不会用到这个分支）
+		tmp, err := os.CreateTemp("", "wim_sources_*.txt")
+		if err != nil {
+			return fmt.Errorf("create temp source-list failed: %w", err)
+		}
+		sourceListPath := tmp.Name()
+		defer func() {
+			_ = tmp.Close()
+			_ = os.Remove(sourceListPath)
+		}()
+
+		target := "/" + filepath.Base(absSrc)
+		line := fmt.Sprintf("%s %s\n", quote(absSrc), quote(target))
+		if _, err := tmp.WriteString(line); err != nil {
+			return fmt.Errorf("write source-list failed: %w", err)
+		}
+		if err := tmp.Close(); err != nil {
+			return fmt.Errorf("close source-list failed: %w", err)
+		}
+
+		args := []string{
+			"capture",
+			sourceListPath,
+			absOut,
+			"Image",
+			"--source-list",
+			"--check",
+			"--compress=LZX",
+		}
+		return run(args)
+	}
+
+	// ---------- 多 sources：仍用 source-list，每个 source 放到根目录下的 /<basename> ----------
+	tmp, err := os.CreateTemp("", "wim_sources_*.txt")
+	if err != nil {
+		return fmt.Errorf("create temp source-list failed: %w", err)
+	}
+	sourceListPath := tmp.Name()
+	defer func() {
+		_ = tmp.Close()
+		_ = os.Remove(sourceListPath)
+	}()
 
 	used := map[string]int{}
 	for _, p := range sources {
@@ -1370,16 +1457,10 @@ func BuildWIM(sources []string, outWim string) error {
 		absOut,
 		"Image",
 		"--source-list",
-		"--norpfix",
 		"--check",
+		"--compress=LZX",
 	}
-
-	cmd := exec.Command(wimlibExe, args...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("wimlib-imagex capture failed: %w\nwimlib: %s\noutput:\n%s", err, wimlibExe, string(out))
-	}
-	return nil
+	return run(args)
 }
 
 // 用7z解压
@@ -1476,7 +1557,6 @@ func RegUnloadHive(subKey string) error {
 	}
 	return nil
 }
-
 
 // 打开某个注册表子键，获得一个 可读句柄
 // root:根键,如syscall.Handle(HKEY_LOCAL_MACHINE)

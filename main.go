@@ -1395,6 +1395,7 @@ func FormatPartition(diskIdx, partIdx int, fs, label string, quick bool) error {
 	return nil
 }
 
+// pe专用
 func PE() int {
 	win2()
 	path, err := os.Getwd()
@@ -1534,11 +1535,17 @@ func PE() int {
 
 func main() {
 
+	//Un7z("C:\\WEPE64.WIM","C:\\Temp")
+	//BuildWIM([]string{"C:\\Temp"}, "C:\\1.wim")
 	Uiinit()
 
 	w.Show(true)
-	//go PE()
+	//判断是否在PE
+	if strings.ToUpper(os.Getenv("SystemRoot")) == `X:\WINDOWS` {
+		go PE()
+	}
 	a.Run()
+
 	//窗口关闭后执行
 	a.Exit()
 	Findpart()
@@ -1561,7 +1568,7 @@ func main() {
 			fmt.Printf("[LOG] %s\n", raw)
 		}
 	}
-	fmt.Println(ApplyImage(path+"\\win10.esd", 7, "C:\\"))//临时测试
+	fmt.Println(ApplyImage(path+"\\win10.esd", 7, "C:\\")) //临时测试
 
 	fmt.Println(FixBoot("C:\\", "", "zh-cn"))
 	fmt.Println(Copy(path+"\\win10.xml", "C:\\Windows\\Panther\\Unattend.xml", true, true))
