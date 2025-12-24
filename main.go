@@ -1396,6 +1396,7 @@ func FormatPartition(diskIdx, partIdx int, fs, label string, quick bool) error {
 }
 
 func PE() int {
+	win2()
 	path, err := os.Getwd()
 
 	uiSetText := func(text string) {
@@ -1532,8 +1533,7 @@ func PE() int {
 }
 
 func main() {
-	fmt.Println(BuildWIM([]string{"C:\\Users\\Administrator\\Desktop\\New folder (2)\\WePE"}, "C:\\111.wim"))
-	//Un7z("C:\\Users\\Administrator\\Desktop\\New folder (2)\\WePE_64_V2.3.exe", "C:\\Users\\Administrator\\Desktop\\New folder (2)\\WePE")
+
 	Uiinit()
 
 	w.Show(true)
@@ -1541,6 +1541,7 @@ func main() {
 	a.Run()
 	//窗口关闭后执行
 	a.Exit()
+	Findpart()
 
 	return
 	fmt.Println(GetDiskNum("E:\\"))
@@ -1560,12 +1561,12 @@ func main() {
 			fmt.Printf("[LOG] %s\n", raw)
 		}
 	}
-	fmt.Println(ApplyImage(path+"\\win10.esd", 7, "C:\\"))
+	fmt.Println(ApplyImage(path+"\\win10.esd", 7, "C:\\"))//临时测试
 
 	fmt.Println(FixBoot("C:\\", "", "zh-cn"))
 	fmt.Println(Copy(path+"\\win10.xml", "C:\\Windows\\Panther\\Unattend.xml", true, true))
-	fmt.Println(Copy(path+"\\drive10.exe", "C:\\drive.exe", true, true))
-	fmt.Println(Copy(path+"\\HEU_KMS_Activator.exe", "C:\\HEU_KMS_Activator.exe", true, true))
+	fmt.Println(Copy(path+"\\tools\\drive10.exe", "C:\\drive.exe", true, true))
+	fmt.Println(Copy(path+"\\tools\\HEU_KMS_Activator.exe", "C:\\HEU_KMS_Activator.exe", true, true))
 	fmt.Println(CreateShortcut("C:\\Users\\Public\\Desktop\\", "百度", "https://www.baidu.com"))
 	//time.Sleep(30 * time.Second)
 	Shutdown(true)

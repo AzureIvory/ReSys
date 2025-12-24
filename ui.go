@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/twgh/xcgui/app"
-	
+
 	"github.com/twgh/xcgui/font"
 	"github.com/twgh/xcgui/imagex"
 	"github.com/twgh/xcgui/widget"
@@ -88,7 +88,7 @@ func Uiinit() {
 	progbar.SetPos(0)
 
 	//注册事件
-	win2()
+
 }
 
 // 简单消息框

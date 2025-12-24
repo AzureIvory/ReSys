@@ -26,7 +26,7 @@ var trackerTxtURLs = []string{
 	"https://down.adysec.com/trackers_best.txt",
 }
 
-// 最后用
+// 备用 trackers.txt URL
 const fallbackTrackerURL = "https://ttraw.com/trackers.txt"
 
 // 下载bt
