@@ -1292,6 +1292,7 @@ func BuildWIM(sources []string, outWim string) error {
 		return fmt.Errorf("outWim must not be empty")
 	}
 
+	// 找 wimlib-imagex.exe
 	selfExe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("os.Executable failed: %w", err)
@@ -1312,7 +1313,7 @@ func BuildWIM(sources []string, outWim string) error {
 	if err := os.MkdirAll(filepath.Dir(absOut), 0o755); err != nil {
 		return fmt.Errorf("create outWim parent dir failed: %w", err)
 	}
-	// 覆盖
+	// 覆盖旧文件
 	if _, err := os.Stat(absOut); err == nil {
 		if err := os.Remove(absOut); err != nil {
 			return fmt.Errorf("remove existing outWim failed: %w", err)
@@ -1321,100 +1322,65 @@ func BuildWIM(sources []string, outWim string) error {
 		return fmt.Errorf("stat outWim failed: %w", err)
 	}
 
-	// ---------- 工具函数 ----------
-	run := func(args []string) error {
+	run := func(args ...string) (string, error) {
 		cmd := exec.Command(wimlibExe, args...)
-		out, e := cmd.CombinedOutput()
+		b, e := cmd.CombinedOutput()
+		out := string(b)
 		if e != nil {
-			return fmt.Errorf("wimlib-imagex failed: %w\nexe: %s\nargs: %v\noutput:\n%s",
-				e, wimlibExe, args, string(out))
+			return out, fmt.Errorf("wimlib failed: %w\nexe: %s\nargs: %v\noutput:\n%s",
+				e, wimlibExe, args, out)
+		}
+		return out, nil
+	}
+
+	// 小工具：判断 path 是否目录
+	statIsDir := func(p string) (bool, string, error) {
+		abs, err := filepath.Abs(strings.TrimSpace(p))
+		if err != nil {
+			return false, "", err
+		}
+		fi, err := os.Stat(abs)
+		if err != nil {
+			return false, abs, err
+		}
+		return fi.IsDir(), abs, nil
+	}
+
+	// ========== 情况 1：只有一个目录（最常见：7z 解出来的根目录）==========
+	if len(sources) == 1 {
+		isDir, absSrc, err := statIsDir(sources[0])
+		if err != nil {
+			return fmt.Errorf("source not accessible (%s): %w", absSrc, err)
+		}
+		if !isDir {
+			return fmt.Errorf("for WinPE boot.wim rebuild, sources[0] should be a directory (got file: %s)", absSrc)
+		}
+
+		// 直接 capture 目录作为镜像根，并标记 bootable
+		_, err = run(
+			"capture",
+			absSrc,
+			absOut,
+			"Image",
+			"--boot", // ★关键：标记 bootable image
+			"--check",
+			"--compress=LZX",
+		)
+		if err != nil {
+			return err
+		}
+
+		// 双保险：再把 image 1 设为 bootable（写入 WIM header）
+		_, err = run("info", absOut, "1", "--boot", "--check")
+		if err != nil {
+			return err
 		}
 		return nil
 	}
 
-	quote := func(s string) string { return `"` + s + `"` }
-
-	uniqueName := func(base string, used map[string]int) string {
-		if base == "" || base == "." || base == `\` || base == "/" {
-			base = "root"
-		}
-		if used[base] == 0 {
-			used[base] = 1
-			return base
-		}
-		used[base]++
-		n := used[base]
-		ext := filepath.Ext(base)
-		stem := strings.TrimSuffix(base, ext)
-		if ext != "" && stem != "" {
-			return fmt.Sprintf("%s_%d%s", stem, n, ext)
-		}
-		return fmt.Sprintf("%s_%d", base, n)
-	}
-
-	// ---------- 关键修复：单目录 => 直接作为 WIM 根目录 ----------
-	if len(sources) == 1 {
-		p := strings.TrimSpace(sources[0])
-		if p == "" {
-			return fmt.Errorf("sources contains empty path")
-		}
-		absSrc, err := filepath.Abs(p)
-		if err != nil {
-			return fmt.Errorf("abs source failed (%q): %w", p, err)
-		}
-		fi, err := os.Stat(absSrc)
-		if err != nil {
-			return fmt.Errorf("source not accessible (%s): %w", absSrc, err)
-		}
-
-		// 如果是目录：直接 capture 目录，让目录内容成为镜像根
-		if fi.IsDir() {
-			args := []string{
-				"capture",
-				absSrc,
-				absOut,
-				"Image",
-				"--check",
-				"--compress=LZX",
-				// 需要的话你也可以加： "--boot"
-			}
-			return run(args)
-		}
-
-		// 如果只有一个文件：退回 source-list，把它放到根目录下（/filename）
-		// （PE 场景一般不会用到这个分支）
-		tmp, err := os.CreateTemp("", "wim_sources_*.txt")
-		if err != nil {
-			return fmt.Errorf("create temp source-list failed: %w", err)
-		}
-		sourceListPath := tmp.Name()
-		defer func() {
-			_ = tmp.Close()
-			_ = os.Remove(sourceListPath)
-		}()
-
-		target := "/" + filepath.Base(absSrc)
-		line := fmt.Sprintf("%s %s\n", quote(absSrc), quote(target))
-		if _, err := tmp.WriteString(line); err != nil {
-			return fmt.Errorf("write source-list failed: %w", err)
-		}
-		if err := tmp.Close(); err != nil {
-			return fmt.Errorf("close source-list failed: %w", err)
-		}
-
-		args := []string{
-			"capture",
-			sourceListPath,
-			absOut,
-			"Image",
-			"--source-list",
-			"--check",
-			"--compress=LZX",
-		}
-		return run(args)
-	}
-
-	// ---------- 多 sources：仍用 source-list，每个 source 放到根目录下的 /<basename> ----------
+	// ========== 情况 2：多个 sources，用 source-list overlay 到根 ==========
+	// 这里把“目录”都映射到 "/"（根），文件映射到 "/<filename>"
+	// wimlib 手册说明 target 为 "/" 表示该目录成为镜像根。:contentReference[oaicite:4]{index=4}
 	tmp, err := os.CreateTemp("", "wim_sources_*.txt")
 	if err != nil {
 		return fmt.Errorf("create temp source-list failed: %w", err)
@@ -1425,23 +1391,22 @@ func BuildWIM(sources []string, outWim string) error {
 		_ = os.Remove(sourceListPath)
 	}()
 
-	used := map[string]int{}
+	quote := func(s string) string { return `"` + s + `"` }
+
 	for _, p := range sources {
 		p = strings.TrimSpace(p)
 		if p == "" {
 			return fmt.Errorf("sources contains empty path")
 		}
-		absSrc, err := filepath.Abs(p)
+		isDir, absSrc, err := statIsDir(p)
 		if err != nil {
-			return fmt.Errorf("abs source failed (%q): %w", p, err)
-		}
-		if _, err := os.Stat(absSrc); err != nil {
 			return fmt.Errorf("source not accessible (%s): %w", absSrc, err)
 		}
 
-		name := uniqueName(filepath.Base(filepath.Clean(absSrc)), used)
-		target := "/" + name
-
+		target := "/"
+		if !isDir {
+			target = "/" + filepath.Base(absSrc)
+		}
 		line := fmt.Sprintf("%s %s\n", quote(absSrc), quote(target))
 		if _, err := tmp.WriteString(line); err != nil {
 			return fmt.Errorf("write source-list failed: %w", err)
@@ -1451,16 +1416,26 @@ func BuildWIM(sources []string, outWim string) error {
 		return fmt.Errorf("close source-list failed: %w", err)
 	}
 
-	args := []string{
+	_, err = run(
 		"capture",
 		sourceListPath,
 		absOut,
 		"Image",
 		"--source-list",
+		"--boot", // ★关键
 		"--check",
 		"--compress=LZX",
+	)
+	if err != nil {
+		return err
 	}
-	return run(args)
+
+	// 双保险：再设 bootable
+	_, err = run("info", absOut, "1", "--boot", "--check")
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // 用7z解压
