@@ -27,7 +27,7 @@ var trackerTxtURLs = []string{
 }
 
 // 备用 trackers.txt URL
-const fallbackTrackerURL = "https://ttraw.com/trackers.txt"
+const fallbackTrackerURL = "https://api.ttraw.com/trackers.txt"
 
 // 下载bt
 // dir:    下载保存目录，空字符串则使用当前目录
@@ -334,38 +334,44 @@ func uniqueStrings(in []string) []string {
 	return out
 }
 
-// DownloadLargeFile 使用 grab 下载超大文件（支持断点续传，单连接）。
+// 使用 grab 下载大文件。
 // - 会先写 dstPath+".part"，成功后再重命名为 dstPath。
 // - 如果 .part 已存在且服务器支持 Range，会自动从已有位置续传。
-func DownloadLargeFile(ctx context.Context, url, dstPath string) error {
+func DownloadFile(ctx context.Context, url, dstPath string, progressCallback func(float64)) error {
 	if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
 		return fmt.Errorf("create dir: %w", err)
 	}
 
 	tmpPath := dstPath + ".part"
-
-	// 创建请求（目标就是临时文件路径）
 	req, err := grab.NewRequest(tmpPath, url)
 	if err != nil {
 		return fmt.Errorf("new request: %w", err)
 	}
-
-	// 绑定 ctx，支持超时/取消
 	req = req.WithContext(ctx)
 
 	client := grab.NewClient()
 	resp := client.Do(req)
 
-	// 这里简单阻塞到结束；如果需要实时进度，可以用 ticker 周期性打印 resp.Progress()
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				progress := resp.Progress()
+				progressCallback(progress * 100) // 通过回调返回进度
+				time.Sleep(1 * time.Second)
+			}
+		}
+	}()
+
 	if err := resp.Err(); err != nil {
 		return fmt.Errorf("download failed: %w", err)
 	}
-
-	// 下载成功，重命名为最终文件
 	if err := os.Rename(tmpPath, dstPath); err != nil {
 		return fmt.Errorf("rename %s -> %s: %w", tmpPath, dstPath, err)
 	}
-
+	progressCallback(100)
 	return nil
 }
 
