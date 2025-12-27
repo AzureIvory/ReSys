@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
+	"unicode/utf16"
 	"unsafe"
 )
 
@@ -1020,7 +1025,7 @@ func FindFile(root string, pattern string, maxDepth int) ([]string, error) {
 	return matches, nil
 }
 
-// 全盘寻找镜像
+// 全盘寻找镜像,跳过小于1g
 func Findimg() ([]string, error) {
 	drives, err := ListDrive()
 	if err != nil {
@@ -1035,12 +1040,39 @@ func Findimg() ([]string, error) {
 	)
 
 	patterns := []string{"*.iso", "*.esd", "*.wim"}
-	const maxDepth = 1 // 搜 2 层目录
-	const minSize = int64(700) * 1024 * 1024
+	const maxDepth = 1                            // 搜 2 层目录
+	const minSize = int64(1) * 1024 * 1024 * 1024 //跳过小于1g
 
 	skipNames := map[string]struct{}{
 		"03pe.wim":    {},
 		"11pex64.wim": {},
+	}
+	validateImage := func(imagePath string) bool {
+		if _, err := ListImageInfos(imagePath); err != nil {
+			return false
+		}
+		return true
+	}
+	validateISO := func(isoPath string) bool {
+		isoRoot, err := MountISO(isoPath, 30*time.Second)
+		if err != nil {
+			return false
+		}
+		found, err := FindFile(isoRoot, "install.wim|install.esd", 3)
+		if err != nil || len(found) == 0 {
+			return false
+		}
+		sort.Strings(found)
+		for _, candidate := range found {
+			fi, err := os.Stat(candidate)
+			if err != nil || fi.IsDir() || fi.Size() < minSize {
+				continue
+			}
+			if validateImage(candidate) {
+				return true
+			}
+		}
+		return false
 	}
 
 	for _, root := range drives {
@@ -1095,6 +1127,19 @@ func Findimg() ([]string, error) {
 			}
 
 			if _, ok := seen[lp]; ok {
+				continue
+			}
+			ext := strings.ToLower(filepath.Ext(p))
+			switch ext {
+			case ".iso":
+				if !validateISO(p) {
+					continue
+				}
+			case ".wim", ".esd":
+				if !validateImage(p) {
+					continue
+				}
+			default:
 				continue
 			}
 			seen[lp] = struct{}{}
@@ -1784,6 +1829,314 @@ func GoToPE(paths ...string) error {
 		return err
 	}
 	return nil
+}
+
+func Patwim(wim, mnt string) error {
+	if wim == "" {
+		return fmt.Errorf("wim为空")
+	}
+	wim, _ = filepath.Abs(wim)
+
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(exe)
+	testp := filepath.Join(dir, "test.exe")
+	if _, err := os.Stat(testp); err != nil {
+		return fmt.Errorf("缺少test.exe: %w", err)
+	}
+
+	resolveTool := func(name, fallback string) string {
+		if p, err := exec.LookPath(name); err == nil {
+			return p
+		}
+		if fallback != "" {
+			if st, err := os.Stat(fallback); err == nil && !st.IsDir() {
+				return fallback
+			}
+		}
+		return ""
+	}
+	runWithTimeout := func(exe string, args []string, to time.Duration) (string, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), to)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, exe, args...)
+		var buf bytes.Buffer
+		cmd.Stdout = &buf
+		cmd.Stderr = &buf
+		err := cmd.Run()
+		out := buf.String()
+		if ctx.Err() == context.DeadlineExceeded {
+			return out, fmt.Errorf("超时: %s %s", exe, strings.Join(args, " "))
+		}
+		return out, err
+	}
+	quoteIfNeeded := func(path string) string {
+		if !strings.ContainsAny(path, " \t") {
+			return path
+		}
+		return `"` + strings.ReplaceAll(path, `"`, `\"`) + `"`
+	}
+	appendExecLine := func(b []byte, line string) ([]byte, error) {
+		addLine := func(s, nl string) string {
+			ls := strings.ToLower(s)
+			if strings.Contains(ls, strings.ToLower(line)) {
+				return s
+			}
+			if s != "" && !strings.HasSuffix(s, "\n") {
+				s += nl
+			}
+			s += line + nl
+			return s
+		}
+
+		if len(b) >= 2 && b[0] == 0xFF && b[1] == 0xFE {
+			raw := b[2:]
+			if len(raw)%2 != 0 {
+				if !bytes.Contains(bytes.ToLower(b), bytes.ToLower([]byte(line))) {
+					nl := "\r\n"
+					if bytes.Contains(b, []byte("\n")) && !bytes.Contains(b, []byte("\r\n")) {
+						nl = "\n"
+					}
+					if len(b) > 0 && !bytes.HasSuffix(b, []byte("\n")) {
+						b = append(b, []byte(nl)...)
+					}
+					b = append(b, []byte(line)...)
+					b = append(b, []byte(nl)...)
+				}
+				return b, nil
+			}
+			u := make([]uint16, len(raw)/2)
+			for i := 0; i < len(u); i++ {
+				u[i] = binary.LittleEndian.Uint16(raw[i*2 : i*2+2])
+			}
+			s := string(utf16.Decode(u))
+			nl := "\r\n"
+			if strings.Contains(s, "\n") && !strings.Contains(s, "\r\n") {
+				nl = "\n"
+			}
+			s = addLine(s, nl)
+			u2 := utf16.Encode([]rune(s))
+			o := make([]byte, 2+len(u2)*2)
+			o[0], o[1] = 0xFF, 0xFE
+			for i, v := range u2 {
+				binary.LittleEndian.PutUint16(o[2+i*2:2+i*2+2], v)
+			}
+			return o, nil
+		}
+
+		bl := bytes.ToLower(b)
+		if !bytes.Contains(bl, bytes.ToLower([]byte(line))) {
+			nl := "\r\n"
+			if bytes.Contains(b, []byte("\n")) && !bytes.Contains(b, []byte("\r\n")) {
+				nl = "\n"
+			}
+			if len(b) > 0 && !bytes.HasSuffix(b, []byte("\n")) {
+				b = append(b, []byte(nl)...)
+			}
+			b = append(b, []byte(line)...)
+			b = append(b, []byte(nl)...)
+		}
+		return b, nil
+	}
+
+	wimlib := resolveTool("wimlib-imagex.exe", filepath.Join(dir, "tools", "wimlib-imagex.exe"))
+	dism := resolveTool("dism.exe", filepath.Join(dir, "tools", "dism.exe"))
+
+	tryWimlib := func() error {
+		if wimlib == "" {
+			return fmt.Errorf("wimlib不可用")
+		}
+		out, err := runWithTimeout(wimlib, []string{"info", wim}, 2*time.Minute)
+		if err != nil {
+			return fmt.Errorf("wimlib info失败: %w\n%s", err, out)
+		}
+		re := regexp.MustCompile(`(?m)^\s*Image\s+(\d+)\s*:`)
+		ms := re.FindAllStringSubmatch(out, -1)
+		var idxs []int
+		seen := map[int]bool{}
+		for _, m := range ms {
+			i, _ := strconv.Atoi(m[1])
+			if i > 0 && !seen[i] {
+				seen[i] = true
+				idxs = append(idxs, i)
+			}
+		}
+		if len(idxs) == 0 {
+			return fmt.Errorf("未解析到Index")
+		}
+
+		line := "EXEC =%WinDir%\\test.exe"
+		for _, idx := range idxs {
+			dout, de := runWithTimeout(wimlib, []string{"dir", wim, strconv.Itoa(idx), `\Windows`}, 2*time.Minute)
+			if de != nil {
+				return fmt.Errorf("dir失败 idx=%d: %v\n%s", idx, de, dout)
+			}
+			tfn, ifn := "", ""
+			for _, ln := range strings.Split(dout, "\n") {
+				f := strings.Fields(strings.TrimSpace(ln))
+				if len(f) == 0 {
+					continue
+				}
+				nm := f[len(f)-1]
+				lm := strings.ToLower(nm)
+				if lm == "test.exe" {
+					tfn = nm
+				} else if lm == "pecmd.ini" {
+					ifn = nm
+				}
+			}
+			if tfn == "" {
+				tfn = "test.exe"
+			}
+			ini := ifn
+			if ini == "" {
+				ini = "Pecmd.ini"
+			}
+
+			srcq := quoteIfNeeded(testp)
+			cmd := []string{"update", wim, strconv.Itoa(idx)}
+			if strings.ToLower(tfn) == "test.exe" && strings.Contains(strings.ToLower(dout), "test.exe") {
+				cmd = append(cmd, `--command=`+`delete \Windows\`+tfn)
+			}
+			cmd = append(cmd, `--command=`+`add `+srcq+` \Windows\`+tfn)
+			uout, ue := runWithTimeout(wimlib, cmd, 10*time.Minute)
+			if ue != nil {
+				return fmt.Errorf("写test.exe失败 idx=%d: %v\n%s", idx, ue, uout)
+			}
+
+			tmp, _ := os.MkdirTemp("", "wim_")
+			defer os.RemoveAll(tmp)
+			_, _ = runWithTimeout(wimlib, []string{"extract", wim, strconv.Itoa(idx), `\Windows\` + ini, "--dest-dir=" + tmp}, 5*time.Minute)
+			p1 := filepath.Join(tmp, "Windows", ini)
+			p2 := filepath.Join(tmp, ini)
+			inip := p1
+			if _, e1 := os.Stat(p1); e1 != nil {
+				inip = p2
+			}
+			if _, e2 := os.Stat(inip); e2 != nil {
+				_ = os.MkdirAll(filepath.Dir(p1), 0o755)
+				inip = p1
+				_ = os.WriteFile(inip, []byte{}, 0o644)
+			}
+
+			b, _ := os.ReadFile(inip)
+			updated, err := appendExecLine(b, line)
+			if err != nil {
+				return fmt.Errorf("修改ini失败 idx=%d: %w", idx, err)
+			}
+			if err := os.WriteFile(inip, updated, 0o644); err != nil {
+				return fmt.Errorf("写入ini失败 idx=%d: %w", idx, err)
+			}
+
+			ipq := quoteIfNeeded(inip)
+			cmd = []string{"update", wim, strconv.Itoa(idx)}
+			if ifn != "" {
+				cmd = append(cmd, `--command=`+`delete \Windows\`+ini)
+			}
+			cmd = append(cmd, `--command=`+`add `+ipq+` \Windows\`+ini)
+			iout, ie := runWithTimeout(wimlib, cmd, 10*time.Minute)
+			if ie != nil {
+				return fmt.Errorf("写ini失败 idx=%d: %v\n%s", idx, ie, iout)
+			}
+		}
+		return nil
+	}
+
+	tryDism := func() error {
+		if dism == "" {
+			return fmt.Errorf("wimlib不可用且无dism")
+		}
+		if mnt == "" {
+			return fmt.Errorf("dism回退需要mnt")
+		}
+		mnt, _ = filepath.Abs(mnt)
+		inf, err := runWithTimeout(dism, []string{"/English", "/Get-WimInfo", "/WimFile:" + wim}, 2*time.Minute)
+		if err != nil {
+			return fmt.Errorf("dism info失败: %v\n%s", err, inf)
+		}
+		re := regexp.MustCompile(`(?m)^\s*Index\s*:\s*(\d+)\s*$`)
+		ms := re.FindAllStringSubmatch(inf, -1)
+		var idxs []int
+		seen := map[int]bool{}
+		for _, m := range ms {
+			i, _ := strconv.Atoi(m[1])
+			if i > 0 && !seen[i] {
+				seen[i] = true
+				idxs = append(idxs, i)
+			}
+		}
+		if len(idxs) == 0 {
+			return fmt.Errorf("dism未解析到Index")
+		}
+
+		line := "EXEC =%WinDir%\\test.exe"
+		for _, idx := range idxs {
+			md := filepath.Join(mnt, fmt.Sprintf("idx_%d", idx))
+			_ = os.RemoveAll(md)
+			_ = os.MkdirAll(md, 0o755)
+
+			out, e := runWithTimeout(dism, []string{"/Mount-Image", "/ImageFile:" + wim, fmt.Sprintf("/Index:%d", idx), "/MountDir:" + md}, 20*time.Minute)
+			if e != nil {
+				_ = os.RemoveAll(md)
+				return fmt.Errorf("mount失败 idx=%d: %v\n%s", idx, e, out)
+			}
+
+			wd := filepath.Join(md, "Windows")
+			_ = os.MkdirAll(wd, 0o755)
+
+			sf, err := os.Open(testp)
+			if err != nil {
+				runWithTimeout(dism, []string{"/Unmount-Image", "/MountDir:" + md, "/Discard"}, 20*time.Minute)
+				_ = os.RemoveAll(md)
+				return fmt.Errorf("打开test.exe失败: %w", err)
+			}
+			df, err := os.Create(filepath.Join(wd, "test.exe"))
+			if err != nil {
+				_ = sf.Close()
+				runWithTimeout(dism, []string{"/Unmount-Image", "/MountDir:" + md, "/Discard"}, 20*time.Minute)
+				_ = os.RemoveAll(md)
+				return fmt.Errorf("创建test.exe失败: %w", err)
+			}
+			if _, err := io.Copy(df, sf); err != nil {
+				_ = df.Close()
+				_ = sf.Close()
+				runWithTimeout(dism, []string{"/Unmount-Image", "/MountDir:" + md, "/Discard"}, 20*time.Minute)
+				_ = os.RemoveAll(md)
+				return fmt.Errorf("写入test.exe失败: %w", err)
+			}
+			_ = df.Close()
+			_ = sf.Close()
+
+			inip := filepath.Join(wd, "Pecmd.ini")
+			b, _ := os.ReadFile(inip)
+			updated, err := appendExecLine(b, line)
+			if err != nil {
+				runWithTimeout(dism, []string{"/Unmount-Image", "/MountDir:" + md, "/Discard"}, 20*time.Minute)
+				_ = os.RemoveAll(md)
+				return fmt.Errorf("修改ini失败 idx=%d: %w", idx, err)
+			}
+			if err := os.WriteFile(inip, updated, 0o644); err != nil {
+				runWithTimeout(dism, []string{"/Unmount-Image", "/MountDir:" + md, "/Discard"}, 20*time.Minute)
+				_ = os.RemoveAll(md)
+				return fmt.Errorf("写入ini失败 idx=%d: %w", idx, err)
+			}
+
+			out, e = runWithTimeout(dism, []string{"/Unmount-Image", "/MountDir:" + md, "/Commit"}, 20*time.Minute)
+			_ = os.RemoveAll(md)
+			if e != nil {
+				return fmt.Errorf("commit失败 idx=%d: %v\n%s", idx, e, out)
+			}
+		}
+		_, _ = runWithTimeout(dism, []string{"/Cleanup-Wim"}, 5*time.Minute)
+		return nil
+	}
+
+	if err := tryWimlib(); err == nil {
+		return nil
+	}
+	return tryDism()
 }
 
 // 加载离线注册表 hive
