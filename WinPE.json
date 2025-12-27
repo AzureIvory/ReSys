@@ -11,13 +11,16 @@
     },
     "FIRPE":{
         "Win11PE网络版":{
-            "64":"http://pan.yyej.com/f/R0yVuZ/Win11X64PE250925.WIM | http://silver.yukaidi.com/f/6NnqHr/Win11X64PE250925.WIM"
+            "64":"http://pan.yyej.com/f/R0yVuZ/Win11X64PE250925.WIM | http://silver.yukaidi.com/f/6NnqHr/Win11X64PE250925.WIM",
+            "size":919
         },
         "Win11PE精简版":{
-            "64":"http://pan.yyej.com/f/0w32I2/Win11X64PEJJ250925.WIM | http://silver.yukaidi.com/f/vbDJUY/Win11X64PEJJ250925.WIM"
+            "64":"http://pan.yyej.com/f/0w32I2/Win11X64PEJJ250925.WIM | http://silver.yukaidi.com/f/vbDJUY/Win11X64PEJJ250925.WIM",
+            "size":431
         },
         "Win10PE":{
-            "32":"http://silver.yukaidi.com/f/PQGeTP/Win10X86PE250925.WIM | http://pan.yyej.com/f/gv5ru4/Win10X86PE250925.WIM"
+            "32":"http://silver.yukaidi.com/f/PQGeTP/Win10X86PE250925.WIM | http://pan.yyej.com/f/gv5ru4/Win10X86PE250925.WIM",
+            "size":203
         }
     }
 }
