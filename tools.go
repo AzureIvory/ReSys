@@ -1488,7 +1488,21 @@ func Un7z(archivePath, destDir string) error {
 }
 
 // 进入PE
-func GoToPe() error {
+func GoToPE(paths ...string) error {
+	// 可选参数：GoToPE() 或 GoToPE(sdiPath, wimPath)
+	var customSdi, customWim string
+	if len(paths) == 0 {
+		// no override
+	} else if len(paths) == 2 {
+		customSdi = strings.TrimSpace(paths[0])
+		customWim = strings.TrimSpace(paths[1])
+		if customSdi == "" || customWim == "" {
+			return fmt.Errorf("自定义路径需要同时指定 sdi 和 wim（要么都传，要么都不传）")
+		}
+	} else {
+		return fmt.Errorf("参数数量错误：GoToPE() 或 GoToPE(sdiPath, wimPath)")
+	}
+
 	dvs, err := ListDrive()
 	if err != nil {
 		return err
@@ -1501,32 +1515,187 @@ func GoToPe() error {
 		{"FIR", `\FirPE\BOOT.SDI`, `\FirPE\11PEX64.WIM`},  //64位win11的FirPE
 		{"HOT", `\HotPE\boot.sdi`, `\HotPE\Boot.wim`},     //64位HOTPE
 		{"FirPE1", `\boot\boot.sdi`, `\boot\11pex64.wim`}, //64位FirPE1
+		{"PETEMP", `\PETEMP\*.sdi`, `\PETEMP\*.wim`},
+		{"PETEMP", `\PETEMP\*.SDI`, `\PETEMP\*.WIM`},
+	}
+
+	// ---------- 下面开始：全部逻辑都在一个函数里（不新增外部helper） ----------
+	hasGlob := func(s string) bool {
+		return strings.ContainsAny(s, "*?[")
+	}
+	hasDrivePrefix := func(p string) bool {
+		return len(p) >= 2 && p[1] == ':'
+	}
+	toRel := func(root, abs string) string {
+		abs = strings.ReplaceAll(abs, "/", `\`)
+		root = strings.ReplaceAll(root, "/", `\`)
+		if len(abs) >= len(root) && strings.EqualFold(abs[:len(root)], root) {
+			rest := abs[len(root):]
+			rest = strings.TrimPrefix(rest, `\`)
+			return `\` + rest
+		}
+		// 兜底：直接去掉盘符
+		if len(abs) >= 3 && abs[1] == ':' && (abs[2] == '\\' || abs[2] == '/') {
+			return `\` + strings.TrimPrefix(abs[3:], `\`)
+		}
+		return abs
+	}
+
+	// 通配符匹配（文件名大小写不敏感），返回第一个匹配到的文件绝对路径
+	firstMatchInsensitive := func(pattern string) (string, bool) {
+		pattern = strings.ReplaceAll(pattern, "/", `\`)
+
+		// 无通配符：直接 stat
+		if !hasGlob(pattern) {
+			if fi, e := os.Stat(pattern); e == nil && !fi.IsDir() {
+				return pattern, true
+			}
+			return "", false
+		}
+
+		dir := filepath.Dir(pattern)
+		base := filepath.Base(pattern)
+
+		// 如果目录也带通配符：退回 Glob（可能大小写敏感，但这种场景少）
+		if hasGlob(dir) {
+			ms, _ := filepath.Glob(pattern)
+			for _, m := range ms {
+				if fi, e := os.Stat(m); e == nil && !fi.IsDir() {
+					return m, true
+				}
+			}
+			return "", false
+		}
+
+		entries, e := os.ReadDir(dir)
+		if e != nil {
+			// 读目录失败：退回 Glob
+			ms, _ := filepath.Glob(pattern)
+			for _, m := range ms {
+				if fi, e2 := os.Stat(m); e2 == nil && !fi.IsDir() {
+					return m, true
+				}
+			}
+			return "", false
+		}
+
+		patLower := strings.ToLower(base)
+		for _, ent := range entries { // ReadDir 默认按文件名排序
+			if ent.IsDir() {
+				continue
+			}
+			nameLower := strings.ToLower(ent.Name())
+			ok, _ := filepath.Match(patLower, nameLower)
+			if ok {
+				return filepath.Join(dir, ent.Name()), true
+			}
+		}
+		return "", false
 	}
 
 	var lt, sdi, wim, nm string
-	for _, o := range opts {
-		for _, d := range dvs {
-			if len(d) < 3 {
-				continue
+
+	//跳过 opts
+	if customSdi != "" && customWim != "" {
+		sPat := strings.ReplaceAll(customSdi, "/", `\`)
+		wPat := strings.ReplaceAll(customWim, "/", `\`)
+
+		// 绝对路径/模式
+		if hasDrivePrefix(sPat) || hasDrivePrefix(wPat) {
+			var vol string
+			if hasDrivePrefix(sPat) {
+				vol = strings.ToUpper(string(sPat[0]))
 			}
-			sa := d + strings.TrimPrefix(o.s, `\`)
-			wa := d + strings.TrimPrefix(o.w, `\`)
-			if dirExists(sa) && dirExists(wa) {
-				lt = strings.ToUpper(string(d[0])) // "C"
-				sdi = o.s                          // "\WEPE\WEPE.SDI"
-				wim = o.w                          // "\WEPE\WEPE64.WIM"
+			if hasDrivePrefix(wPat) {
+				wVol := strings.ToUpper(string(wPat[0]))
+				if vol != "" && vol != wVol {
+					return fmt.Errorf("sdi 和 wim 不在同一盘：%s vs %s", vol, wVol)
+				}
+				if vol == "" {
+					vol = wVol
+				}
+			}
+			root := vol + `:\`
+
+			sAbs, ok := firstMatchInsensitive(sPat)
+			if !ok {
+				return fmt.Errorf("未找到SDI: %s", sPat)
+			}
+			wAbs, ok := firstMatchInsensitive(wPat)
+			if !ok {
+				return fmt.Errorf("未找到WIM: %s", wPat)
+			}
+
+			lt = vol
+			sdi = toRel(root, sAbs)
+			wim = toRel(root, wAbs)
+			nm = "CUSTOM"
+		} else {
+			// 相对路径/模式：遍历所有盘
+			found := false
+			for _, d := range dvs {
+				if len(d) < 3 {
+					continue
+				}
+				vol := strings.ToUpper(string(d[0]))
+				root := vol + `:\`
+
+				sAbs, okS := firstMatchInsensitive(d + strings.TrimPrefix(sPat, `\`))
+				if !okS {
+					continue
+				}
+				wAbs, okW := firstMatchInsensitive(d + strings.TrimPrefix(wPat, `\`))
+				if !okW {
+					continue
+				}
+
+				lt = vol
+				sdi = toRel(root, sAbs)
+				wim = toRel(root, wAbs)
+				nm = "CUSTOM"
+				found = true
+				break
+			}
+			if !found {
+				return fmt.Errorf("未找到匹配的SDI/WIM：SDI=%s WIM=%s", sPat, wPat)
+			}
+		}
+	} else {
+		// 走 opts
+		found := false
+		for _, o := range opts {
+			for _, d := range dvs {
+				if len(d) < 3 {
+					continue
+				}
+				vol := strings.ToUpper(string(d[0]))
+				root := vol + `:\`
+
+				sAbs, okS := firstMatchInsensitive(d + strings.TrimPrefix(o.s, `\`))
+				if !okS {
+					continue
+				}
+				wAbs, okW := firstMatchInsensitive(d + strings.TrimPrefix(o.w, `\`))
+				if !okW {
+					continue
+				}
+
+				lt = vol
+				sdi = toRel(root, sAbs)
+				wim = toRel(root, wAbs)
 				nm = o.n
+				found = true
+				break
+			}
+			if found {
 				break
 			}
 		}
-		if lt != "" {
-			break
+		if !found {
+			return fmt.Errorf("未找到PE引导文件")
 		}
 	}
 
-	if lt == "" {
-		return fmt.Errorf("未找到PE引导文件")
-	}
 	fmt.Println("PE:", nm, "DRV:", lt, "SDI:", sdi, "WIM:", wim)
 
 	// /device guid
