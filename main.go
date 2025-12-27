@@ -93,35 +93,47 @@ func shellExecuteVerb(path string, verb string) error {
 
 // 返回当前系统所有逻辑盘根路径，如 "C:\", "D:\" 等。
 func ListDrive() ([]string, error) {
-	// 256个WCHAR足够容纳26个盘符字符串
+	// GetLogicalDriveStringsW 正常拿
 	buf := make([]uint16, 256)
-
 	r, _, err := procGetLogicalDriveStringsW.Call(
 		uintptr(len(buf)),
 		uintptr(unsafe.Pointer(&buf[0])),
 	)
-	if r == 0 {
-		return nil, err
+	if r != 0 {
+		n := int(r)
+		drives := make([]string, 0, 26)
+		for i := 0; i < n; {
+			j := i
+			for j < n && buf[j] != 0 {
+				j++
+			}
+			if j == i {
+				break
+			}
+			drives = append(drives, syscall.UTF16ToString(buf[i:j]))
+			i = j + 1
+		}
+		return drives, nil
 	}
 
-	var drives []string
-	n := int(r)
-	i := 0
-	for i < n {
-		// 盘符字符串以\0分隔，最后再多一个\0结束
-		j := i
-		for j < n && buf[j] != 0 {
-			j++
+	// 失败就遍历 A-Z（兜底）
+	drives := make([]string, 0, 26)
+	for c := 'A'; c <= 'Z'; c++ {
+		root := fmt.Sprintf("%c:\\", c)
+		p := syscall.StringToUTF16Ptr(root)
+		t, _, _ := procGetDriveTypeW.Call(uintptr(unsafe.Pointer(p)))
+		// DRIVE_NO_ROOT_DIR(1) 表示不存在
+		if t != 1 {
+			drives = append(drives, root)
 		}
-		if j == i {
-			// 连续两个\0，结束
-			break
-		}
-		drive := syscall.UTF16ToString(buf[i:j])
-		drives = append(drives, drive)
-		i = j + 1
 	}
 
+	if len(drives) == 0 {
+		if err != syscall.Errno(0) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("failed to list drives")
+	}
 	return drives, nil
 }
 
@@ -1534,6 +1546,8 @@ func PE() int {
 }
 
 func main() {
+	fmt.Println(ListDrive())
+	GoToPe()
 
 	//Un7z("C:\\WEPE64.WIM","C:\\Temp")
 	//BuildWIM([]string{"C:\\Temp"}, "C:\\1.wim")

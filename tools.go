@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -705,10 +706,10 @@ func detectArch(root string, hasPFx86, hasSysWOW, systemLoaded bool) string {
 	return "x86"
 }
 
-// 目录是否存在
+// 目录/文件是否存在
 func dirExists(path string) bool {
-	fi, err := os.Stat(path)
-	return err == nil && fi.IsDir()
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // 规范化盘符为 "D:\" 这种格式
@@ -1482,6 +1483,136 @@ func Un7z(archivePath, destDir string) error {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("7z extract failed: %w\n7z: %s\noutput:\n%s", err, sevenZipExe, string(out))
+	}
+	return nil
+}
+
+// 进入PE
+func GoToPe() error {
+	dvs, err := ListDrive()
+	if err != nil {
+		return err
+	}
+
+	opts := []struct {
+		n, s, w string
+	}{
+		{"WEPE", `\WEPE\WEPE.SDI`, `\WEPE\WEPE64.WIM`},    //64位微PE
+		{"FIR", `\FirPE\BOOT.SDI`, `\FirPE\11PEX64.WIM`},  //64位win11的FirPE
+		{"HOT", `\HotPE\boot.sdi`, `\HotPE\Boot.wim`},     //64位HOTPE
+		{"FirPE1", `\boot\boot.sdi`, `\boot\11pex64.wim`}, //64位FirPE1
+	}
+
+	var lt, sdi, wim, nm string
+	for _, o := range opts {
+		for _, d := range dvs {
+			if len(d) < 3 {
+				continue
+			}
+			sa := d + strings.TrimPrefix(o.s, `\`)
+			wa := d + strings.TrimPrefix(o.w, `\`)
+			if dirExists(sa) && dirExists(wa) {
+				lt = strings.ToUpper(string(d[0])) // "C"
+				sdi = o.s                          // "\WEPE\WEPE.SDI"
+				wim = o.w                          // "\WEPE\WEPE64.WIM"
+				nm = o.n
+				break
+			}
+		}
+		if lt != "" {
+			break
+		}
+	}
+
+	if lt == "" {
+		return fmt.Errorf("未找到PE引导文件")
+	}
+	fmt.Println("PE:", nm, "DRV:", lt, "SDI:", sdi, "WIM:", wim)
+
+	// /device guid
+	out, err := runCmd("bcdedit", nil, "/create", "/d", "pe", "/device")
+	if err != nil {
+		return err
+	}
+	re := regexp.MustCompile(`(?i)\{([a-f0-9-]+)\}`)
+	m1 := re.FindStringSubmatch(out)
+	if len(m1) < 2 {
+		return fmt.Errorf("guid1解析失败: %s", out)
+	}
+	gd1 := strings.ToLower(m1[1])
+
+	// ramdisksdi*
+	_, err = runCmd("bcdedit", nil, "/set", "{"+gd1+"}", "ramdisksdidevice", "partition="+lt+":")
+	if err != nil {
+		return err
+	}
+	_, err = runCmd("bcdedit", nil, "/set", "{"+gd1+"}", "ramdisksdipath", sdi)
+	if err != nil {
+		return err
+	}
+
+	// /application osloader guid2
+	out, err = runCmd("bcdedit", nil, "/create", "/d", "pe", "/application", "osloader")
+	if err != nil {
+		return err
+	}
+	m2 := re.FindStringSubmatch(out)
+	if len(m2) < 2 {
+		return fmt.Errorf("guid2解析失败: %s", out)
+	}
+	gd2 := strings.ToLower(m2[1])
+
+	// device/osdevice
+	dev := fmt.Sprintf("ramdisk=[%s:]%s,{%s}", lt, wim, gd1)
+	_, err = runCmd("bcdedit", nil, "/set", "{"+gd2+"}", "device", dev)
+	if err != nil {
+		return err
+	}
+	_, err = runCmd("bcdedit", nil, "/set", "{"+gd2+"}", "osdevice", dev)
+	if err != nil {
+		return err
+	}
+
+	// BIOS/UEFI
+	fw := 0
+	out, er2 := runCmd("reg", nil, "query", `HKLM\SYSTEM\CurrentControlSet\Control`, "/v", "PEFirmwareType")
+	if er2 == nil {
+		r2 := regexp.MustCompile(`(?i)0x([0-9a-f]+)`)
+		m3 := r2.FindStringSubmatch(out)
+		if len(m3) >= 2 {
+			if v, e3 := strconv.ParseInt(m3[1], 16, 32); e3 == nil {
+				fw = int(v) // 1=BIOS 2=UEFI
+			}
+		}
+	}
+
+	p1 := `\windows\system32\boot\winload.efi`
+	p2 := `\windows\system32\boot\winload.exe`
+	if fw == 1 {
+		p1, p2 = p2, p1
+	}
+	if _, err = runCmd("bcdedit", nil, "/set", "{"+gd2+"}", "path", p1); err != nil {
+		if _, err = runCmd("bcdedit", nil, "/set", "{"+gd2+"}", "path", p2); err != nil {
+			return err
+		}
+	}
+
+	if _, err = runCmd("bcdedit", nil, "/set", "{"+gd2+"}", "systemroot", `\windows`); err != nil {
+		return err
+	}
+	if _, err = runCmd("bcdedit", nil, "/set", "{"+gd2+"}", "detecthal", "YES"); err != nil {
+		return err
+	}
+	if _, err = runCmd("bcdedit", nil, "/set", "{"+gd2+"}", "winpe", "YES"); err != nil {
+		return err
+	}
+	if _, err = runCmd("bcdedit", nil, "/set", "{"+gd2+"}", "nx", "OptIn"); err != nil {
+		return err
+	}
+
+	// 设置下次启动
+	if _, err = runCmd("bcdedit", nil, "/bootsequence", "{"+gd2+"}"); err != nil {
+		return err
 	}
 	return nil
 }
