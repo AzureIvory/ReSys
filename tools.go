@@ -2263,3 +2263,39 @@ func RegGetString(h syscall.Handle, name string) (string, error) {
 	}
 	return syscall.UTF16ToString(buf[:n]), nil
 }
+
+type memoryStatusEx struct {
+	dwLength                uint32
+	dwMemoryLoad            uint32
+	ullTotalPhys            uint64
+	ullAvailPhys            uint64
+	ullTotalPageFile        uint64
+	ullAvailPageFile        uint64
+	ullTotalVirtual         uint64
+	ullAvailVirtual         uint64
+	ullAvailExtendedVirtual uint64
+}
+
+// 获取物理内存总量
+var (
+	procGlobalMemoryStatus = modKernel32.NewProc("GlobalMemoryStatusEx")
+)
+
+// 返回本机物理内存总量
+// 返回值：GiB
+func GetMemory() (float64, error) {
+	var m memoryStatusEx
+	m.dwLength = uint32(unsafe.Sizeof(m))
+
+	r1, _, e1 := procGlobalMemoryStatus.Call(uintptr(unsafe.Pointer(&m)))
+	if r1 == 0 {
+		// 失败时 e1 可能是 syscall.Errno(0)，这里兜底返回一个错误
+		if errno, ok := e1.(syscall.Errno); ok && errno != 0 {
+			return 0, errno
+		}
+		return 0, syscall.EINVAL
+	}
+
+	const gib = 1024 * 1024 * 1024
+	return float64(m.ullTotalPhys) / float64(gib), nil
+}
