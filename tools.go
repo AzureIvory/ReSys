@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
 	"unicode/utf16"
 	"unsafe"
 )
@@ -1998,6 +2000,134 @@ func Patwim(wim string) error {
 	}
 
 	return nil
+}
+
+// 从指定的文件中，按偏移区间 [start, end) 抽取数据，写入到指定的文件中。
+// 支持十进制和十六进制的偏移参数
+// 需要绝对路径
+func PeelFile(exePath, start, end, out string) error {
+	if exePath == "" {
+		return errors.New("exePath 不能为空")
+	}
+	if out == "" {
+		return errors.New("out 不能为空")
+	}
+
+	startOffset, err := parseOffsetString(start)
+	if err != nil {
+		return fmt.Errorf("解析 startOffset 失败: %w", err)
+	}
+	endOffset, err := parseOffsetString(end)
+	if err != nil {
+		return fmt.Errorf("解析 endOffset 失败: %w", err)
+	}
+
+	if startOffset < 0 || endOffset < 0 {
+		return errors.New("startOffset/endOffset 不能为负数")
+	}
+	if endOffset <= startOffset {
+		return fmt.Errorf("endOffset 必须大于 startOffset（区间为 [start,end)），当前 start=%d end=%d", startOffset, endOffset)
+	}
+
+	// 输入文件
+	in, err := os.Open(exePath)
+	if err != nil {
+		return fmt.Errorf("打开输入文件失败: %w", err)
+	}
+	defer in.Close()
+
+	st, err := in.Stat()
+	if err != nil {
+		return fmt.Errorf("获取输入文件信息失败: %w", err)
+	}
+	size := st.Size()
+	if startOffset >= size {
+		return fmt.Errorf("startOffset 超出文件大小: start=%d size=%d", startOffset, size)
+	}
+	if endOffset > size {
+		return fmt.Errorf("endOffset 超出文件大小: end=%d size=%d", endOffset, size)
+	}
+
+	if !filepath.IsAbs(out) {
+		return fmt.Errorf("out 必须是绝对路径: %s", out)
+	}
+
+	// 确保输出目录存在
+	outDir := filepath.Dir(out)
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return fmt.Errorf("创建输出目录失败: %w", err)
+	}
+
+	// 输出文件
+	out, err := os.OpenFile(out, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return fmt.Errorf("创建输出文件失败: %w", err)
+	}
+	defer func() { _ = out.Close() }()
+
+	// 只读取指定区间
+	length := endOffset - startOffset
+	section := io.NewSectionReader(in, startOffset, length)
+
+	// 拷贝
+	buf := make([]byte, 1024*1024) // 1MB buffer
+	written, err := io.CopyBuffer(out, section, buf)
+	if err != nil {
+		return fmt.Errorf("写出失败: %w", err)
+	}
+	if written != length {
+		return fmt.Errorf("写出字节数不一致: expect=%d got=%d", length, written)
+	}
+
+	if err := out.Sync(); err != nil {
+		return fmt.Errorf("输出文件 Sync 失败: %w", err)
+	}
+	return nil
+}
+
+// parseOffsetString 解析偏移字符串：
+func parseOffsetString(s string) (int64, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, errors.New("偏移字符串为空")
+	}
+
+	// 处理符号：允许 "+123"，不允许负数
+	if strings.HasPrefix(s, "-") {
+		return 0, fmt.Errorf("不允许负数偏移: %s", s)
+	}
+	s = strings.TrimPrefix(s, "+")
+
+	// 判定进制
+	base := 10
+	ss := strings.ToLower(s)
+
+	if strings.HasPrefix(ss, "0x") {
+		base = 16
+		ss = ss[2:]
+		if ss == "" {
+			return 0, fmt.Errorf("无效十六进制偏移: %s", s)
+		}
+	} else {
+		// 不带 0x：如果包含 a-f，则认为是十六进制；否则十进制
+		for _, r := range ss {
+			if unicode.IsLetter(r) {
+				base = 16
+				break
+			}
+		}
+	}
+
+	// 用 uint64 解析，再检查是否能放进 int64
+	u, err := strconv.ParseUint(ss, base, 64)
+	if err != nil {
+		return 0, fmt.Errorf("无法解析偏移 %q (base=%d): %w", s, base, err)
+	}
+	maxInt64u := ^uint64(0) >> 1 // 0x7FFF... = MaxInt64
+	if u > maxInt64u {
+		return 0, fmt.Errorf("偏移过大，超出 int64 范围: %d", u)
+	}
+	return int64(u), nil
 }
 
 // 加载离线注册表 hive
