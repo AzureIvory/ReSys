@@ -1546,18 +1546,18 @@ func PE() int {
 }
 
 func main() {
-	fmt.Println(ListDrive())
-	GoToPe()
 
 	//Un7z("C:\\WEPE64.WIM","C:\\Temp")
 	//BuildWIM([]string{"C:\\Temp"}, "C:\\1.wim")
 	Uiinit()
-
+	err := GoToPE()
+	Message(w, "", err.Error())
 	w.Show(true)
 	//判断是否在PE
 	if strings.ToUpper(os.Getenv("SystemRoot")) == `X:\WINDOWS` {
 		go PE()
 	}
+	Shutdown(true)
 	a.Run()
 
 	//窗口关闭后执行

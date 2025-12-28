@@ -1324,166 +1324,6 @@ func Findpart() []string {
 	return part
 }
 
-// 将文件/目录打包成一个 WIM 文件。
-// - sources: 需要打包的文件/目录路径数组
-// - outWim: 输出 WIM 路径，例如 "C:\\WIN11.WIM"
-func BuildWIM(sources []string, outWim string) error {
-	if runtime.GOOS != "windows" {
-		return fmt.Errorf("BuildWIM is only supported on Windows (GOOS=%s)", runtime.GOOS)
-	}
-	if len(sources) == 0 {
-		return fmt.Errorf("sources must not be empty")
-	}
-	if strings.TrimSpace(outWim) == "" {
-		return fmt.Errorf("outWim must not be empty")
-	}
-
-	// 找 wimlib-imagex.exe
-	selfExe, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("os.Executable failed: %w", err)
-	}
-	baseDir := filepath.Dir(selfExe)
-	wimlibExe := filepath.Join(baseDir, "tools", "wimlib-imagex.exe")
-	if _, err := os.Stat(wimlibExe); err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("wimlib-imagex.exe not found: %s", wimlibExe)
-		}
-		return fmt.Errorf("stat wimlib-imagex.exe failed: %w", err)
-	}
-
-	absOut, err := filepath.Abs(outWim)
-	if err != nil {
-		return fmt.Errorf("abs outWim failed: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(absOut), 0o755); err != nil {
-		return fmt.Errorf("create outWim parent dir failed: %w", err)
-	}
-	// 覆盖旧文件
-	if _, err := os.Stat(absOut); err == nil {
-		if err := os.Remove(absOut); err != nil {
-			return fmt.Errorf("remove existing outWim failed: %w", err)
-		}
-	} else if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("stat outWim failed: %w", err)
-	}
-
-	run := func(args ...string) (string, error) {
-		cmd := exec.Command(wimlibExe, args...)
-		b, e := cmd.CombinedOutput()
-		out := string(b)
-		if e != nil {
-			return out, fmt.Errorf("wimlib failed: %w\nexe: %s\nargs: %v\noutput:\n%s",
-				e, wimlibExe, args, out)
-		}
-		return out, nil
-	}
-
-	// 小工具：判断 path 是否目录
-	statIsDir := func(p string) (bool, string, error) {
-		abs, err := filepath.Abs(strings.TrimSpace(p))
-		if err != nil {
-			return false, "", err
-		}
-		fi, err := os.Stat(abs)
-		if err != nil {
-			return false, abs, err
-		}
-		return fi.IsDir(), abs, nil
-	}
-
-	// ========== 情况 1：只有一个目录（最常见：7z 解出来的根目录）==========
-	if len(sources) == 1 {
-		isDir, absSrc, err := statIsDir(sources[0])
-		if err != nil {
-			return fmt.Errorf("source not accessible (%s): %w", absSrc, err)
-		}
-		if !isDir {
-			return fmt.Errorf("for WinPE boot.wim rebuild, sources[0] should be a directory (got file: %s)", absSrc)
-		}
-
-		// 直接 capture 目录作为镜像根，并标记 bootable
-		_, err = run(
-			"capture",
-			absSrc,
-			absOut,
-			"Image",
-			"--boot", // ★关键：标记 bootable image
-			"--check",
-			"--compress=LZX",
-		)
-		if err != nil {
-			return err
-		}
-
-		// 双保险：再把 image 1 设为 bootable（写入 WIM header）
-		_, err = run("info", absOut, "1", "--boot", "--check")
-		if err != nil {
-			return err
-		}
-		return nil
-	}
-
-	// ========== 情况 2：多个 sources，用 source-list overlay 到根 ==========
-	// 这里把“目录”都映射到 "/"（根），文件映射到 "/<filename>"
-	// wimlib 手册说明 target 为 "/" 表示该目录成为镜像根。:contentReference[oaicite:4]{index=4}
-	tmp, err := os.CreateTemp("", "wim_sources_*.txt")
-	if err != nil {
-		return fmt.Errorf("create temp source-list failed: %w", err)
-	}
-	sourceListPath := tmp.Name()
-	defer func() {
-		_ = tmp.Close()
-		_ = os.Remove(sourceListPath)
-	}()
-
-	quote := func(s string) string { return `"` + s + `"` }
-
-	for _, p := range sources {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			return fmt.Errorf("sources contains empty path")
-		}
-		isDir, absSrc, err := statIsDir(p)
-		if err != nil {
-			return fmt.Errorf("source not accessible (%s): %w", absSrc, err)
-		}
-
-		target := "/"
-		if !isDir {
-			target = "/" + filepath.Base(absSrc)
-		}
-		line := fmt.Sprintf("%s %s\n", quote(absSrc), quote(target))
-		if _, err := tmp.WriteString(line); err != nil {
-			return fmt.Errorf("write source-list failed: %w", err)
-		}
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close source-list failed: %w", err)
-	}
-
-	_, err = run(
-		"capture",
-		sourceListPath,
-		absOut,
-		"Image",
-		"--source-list",
-		"--boot", // ★关键
-		"--check",
-		"--compress=LZX",
-	)
-	if err != nil {
-		return err
-	}
-
-	// 双保险：再设 bootable
-	_, err = run("info", absOut, "1", "--boot", "--check")
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 // 用7z解压
 func Un7z(archivePath, destDir string) error {
 	if strings.TrimSpace(archivePath) == "" || strings.TrimSpace(destDir) == "" {
@@ -1564,7 +1404,6 @@ func GoToPE(paths ...string) error {
 		{"PETEMP", `\PETEMP\*.SDI`, `\PETEMP\*.WIM`},
 	}
 
-	// ---------- 下面开始：全部逻辑都在一个函数里（不新增外部helper） ----------
 	hasGlob := func(s string) bool {
 		return strings.ContainsAny(s, "*?[")
 	}
@@ -1831,21 +1670,23 @@ func GoToPE(paths ...string) error {
 	return nil
 }
 
-func Patwim(wim, mnt string) error {
+// 修改wim文件，将自身写入到wim中，并修改ini
+func Patwim(wim string) error {
 	if wim == "" {
 		return fmt.Errorf("wim为空")
 	}
 	wim, _ = filepath.Abs(wim)
 
-	exe, err := os.Executable()
+	// 自身程序路径 & 名字
+	selfExe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	dir := filepath.Dir(exe)
-	testp := filepath.Join(dir, "test.exe")
-	if _, err := os.Stat(testp); err != nil {
-		return fmt.Errorf("缺少test.exe: %w", err)
-	}
+	selfExe, _ = filepath.Abs(selfExe)
+	selfName := filepath.Base(selfExe)
+
+	// 用 wimlib-imagex.exe
+	dir := filepath.Dir(selfExe)
 
 	resolveTool := func(name, fallback string) string {
 		if p, err := exec.LookPath(name); err == nil {
@@ -1858,6 +1699,7 @@ func Patwim(wim, mnt string) error {
 		}
 		return ""
 	}
+
 	runWithTimeout := func(exe string, args []string, to time.Duration) (string, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), to)
 		defer cancel()
@@ -1872,52 +1714,165 @@ func Patwim(wim, mnt string) error {
 		}
 		return out, err
 	}
+
 	quoteIfNeeded := func(path string) string {
 		if !strings.ContainsAny(path, " \t") {
 			return path
 		}
 		return `"` + strings.ReplaceAll(path, `"`, `\"`) + `"`
 	}
+
+	// 插入启动项，并处理 _ENDFILE（UTF-16/非 UTF-16）
 	appendExecLine := func(b []byte, line string) ([]byte, error) {
-		addLine := func(s, nl string) string {
-			ls := strings.ToLower(s)
-			if strings.Contains(ls, strings.ToLower(line)) {
-				return s
+		// 选择换行符：尽量保持原文件风格
+		pickNLBytes := func(src []byte) []byte {
+			if bytes.Contains(src, []byte("\r\n")) {
+				return []byte("\r\n")
 			}
-			if s != "" && !strings.HasSuffix(s, "\n") {
-				s += nl
+			if bytes.Contains(src, []byte("\n")) {
+				return []byte("\n")
 			}
-			s += line + nl
-			return s
+			return []byte("\r\n")
 		}
 
+		// ASCII case-fold
+		lowerASCII := func(c byte) byte {
+			if c >= 'A' && c <= 'Z' {
+				return c + 32
+			}
+			return c
+		}
+		isSpace := func(c byte) bool { return c == ' ' || c == '\t' }
+
+		// 在 src 中查找第一条 _ENDFILE 行的行起始位置
+		findEndfileLineStartBytes := func(src []byte) (int, bool) {
+			i := 0
+			for i < len(src) {
+				lineStart := i
+				j := bytes.IndexByte(src[i:], '\n')
+				if j == -1 {
+					i = len(src)
+				} else {
+					i += j + 1 // 包含 '\n'
+				}
+				lineBytes := src[lineStart:i]
+				trimmed := bytes.TrimRight(lineBytes, "\r\n")
+				trimmed = bytes.TrimLeft(trimmed, " \t")
+				if len(trimmed) < len("_ENDFILE") {
+					continue
+				}
+				// 前缀匹配（忽略大小写）
+				ok := true
+				for k := 0; k < len("_ENDFILE"); k++ {
+					if lowerASCII(trimmed[k]) != lowerASCII("_ENDFILE"[k]) {
+						ok = false
+						break
+					}
+				}
+				if !ok {
+					continue
+				}
+				// 单词边界：后面是行尾/空白/注释分隔
+				if len(trimmed) == len("_ENDFILE") {
+					return lineStart, true
+				}
+				c := trimmed[len("_ENDFILE")]
+				if isSpace(c) || c == '/' || c == ';' {
+					return lineStart, true
+				}
+			}
+			return 0, false
+		}
+
+		// 忽略大小写（ASCII）判断 head 中是否已包含 line（用于去重）
+		containsFoldASCII := func(hay, needle []byte) bool {
+			if len(needle) == 0 {
+				return true
+			}
+			for i := 0; i+len(needle) <= len(hay); i++ {
+				ok := true
+				for j := 0; j < len(needle); j++ {
+					if lowerASCII(hay[i+j]) != lowerASCII(needle[j]) {
+						ok = false
+						break
+					}
+				}
+				if ok {
+					return true
+				}
+			}
+			return false
+		}
+
+		// 非 UTF-16（字节级插入，不改变原编码）
+		applyOnBytes := func(src []byte) []byte {
+			nl := pickNLBytes(src)
+			insertPos := len(src)
+			if p, ok := findEndfileLineStartBytes(src); ok {
+				insertPos = p // 插到 _ENDFILE 这一行之前
+			}
+			head := src[:insertPos]
+			tail := src[insertPos:]
+
+			// 去重：只在 _ENDFILE 前去重
+			if containsFoldASCII(head, []byte(line)) {
+				return src
+			}
+
+			out := make([]byte, 0, len(src)+len(line)+len(nl)+4)
+			out = append(out, head...)
+			if len(out) > 0 && out[len(out)-1] != '\n' {
+				out = append(out, nl...)
+			}
+			out = append(out, []byte(line)...)
+			out = append(out, nl...)
+			out = append(out, tail...)
+			return out
+		}
+
+		// UTF-16LE BOM：0xFF 0xFE
 		if len(b) >= 2 && b[0] == 0xFF && b[1] == 0xFE {
 			raw := b[2:]
 			if len(raw)%2 != 0 {
-				if !bytes.Contains(bytes.ToLower(b), bytes.ToLower([]byte(line))) {
-					nl := "\r\n"
-					if bytes.Contains(b, []byte("\n")) && !bytes.Contains(b, []byte("\r\n")) {
-						nl = "\n"
-					}
-					if len(b) > 0 && !bytes.HasSuffix(b, []byte("\n")) {
-						b = append(b, []byte(nl)...)
-					}
-					b = append(b, []byte(line)...)
-					b = append(b, []byte(nl)...)
-				}
-				return b, nil
+				raw = raw[:len(raw)-1]
 			}
+
 			u := make([]uint16, len(raw)/2)
 			for i := 0; i < len(u); i++ {
 				u[i] = binary.LittleEndian.Uint16(raw[i*2 : i*2+2])
 			}
 			s := string(utf16.Decode(u))
+
 			nl := "\r\n"
 			if strings.Contains(s, "\n") && !strings.Contains(s, "\r\n") {
 				nl = "\n"
 			}
-			s = addLine(s, nl)
-			u2 := utf16.Encode([]rune(s))
+
+			// 找 _ENDFILE 行（行首匹配，大小写不敏感）
+			reEnd := regexp.MustCompile(`(?im)^[ \t]*_endfile\b.*(?:\r?\n|$)`)
+			loc := reEnd.FindStringIndex(s)
+
+			head := s
+			tail := ""
+			if loc != nil {
+				head = s[:loc[0]] // 插入到该行之前
+				tail = s[loc[0]:]
+			}
+
+			// 去重：只在 _ENDFILE 前去重
+			if strings.Contains(strings.ToLower(head), strings.ToLower(line)) {
+				return b, nil
+			}
+
+			// 插入
+			if head != "" && !strings.HasSuffix(head, "\n") {
+				head += nl
+			}
+			head += line + nl
+			s2 := head + tail
+
+			// 编码回 UTF-16LE + BOM
+			u2 := utf16.Encode([]rune(s2))
 			o := make([]byte, 2+len(u2)*2)
 			o[0], o[1] = 0xFF, 0xFE
 			for i, v := range u2 {
@@ -1926,217 +1881,123 @@ func Patwim(wim, mnt string) error {
 			return o, nil
 		}
 
-		bl := bytes.ToLower(b)
-		if !bytes.Contains(bl, bytes.ToLower([]byte(line))) {
-			nl := "\r\n"
-			if bytes.Contains(b, []byte("\n")) && !bytes.Contains(b, []byte("\r\n")) {
-				nl = "\n"
-			}
-			if len(b) > 0 && !bytes.HasSuffix(b, []byte("\n")) {
-				b = append(b, []byte(nl)...)
-			}
-			b = append(b, []byte(line)...)
-			b = append(b, []byte(nl)...)
-		}
-		return b, nil
+		// 非 UTF-16
+		return applyOnBytes(b), nil
 	}
 
 	wimlib := resolveTool("wimlib-imagex.exe", filepath.Join(dir, "tools", "wimlib-imagex.exe"))
-	dism := resolveTool("dism.exe", filepath.Join(dir, "tools", "dism.exe"))
+	if wimlib == "" {
+		return fmt.Errorf("找不到 wimlib-imagex.exe（PATH 或 %s）", filepath.Join(dir, "tools", "wimlib-imagex.exe"))
+	}
 
-	tryWimlib := func() error {
-		if wimlib == "" {
-			return fmt.Errorf("wimlib不可用")
+	// 获取所有 Index
+	out, err := runWithTimeout(wimlib, []string{"info", wim}, 2*time.Minute)
+	if err != nil {
+		return fmt.Errorf("wimlib info失败: %w\n%s", err, out)
+	}
+	reIdx := regexp.MustCompile(`(?m)^\s*Image\s+(\d+)\s*:`)
+	ms := reIdx.FindAllStringSubmatch(out, -1)
+	var idxs []int
+	seen := map[int]bool{}
+	for _, m := range ms {
+		i, _ := strconv.Atoi(m[1])
+		if i > 0 && !seen[i] {
+			seen[i] = true
+			idxs = append(idxs, i)
 		}
-		out, err := runWithTimeout(wimlib, []string{"info", wim}, 2*time.Minute)
+	}
+	if len(idxs) == 0 {
+		return fmt.Errorf("未解析到Index")
+	}
+
+	// 启动项
+	line := "EXEC %WinDir%\\" + selfName
+
+	// 对每个 Index 写入自身 exe + 修改 Pecmd.ini
+	for _, idx := range idxs {
+		dout, de := runWithTimeout(wimlib, []string{"dir", wim, strconv.Itoa(idx), `\Windows`}, 2*time.Minute)
+		if de != nil {
+			return fmt.Errorf("dir失败 idx=%d: %v\n%s", idx, de, dout)
+		}
+
+		// 找到 Windows 目录里是否已存在 自身文件/pecmd.ini（记录实际大小写）
+		exeInWimActual := ""
+		pecmdActual := ""
+		for _, ln := range strings.Split(dout, "\n") {
+			f := strings.Fields(strings.TrimSpace(ln))
+			if len(f) == 0 {
+				continue
+			}
+			nm := f[len(f)-1]
+			lm := strings.ToLower(nm)
+			if lm == strings.ToLower(selfName) {
+				exeInWimActual = nm
+			} else if lm == "pecmd.ini" {
+				pecmdActual = nm
+			}
+		}
+		iniName := pecmdActual
+		if iniName == "" {
+			iniName = "Pecmd.ini"
+		}
+
+		// 写入自身 exe
+		srcq := quoteIfNeeded(selfExe)
+		cmd := []string{"update", wim, strconv.Itoa(idx)}
+		if exeInWimActual != "" {
+			cmd = append(cmd, `--command=`+`delete \Windows\`+exeInWimActual)
+		}
+		cmd = append(cmd, `--command=`+`add `+srcq+` \Windows\`+selfName)
+
+		uout, ue := runWithTimeout(wimlib, cmd, 10*time.Minute)
+		if ue != nil {
+			return fmt.Errorf("写入自身exe失败 idx=%d: %v\n%s", idx, ue, uout)
+		}
+
+		// 抽取并修改 Pecmd.ini
+		tmp, _ := os.MkdirTemp("", "wim_")
+		// 不用 defer（避免循环里堆积），用完就清
+		_, _ = runWithTimeout(wimlib, []string{"extract", wim, strconv.Itoa(idx), `\Windows\` + iniName, "--dest-dir=" + tmp}, 5*time.Minute)
+
+		p1 := filepath.Join(tmp, "Windows", iniName)
+		p2 := filepath.Join(tmp, iniName)
+		inip := p1
+		if _, e1 := os.Stat(p1); e1 != nil {
+			inip = p2
+		}
+		if _, e2 := os.Stat(inip); e2 != nil {
+			_ = os.MkdirAll(filepath.Dir(p1), 0o755)
+			inip = p1
+			_ = os.WriteFile(inip, []byte{}, 0o644)
+		}
+
+		b, _ := os.ReadFile(inip)
+		updated, err := appendExecLine(b, line)
 		if err != nil {
-			return fmt.Errorf("wimlib info失败: %w\n%s", err, out)
+			_ = os.RemoveAll(tmp)
+			return fmt.Errorf("修改ini失败 idx=%d: %w", idx, err)
 		}
-		re := regexp.MustCompile(`(?m)^\s*Image\s+(\d+)\s*:`)
-		ms := re.FindAllStringSubmatch(out, -1)
-		var idxs []int
-		seen := map[int]bool{}
-		for _, m := range ms {
-			i, _ := strconv.Atoi(m[1])
-			if i > 0 && !seen[i] {
-				seen[i] = true
-				idxs = append(idxs, i)
-			}
-		}
-		if len(idxs) == 0 {
-			return fmt.Errorf("未解析到Index")
+		if err := os.WriteFile(inip, updated, 0o644); err != nil {
+			_ = os.RemoveAll(tmp)
+			return fmt.Errorf("写入ini失败 idx=%d: %w", idx, err)
 		}
 
-		line := "EXEC =%WinDir%\\test.exe"
-		for _, idx := range idxs {
-			dout, de := runWithTimeout(wimlib, []string{"dir", wim, strconv.Itoa(idx), `\Windows`}, 2*time.Minute)
-			if de != nil {
-				return fmt.Errorf("dir失败 idx=%d: %v\n%s", idx, de, dout)
-			}
-			tfn, ifn := "", ""
-			for _, ln := range strings.Split(dout, "\n") {
-				f := strings.Fields(strings.TrimSpace(ln))
-				if len(f) == 0 {
-					continue
-				}
-				nm := f[len(f)-1]
-				lm := strings.ToLower(nm)
-				if lm == "test.exe" {
-					tfn = nm
-				} else if lm == "pecmd.ini" {
-					ifn = nm
-				}
-			}
-			if tfn == "" {
-				tfn = "test.exe"
-			}
-			ini := ifn
-			if ini == "" {
-				ini = "Pecmd.ini"
-			}
-
-			srcq := quoteIfNeeded(testp)
-			cmd := []string{"update", wim, strconv.Itoa(idx)}
-			if strings.ToLower(tfn) == "test.exe" && strings.Contains(strings.ToLower(dout), "test.exe") {
-				cmd = append(cmd, `--command=`+`delete \Windows\`+tfn)
-			}
-			cmd = append(cmd, `--command=`+`add `+srcq+` \Windows\`+tfn)
-			uout, ue := runWithTimeout(wimlib, cmd, 10*time.Minute)
-			if ue != nil {
-				return fmt.Errorf("写test.exe失败 idx=%d: %v\n%s", idx, ue, uout)
-			}
-
-			tmp, _ := os.MkdirTemp("", "wim_")
-			defer os.RemoveAll(tmp)
-			_, _ = runWithTimeout(wimlib, []string{"extract", wim, strconv.Itoa(idx), `\Windows\` + ini, "--dest-dir=" + tmp}, 5*time.Minute)
-			p1 := filepath.Join(tmp, "Windows", ini)
-			p2 := filepath.Join(tmp, ini)
-			inip := p1
-			if _, e1 := os.Stat(p1); e1 != nil {
-				inip = p2
-			}
-			if _, e2 := os.Stat(inip); e2 != nil {
-				_ = os.MkdirAll(filepath.Dir(p1), 0o755)
-				inip = p1
-				_ = os.WriteFile(inip, []byte{}, 0o644)
-			}
-
-			b, _ := os.ReadFile(inip)
-			updated, err := appendExecLine(b, line)
-			if err != nil {
-				return fmt.Errorf("修改ini失败 idx=%d: %w", idx, err)
-			}
-			if err := os.WriteFile(inip, updated, 0o644); err != nil {
-				return fmt.Errorf("写入ini失败 idx=%d: %w", idx, err)
-			}
-
-			ipq := quoteIfNeeded(inip)
-			cmd = []string{"update", wim, strconv.Itoa(idx)}
-			if ifn != "" {
-				cmd = append(cmd, `--command=`+`delete \Windows\`+ini)
-			}
-			cmd = append(cmd, `--command=`+`add `+ipq+` \Windows\`+ini)
-			iout, ie := runWithTimeout(wimlib, cmd, 10*time.Minute)
-			if ie != nil {
-				return fmt.Errorf("写ini失败 idx=%d: %v\n%s", idx, ie, iout)
-			}
+		// 写回 Pecmd.ini 到 WIM
+		ipq := quoteIfNeeded(inip)
+		cmd = []string{"update", wim, strconv.Itoa(idx)}
+		if pecmdActual != "" {
+			cmd = append(cmd, `--command=`+`delete \Windows\`+iniName)
 		}
-		return nil
+		cmd = append(cmd, `--command=`+`add `+ipq+` \Windows\`+iniName)
+
+		iout, ie := runWithTimeout(wimlib, cmd, 10*time.Minute)
+		_ = os.RemoveAll(tmp)
+		if ie != nil {
+			return fmt.Errorf("写ini失败 idx=%d: %v\n%s", idx, ie, iout)
+		}
 	}
 
-	tryDism := func() error {
-		if dism == "" {
-			return fmt.Errorf("wimlib不可用且无dism")
-		}
-		if mnt == "" {
-			return fmt.Errorf("dism回退需要mnt")
-		}
-		mnt, _ = filepath.Abs(mnt)
-		inf, err := runWithTimeout(dism, []string{"/English", "/Get-WimInfo", "/WimFile:" + wim}, 2*time.Minute)
-		if err != nil {
-			return fmt.Errorf("dism info失败: %v\n%s", err, inf)
-		}
-		re := regexp.MustCompile(`(?m)^\s*Index\s*:\s*(\d+)\s*$`)
-		ms := re.FindAllStringSubmatch(inf, -1)
-		var idxs []int
-		seen := map[int]bool{}
-		for _, m := range ms {
-			i, _ := strconv.Atoi(m[1])
-			if i > 0 && !seen[i] {
-				seen[i] = true
-				idxs = append(idxs, i)
-			}
-		}
-		if len(idxs) == 0 {
-			return fmt.Errorf("dism未解析到Index")
-		}
-
-		line := "EXEC =%WinDir%\\test.exe"
-		for _, idx := range idxs {
-			md := filepath.Join(mnt, fmt.Sprintf("idx_%d", idx))
-			_ = os.RemoveAll(md)
-			_ = os.MkdirAll(md, 0o755)
-
-			out, e := runWithTimeout(dism, []string{"/Mount-Image", "/ImageFile:" + wim, fmt.Sprintf("/Index:%d", idx), "/MountDir:" + md}, 20*time.Minute)
-			if e != nil {
-				_ = os.RemoveAll(md)
-				return fmt.Errorf("mount失败 idx=%d: %v\n%s", idx, e, out)
-			}
-
-			wd := filepath.Join(md, "Windows")
-			_ = os.MkdirAll(wd, 0o755)
-
-			sf, err := os.Open(testp)
-			if err != nil {
-				runWithTimeout(dism, []string{"/Unmount-Image", "/MountDir:" + md, "/Discard"}, 20*time.Minute)
-				_ = os.RemoveAll(md)
-				return fmt.Errorf("打开test.exe失败: %w", err)
-			}
-			df, err := os.Create(filepath.Join(wd, "test.exe"))
-			if err != nil {
-				_ = sf.Close()
-				runWithTimeout(dism, []string{"/Unmount-Image", "/MountDir:" + md, "/Discard"}, 20*time.Minute)
-				_ = os.RemoveAll(md)
-				return fmt.Errorf("创建test.exe失败: %w", err)
-			}
-			if _, err := io.Copy(df, sf); err != nil {
-				_ = df.Close()
-				_ = sf.Close()
-				runWithTimeout(dism, []string{"/Unmount-Image", "/MountDir:" + md, "/Discard"}, 20*time.Minute)
-				_ = os.RemoveAll(md)
-				return fmt.Errorf("写入test.exe失败: %w", err)
-			}
-			_ = df.Close()
-			_ = sf.Close()
-
-			inip := filepath.Join(wd, "Pecmd.ini")
-			b, _ := os.ReadFile(inip)
-			updated, err := appendExecLine(b, line)
-			if err != nil {
-				runWithTimeout(dism, []string{"/Unmount-Image", "/MountDir:" + md, "/Discard"}, 20*time.Minute)
-				_ = os.RemoveAll(md)
-				return fmt.Errorf("修改ini失败 idx=%d: %w", idx, err)
-			}
-			if err := os.WriteFile(inip, updated, 0o644); err != nil {
-				runWithTimeout(dism, []string{"/Unmount-Image", "/MountDir:" + md, "/Discard"}, 20*time.Minute)
-				_ = os.RemoveAll(md)
-				return fmt.Errorf("写入ini失败 idx=%d: %w", idx, err)
-			}
-
-			out, e = runWithTimeout(dism, []string{"/Unmount-Image", "/MountDir:" + md, "/Commit"}, 20*time.Minute)
-			_ = os.RemoveAll(md)
-			if e != nil {
-				return fmt.Errorf("commit失败 idx=%d: %v\n%s", idx, e, out)
-			}
-		}
-		_, _ = runWithTimeout(dism, []string{"/Cleanup-Wim"}, 5*time.Minute)
-		return nil
-	}
-
-	if err := tryWimlib(); err == nil {
-		return nil
-	}
-	return tryDism()
+	return nil
 }
 
 // 加载离线注册表 hive
