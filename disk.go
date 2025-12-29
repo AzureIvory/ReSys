@@ -273,6 +273,32 @@ func MergeVolume(vol string, sizeMB int) (string, error) {
 	return out, nil
 }
 
+// 删除指定卷（转为未分配空间）。
+// vol: 例如 "C" / "C:" / "C:\\"
+func DeleteVolume(vol string) (string, error) {
+	vol = strings.TrimSpace(vol)
+	if vol == "" {
+		return "", fmt.Errorf("卷标为空")
+	}
+	if len(vol) >= 2 && vol[1] == ':' {
+		vol = vol[:2]
+	}
+	if len(vol) == 1 {
+		vol = strings.ToUpper(vol) + ":"
+	}
+
+	lines := []string{
+		"select volume " + vol,
+		"delete volume",
+	}
+
+	out, err := RunDiskpart(lines)
+	if err != nil {
+		return out, fmt.Errorf("diskpart 执行失败: %w", err)
+	}
+	return out, nil
+}
+
 // 获取卷的文件系统类型和总大小（字节）
 func GetVolumeInfo(root string) (fsType string, totalBytes uint64, err error) {
 	root = normRoot(root)
