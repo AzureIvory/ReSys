@@ -16,7 +16,6 @@ import (
 	"unsafe"
 
 	"github.com/kdomanski/iso9660/util"
-	"github.com/twgh/xcgui/app"
 	"golang.org/x/text/encoding/simplifiedchinese"
 )
 
@@ -960,138 +959,12 @@ func GetBootMode() (int, int) {
 // pe专用
 func PE() int {
 	win2()
-	path, err := os.Getwd()
 
-	uiSetText := func(text string) {
-		app.CallUT(func() {
-			text_des.SetText(text)
-			text_des.Redraw()
-			w.Redraw(false)
-		})
-	}
-	uiSetProgress := func(pos int32) {
-		app.CallUT(func() {
-			progbar.SetPos(pos)
-			progbar.Redraw(false)
-			w.Redraw(false)
-		})
-	}
-	uiShowError := func(title, text string) {
-		app.CallUT(func() {
-			Message(w, title, text)
-		})
-	}
-	part := ""
-	drives, err := ListDrive()
-	fmt.Println(fmt.Sprint(drives), err)
-
-	uiSetProgress(0)
-	uiSetText("正在寻找镜像...")
-	img, err := Findimg()
-	if err != nil {
-		uiShowError("错误", "寻找镜像失败！"+err.Error())
+	if err := RunPEInstall(); err != nil {
+		uiShowError("错误", err.Error())
 		os.Exit(-1)
 		return -1
 	}
-	if img == nil {
-		uiSetText("未找到镜像文件！")
-		uiShowError("错误", "未找到镜像文件！")
-		os.Exit(-1)
-		return -1
-	}
-
-	if err != nil {
-		return -1
-	}
-	for _, root := range drives {
-		if _, err := os.Stat(filepath.Join(root, "reinstall_win.dat")); err == nil {
-			part = root
-		}
-	}
-	if part == "" {
-		os.Exit(-1)
-		return -1
-	}
-
-	fmt.Println(part)
-	uiSetText("正在格式化分区...")
-
-	err = Format(strings.ReplaceAll(strings.ReplaceAll(part, "\\", ""), ":", ""), "ntfs", "Windows", true)
-	if err != nil {
-		uiShowError("错误", "格式化失败！"+err.Error())
-		os.Exit(-1)
-	}
-
-	uiSetText("正在应用{" + img[0] + "}镜像...")
-	uiSetProgress(10)
-
-	ImageProgress = func(phase string, pct float64, raw string) {
-		if pct < 0 {
-			return
-		}
-		pos := int32(pct)
-		app.CallUT(func() {
-			if phase != "" {
-				text_des.SetText(fmt.Sprintf("正在应用镜像（%s）... %0.1f%%", phase, pct))
-			} else {
-				text_des.SetText(fmt.Sprintf("正在应用镜像... %0.1f%%", pct))
-			}
-			progbar.SetPos(pos)
-			progbar.Redraw(false)
-			text_des.Redraw()
-			w.Redraw(false)
-		})
-	}
-
-	if strings.ToLower(filepath.Ext(img[0])) == ".esd" {
-		if ApplyEsdImage(img[0], 1, part) != nil {
-			uiShowError("错误", "应用镜像失败！")
-			os.Exit(-1)
-		}
-	}
-	if strings.ToLower(filepath.Ext(img[0])) == ".wim" {
-		if ApplyWimImage(img[0], 1, part) != nil {
-			uiShowError("错误", "应用镜像失败！")
-			os.Exit(-1)
-		}
-	}
-	if strings.ToLower(filepath.Ext(img[0])) == ".iso" {
-		app.CallUT(func() {
-			text_des.SetText("正在处理ISO镜像...")
-			progbar.SetPos(10)
-			progbar.Redraw(false)
-			text_des.Redraw()
-			w.Redraw(false)
-		})
-		if err := ApplyISOImage(img[0], 1, part); err != nil {
-			uiShowError("错误", "安装ISO镜像失败！"+err.Error())
-			os.Exit(-1)
-		}
-	}
-	text_des.SetText("正在修复引导...")
-	if FixBoot(part, "", "zh-cn") != nil {
-		uiShowError("错误", "修复引导失败！")
-		os.Exit(-1)
-	}
-	uiSetText("正在处理自动应答文件...")
-
-	Copy(filepath.Join(path, "tools\\win10.xml"), filepath.Join(part, "Windows\\Panther\\Unattend.xml"), true, true)
-	Copy(filepath.Join(path, "tools\\HEU_KMS_Activator.exe"), filepath.Join(part, "HEU_KMS_Activator.exe"), true, true)
-	CreateShortcut(filepath.Join(part, "Users\\Public\\Desktop\\"), "应用商店", "https://store.ttraw.com/")
-	Copy(filepath.Join(path, "tools\\drive10.exe"), filepath.Join(part, "drive.exe"), true, true)
-
-	files := FindFileAll("DrvCeo.exe", 3)
-	//p := filepath.Join(filepath.Dir(path), "tools\\win10.xml")
-	//b, err := os.ReadFile(p)
-	//b = bytes.ReplaceAll(b,
-	//	[]byte(`C:\Users\Public\Desktop\driveceo.lnk`),
-	//	[]byte(files[0]),
-	//)
-
-	//os.WriteFile(p, b, 0644)
-	fmt.Println(files)
-	uiSetText("操作完成，正在重启...")
-	Shutdown(true)
 	return 0
 }
 

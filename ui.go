@@ -88,7 +88,24 @@ func Uiinit() {
 	progbar.SetPos(0)
 
 	//注册事件
-
+	btn_win7.AddEvent_BnClick(func(hEle int, pbHandled *bool) int {
+		if Message(w, "提示", "重装系统将会清除C盘数据,是否继续?") {
+			go StartInstall(targetWin7)
+		}
+		return 0
+	})
+	btn_win10.AddEvent_BnClick(func(hEle int, pbHandled *bool) int {
+		if Message(w, "提示", "重装系统将会清除C盘数据,是否继续?") {
+			go StartInstall(targetWin10)
+		}
+		return 0
+	})
+	btn_win11.AddEvent_BnClick(func(hEle int, pbHandled *bool) int {
+		if Message(w, "提示", "重装系统将会清除C盘数据,是否继续?") {
+			go StartInstall(targetWin11)
+		}
+		return 0
+	})
 }
 
 // 简单消息框
@@ -138,7 +155,7 @@ func Click_w7() {
 	btn_win7.AddEvent_BnClick(func(hEle int, pbHandled *bool) int {
 		if Message(w, "提示", "重装系统将会清除C盘数据,是否继续?") {
 			//点了确定后
-			win2()
+			go StartInstall(targetWin7)
 		}
 		return 0
 	})

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -21,8 +22,6 @@ const (
 )
 
 var hc = &http.Client{Timeout: 20 * time.Second}
-
-// ---------------- Windows Img ----------------
 
 type WinImg struct {
 	Arch  string  `json:"arch"`
@@ -46,9 +45,32 @@ func getb(u string) ([]byte, error) {
 	}
 	return io.ReadAll(rp.Body)
 }
+func localDataPath(name string) string {
+	exe, err := os.Executable()
+	if err != nil {
+		return name
+	}
+	return filepath.Join(filepath.Dir(exe), name)
+}
+
+func getbWithFallback(url, localPath string) ([]byte, error) {
+	if strings.TrimSpace(url) != "" {
+		if b, err := getb(url); err == nil {
+			return b, nil
+		}
+	}
+	if strings.TrimSpace(localPath) == "" {
+		return nil, fmt.Errorf("获取数据失败，且未提供本地文件")
+	}
+	b, err := os.ReadFile(localPath)
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
+}
 
 func GetWinImgs(key string) ([]WinImg, error) {
-	b, err := getb(winImgURL)
+	b, err := getbWithFallback(winImgURL, localDataPath("Windows.json"))
 	if err != nil {
 		return nil, fmt.Errorf("获取镜像信息失败: %w", err)
 	}
@@ -169,11 +191,10 @@ type WinPEImg struct {
 }
 
 type peEnt struct {
-	URL  string  `json:"url"`
-	Size float64 `json:"size,omitempty"`
-	MD5  string  `json:"md5,omitempty"`
-	// 形如："0x2071A4 | 0xD3B8DFE"（起始偏移 | 结束偏移）
-	Offset string `json:"offset,omitempty"`
+	URL    string  `json:"url"`
+	Size   float64 `json:"size,omitempty"`
+	MD5    string  `json:"md5,omitempty"`
+	Offset string  `json:"offset,omitempty"`
 }
 
 // UnmarshalJSON：兼容旧格式（"64": "url1|url2"）与新格式（"64": {"url": "...", "size": 123, ...}）
@@ -191,10 +212,10 @@ func (p *peEnt) UnmarshalJSON(b []byte) error {
 		return nil
 	}
 	var x struct {
-		URL  string  `json:"url"`
-		Size float64 `json:"size,omitempty"`
-		MD5  string  `json:"md5,omitempty"`
-		Offset string `json:"offset,omitempty"`
+		URL    string  `json:"url"`
+		Size   float64 `json:"size,omitempty"`
+		MD5    string  `json:"md5,omitempty"`
+		Offset string  `json:"offset,omitempty"`
 	}
 	if err := json.Unmarshal(b, &x); err != nil {
 		return err
@@ -252,7 +273,7 @@ func parseOffsetRange(s string) (start, end int64, ok bool, err error) {
 }
 
 func GetWinPE() ([]WinPEImg, error) {
-	b, err := getb(winPEURL)
+	b, err := getbWithFallback(winPEURL, localDataPath("WinPE.json"))
 	if err != nil {
 		return nil, fmt.Errorf("获取 PE 镜像信息失败: %w", err)
 	}
@@ -305,8 +326,18 @@ func GetWinPE() ([]WinPEImg, error) {
 					Name: nm, Grp: grp, Ver: ver, Sz: sz,
 					Arch: "64", Links: ln,
 					MD5: strings.TrimSpace(pv.X64.MD5),
-					OffsetStart: func() int64 { if ok { return oS }; return 0 }(),
-					OffsetEnd:   func() int64 { if ok { return oE }; return 0 }(),
+					OffsetStart: func() int64 {
+						if ok {
+							return oS
+						}
+						return 0
+					}(),
+					OffsetEnd: func() int64 {
+						if ok {
+							return oE
+						}
+						return 0
+					}(),
 				})
 			}
 			if u := strings.TrimSpace(pv.X32.URL); u != "" {
@@ -323,8 +354,18 @@ func GetWinPE() ([]WinPEImg, error) {
 					Name: nm, Grp: grp, Ver: ver, Sz: sz,
 					Arch: "32", Links: ln,
 					MD5: strings.TrimSpace(pv.X32.MD5),
-					OffsetStart: func() int64 { if ok { return oS }; return 0 }(),
-					OffsetEnd:   func() int64 { if ok { return oE }; return 0 }(),
+					OffsetStart: func() int64 {
+						if ok {
+							return oS
+						}
+						return 0
+					}(),
+					OffsetEnd: func() int64 {
+						if ok {
+							return oE
+						}
+						return 0
+					}(),
 				})
 			}
 		}
@@ -345,7 +386,7 @@ func GetWinPE() ([]WinPEImg, error) {
 // 返回：name / size(可选) / links(按优先级) / err
 func PELnk() (string, float64, []string, error) {
 	// 1) PEDownload.html 优先：尽量找 Win11 精简版；若找不到相关文字则取第一个链接
-	b, e1 := getb(peHtmlURL)
+	b, e1 := getbWithFallback(peHtmlURL, localDataPath("PEDownload.html"))
 	if e1 == nil {
 		txt := string(b)
 
