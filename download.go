@@ -337,7 +337,7 @@ func uniqueStrings(in []string) []string {
 // 使用 grab 下载大文件。
 // - 会先写 dstPath+".part"，成功后再重命名为 dstPath。
 // - 如果 .part 已存在且服务器支持 Range，会自动从已有位置续传。
-func DownloadFile(ctx context.Context, url, dstPath string, progressCallback func(float64)) error {
+func DownloadFile(ctx context.Context, url, dstPath string, progressCallback func(float64, int64)) error {
 	if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
 		return fmt.Errorf("create dir: %w", err)
 	}
@@ -359,7 +359,8 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 				return
 			default:
 				progress := resp.Progress()
-				progressCallback(progress * 100) // 通过回调返回进度
+				speed := int64(resp.BytesPerSecond())
+				progressCallback(progress*100, speed) // 通过回调返回进度
 				time.Sleep(1 * time.Second)
 			}
 		}
@@ -371,7 +372,7 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 	if err := os.Rename(tmpPath, dstPath); err != nil {
 		return fmt.Errorf("rename %s -> %s: %w", tmpPath, dstPath, err)
 	}
-	progressCallback(100)
+	progressCallback(100, 0)
 	return nil
 }
 

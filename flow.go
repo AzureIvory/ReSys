@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"crypto/md5"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/twgh/xcgui/app"
@@ -53,6 +56,70 @@ func uiShowError(title, text string) {
 	})
 }
 
+var (
+	logOnce sync.Once
+	logMu   sync.Mutex
+	logPath string
+)
+
+var (
+	failedLinksMu sync.Mutex
+	failedLinks   = map[string]struct{}{}
+)
+
+func markFailedLink(link string) {
+	link = strings.TrimSpace(link)
+	if link == "" {
+		return
+	}
+	failedLinksMu.Lock()
+	defer failedLinksMu.Unlock()
+	failedLinks[link] = struct{}{}
+}
+
+func isFailedLink(link string) bool {
+	link = strings.TrimSpace(link)
+	if link == "" {
+		return false
+	}
+	failedLinksMu.Lock()
+	defer failedLinksMu.Unlock()
+	_, ok := failedLinks[link]
+	return ok
+}
+
+// initLog：初始化日志文件（运行目录/log/yyyyMMdd_HHmmss.log）。
+func initLog() {
+	logOnce.Do(func() {
+		exe, err := os.Executable()
+		if err != nil {
+			return
+		}
+		base := filepath.Dir(exe)
+		logDir := filepath.Join(base, "log")
+		_ = os.MkdirAll(logDir, 0o755)
+		logPath = filepath.Join(logDir, time.Now().Format("20060102_150405")+".log")
+	})
+}
+
+// logWrite：写入一行日志（中文）。
+func logWrite(format string, args ...any) {
+	initLog()
+	if logPath == "" {
+		return
+	}
+	logMu.Lock()
+	defer logMu.Unlock()
+	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	msg := fmt.Sprintf(format, args...)
+	line := fmt.Sprintf("[%s] %s\n", time.Now().Format("2006-01-02 15:04:05"), msg)
+	_, _ = f.WriteString(line)
+}
+
 // 根据物理内存大小判断期望架构：
 // - <4GB 使用 32 位
 // - >=4GB 使用 64 位
@@ -77,29 +144,50 @@ func StartInstall(target string) {
 	win2()
 
 	arch := desiredArch()
+	logWrite("开始重装流程，目标系统=%s，期望架构=%s", target, arch)
 	uiSetProgress(0)
 	uiSetStatus("正在寻找镜像...")
 
-	imgPath, err := findOrDownloadImage(target, arch)
-	if err != nil {
-		uiShowError("错误", "镜像准备失败："+err.Error())
-		return
+	var imgPath string
+	for {
+		img, err := findOrDownloadImage(target, arch)
+		if err == nil {
+			imgPath = img
+			break
+		}
+		logWrite("镜像准备失败：%v", err)
+		if !MessageRetryExit(w, "错误", "镜像准备失败："+err.Error()) {
+			return
+		}
 	}
 	uiSetProgress(20)
 	uiSetStatus("正在写入重装信息...")
-	if err := writeResFile(imgPath); err != nil {
-		uiShowError("错误", "写入重装信息失败："+err.Error())
-		return
+	for {
+		if err := writeResFile(imgPath); err != nil {
+			logWrite("写入重装信息失败：%v", err)
+			if !MessageRetryExit(w, "错误", "写入重装信息失败："+err.Error()) {
+				return
+			}
+			continue
+		}
+		break
 	}
 
 	uiSetProgress(30)
 	uiSetStatus("正在准备PE环境...")
-	if err := ensurePEAndReboot(arch); err != nil {
-		uiShowError("错误", "准备PE失败："+err.Error())
-		return
+	for {
+		if err := ensurePEAndReboot(arch); err != nil {
+			logWrite("准备PE失败：%v", err)
+			if !MessageRetryExit(w, "错误", "准备PE失败："+err.Error()) {
+				return
+			}
+			continue
+		}
+		break
 	}
 	uiSetProgress(100)
 	uiSetStatus("即将重启进入PE...")
+	logWrite("准备完成，重启进入PE")
 	Shutdown(true)
 }
 
@@ -120,11 +208,14 @@ func findOrDownloadImage(target, arch string) (string, error) {
 func findLocalImage(target, arch string) (string, error) {
 	imgs, err := Findimg()
 	if err != nil {
+		logWrite("全盘搜索镜像失败：%v", err)
 		return "", err
 	}
 	if len(imgs) == 0 {
+		logWrite("全盘未找到镜像")
 		return "", fmt.Errorf("未找到本地镜像")
 	}
+	logWrite("搜索到镜像：%s", strings.Join(imgs, " | "))
 
 	var matchTarget []string
 	for _, p := range imgs {
@@ -154,6 +245,7 @@ func findLocalImage(target, arch string) (string, error) {
 	if len(byArch) == 0 {
 		byArch = matchTarget
 	}
+	logWrite("本地镜像筛选结果：%s", strings.Join(byArch, " | "))
 	return byArch[0], nil
 }
 
@@ -268,6 +360,7 @@ func chooseDownloadRoot() string {
 func downloadImage(target, arch string) (string, error) {
 	ent, err := GetWinImgs(target)
 	if err != nil {
+		logWrite("获取镜像列表失败：%v", err)
 		return "", err
 	}
 
@@ -278,14 +371,18 @@ func downloadImage(target, arch string) (string, error) {
 	if len(candidates) == 0 {
 		candidates = ent
 	}
+	logWrite("可用镜像数量：%d", len(candidates))
 
 	it, link, err := pickWinImg(candidates)
 	if err != nil {
+		logWrite("选择镜像失败：%v", err)
 		return "", err
 	}
+	logWrite("选择镜像：%s", it.File)
 
 	root := chooseDownloadRoot()
 	if root == "" {
+		logWrite("未找到可用下载分区")
 		return "", fmt.Errorf("未找到可用下载分区")
 	}
 	dstDir := filepath.Join(root, "镜像")
@@ -299,25 +396,31 @@ func downloadImage(target, arch string) (string, error) {
 	dstPath := filepath.Join(dstDir, name)
 
 	if st, err := os.Stat(dstPath); err == nil && !st.IsDir() && st.Size() > 0 {
+		logWrite("镜像已存在：%s", dstPath)
 		return dstPath, nil
 	}
 
 	if strings.EqualFold(strings.TrimSpace(it.Type), "url") {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		err = DownloadFile(ctx, link, dstPath, func(pct float64) {
-			uiSetStatus(fmt.Sprintf("正在下载镜像... %.1f%%", pct))
+		err = DownloadFile(ctx, link, dstPath, func(pct float64, speed int64) {
+			uiSetStatus(fmt.Sprintf("正在下载镜像... %.1f%% 速度: %.2f MB/s", pct, float64(speed)/1024/1024))
 			uiSetProgress(int32(pct))
+			logWrite("镜像下载进度：%.1f%% 速度: %.2f MB/s", pct, float64(speed)/1024/1024)
 		})
 	} else {
 		err = DownloadBT(link, dstDir, func(pct int, speed, done, total int64) {
-			uiSetStatus(fmt.Sprintf("正在下载镜像... %d%%", pct))
+			uiSetStatus(fmt.Sprintf("正在下载镜像... %d%% 速度: %.2f MB/s", pct, float64(speed)/1024/1024))
 			uiSetProgress(int32(pct))
+			logWrite("BT下载进度：%d%% 速度: %.2f MB/s", pct, float64(speed)/1024/1024)
 		})
 	}
 	if err != nil {
+		markFailedLink(link)
+		logWrite("镜像下载失败：%v", err)
 		return "", err
 	}
+	logWrite("镜像下载完成：%s", dstPath)
 	return dstPath, nil
 }
 
@@ -354,21 +457,28 @@ func pickWinImg(ent []WinImg) (WinImg, string, error) {
 		}
 	}
 
-	tryURL := func(it WinImg) (string, bool) {
+	tryURL := func(it WinImg) []string {
+		var links []string
 		link := strings.TrimSpace(it.Link)
-		if link != "" && httpStatus(link) {
-			return link, true
+		if link != "" {
+			links = append(links, link)
 		}
 		link = strings.TrimSpace(it.Link2)
-		if link != "" && httpStatus(link) {
-			return link, true
+		if link != "" {
+			links = append(links, link)
 		}
-		return "", false
+		return links
 	}
 
 	for _, it := range urlList {
-		if link, ok := tryURL(it); ok {
-			return it, link, nil
+		links := tryURL(it)
+		for _, link := range links {
+			if isFailedLink(link) {
+				continue
+			}
+			if httpStatus(link) {
+				return it, link, nil
+			}
 		}
 	}
 	if len(urlList) > 0 {
@@ -393,13 +503,18 @@ func pickWinImg(ent []WinImg) (WinImg, string, error) {
 // 下载后会写入自身到 WIM 并修改 Pecmd.ini，最后设置下次启动进入 PE。
 func ensurePEAndReboot(arch string) error {
 	if hasPEFiles() {
+		logWrite("检测到已有PE文件，直接进入PE")
 		return GoToPE()
 	}
+	logWrite("未检测到PE文件，开始下载/准备PE")
 	wimPath, err := downloadPE(arch)
 	if err != nil {
+		logWrite("下载PE失败：%v", err)
 		return err
 	}
+	logWrite("PE镜像准备完成：%s", wimPath)
 	if err := Patwim(wimPath); err != nil {
+		logWrite("写入自身到WIM失败：%v", err)
 		return err
 	}
 	return GoToPE()
@@ -409,6 +524,7 @@ func ensurePEAndReboot(arch string) error {
 func hasPEFiles() bool {
 	drives, err := ListDrive()
 	if err != nil {
+		logWrite("枚举盘符失败：%v", err)
 		return false
 	}
 	type pair struct {
@@ -428,11 +544,13 @@ func hasPEFiles() bool {
 				sdi, _ := FindFile(d, `PETEMP\*.sdi|PETEMP\*.SDI`, 1)
 				wim, _ := FindFile(d, `PETEMP\*.wim|PETEMP\*.WIM`, 1)
 				if len(sdi) > 0 && len(wim) > 0 {
+					logWrite("发现PETEMP中的PE文件：%s / %s", strings.Join(sdi, " | "), strings.Join(wim, " | "))
 					return true
 				}
 				continue
 			}
 			if fileExists(filepath.Join(d, o.sdi)) && fileExists(filepath.Join(d, o.wim)) {
+				logWrite("发现PE文件：%s %s", filepath.Join(d, o.sdi), filepath.Join(d, o.wim))
 				return true
 			}
 		}
@@ -455,6 +573,7 @@ func choosePETempRoot(needBytes int64) (string, error) {
 	if systemDrive != "" {
 		free, err := GetFreeSize(systemDrive)
 		if err == nil && int64(free) > needBytes {
+			logWrite("PETEMP使用系统盘：%s", systemDrive)
 			return systemDrive + `\`, nil
 		}
 	}
@@ -463,6 +582,7 @@ func choosePETempRoot(needBytes int64) (string, error) {
 		for _, p := range parts {
 			free, err := GetFreeSize(p)
 			if err == nil && int64(free) > needBytes {
+				logWrite("PETEMP使用分区：%s", p)
 				return p, nil
 			}
 		}
@@ -473,18 +593,12 @@ func choosePETempRoot(needBytes int64) (string, error) {
 	return "", fmt.Errorf("未找到可用分区")
 }
 
-// ensureCleanDir：创建并清空指定目录。
+// ensureCleanDir：创建指定目录（不删除已有文件）。
 func ensureCleanDir(dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	ents, err := os.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-	for _, ent := range ents {
-		_ = os.RemoveAll(filepath.Join(dir, ent.Name()))
-	}
+	logWrite("准备PETEMP目录：%s", dir)
 	return nil
 }
 
@@ -496,8 +610,10 @@ func downloadPE(arch string) (string, error) {
 	if arch == "" {
 		arch = "64"
 	}
+	logWrite("下载PE，目标架构=%s", arch)
 	peList, err := GetWinPE()
 	if err != nil {
+		logWrite("获取PE列表失败：%v", err)
 		return "", err
 	}
 
@@ -524,6 +640,12 @@ func downloadPE(arch string) (string, error) {
 		return out
 	}
 
+	// 优先在本地查找已下载的 WEPE 安装包（exe），匹配 MD5 后直接使用。
+	if wimPath, err := tryLocalWepe(wepe, arch); err == nil && wimPath != "" {
+		logWrite("使用本地WEPE成功：%s", wimPath)
+		return wimPath, nil
+	}
+
 	// tryDownload：尝试下载一个 PE 镜像，并准备 PETEMP。
 	tryDownload := func(it WinPEImg) (string, error) {
 		if len(it.Links) == 0 {
@@ -534,6 +656,7 @@ func downloadPE(arch string) (string, error) {
 				continue
 			}
 			if !httpStatus(link) {
+				logWrite("PE链接不可用：%s", link)
 				continue
 			}
 			needBytes := int64(it.Sz * 1024 * 1024)
@@ -553,22 +676,30 @@ func downloadPE(arch string) (string, error) {
 			if exePath != "" {
 				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 				defer cancel()
-				if err := DownloadFile(ctx, link, exePath, func(pct float64) {
-					uiSetStatus(fmt.Sprintf("正在下载PE... %.1f%%", pct))
+				if err := DownloadFile(ctx, link, exePath, func(pct float64, speed int64) {
+					uiSetStatus(fmt.Sprintf("正在下载PE... %.1f%% 速度: %.2f MB/s", pct, float64(speed)/1024/1024))
 					uiSetProgress(int32(pct))
+					logWrite("PE下载进度：%.1f%% 速度: %.2f MB/s", pct, float64(speed)/1024/1024)
 				}); err != nil {
+					markFailedLink(link)
+					logWrite("PE下载失败：%v", err)
 					continue
 				}
 				if err := PeelFile(exePath, fmt.Sprintf("%d", it.OffsetStart), fmt.Sprintf("%d", it.OffsetEnd), wimPath); err != nil {
+					markFailedLink(link)
+					logWrite("PE解包失败：%v", err)
 					continue
 				}
 			} else {
 				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 				defer cancel()
-				if err := DownloadFile(ctx, link, wimPath, func(pct float64) {
-					uiSetStatus(fmt.Sprintf("正在下载PE... %.1f%%", pct))
+				if err := DownloadFile(ctx, link, wimPath, func(pct float64, speed int64) {
+					uiSetStatus(fmt.Sprintf("正在下载PE... %.1f%% 速度: %.2f MB/s", pct, float64(speed)/1024/1024))
 					uiSetProgress(int32(pct))
+					logWrite("PE下载进度：%.1f%% 速度: %.2f MB/s", pct, float64(speed)/1024/1024)
 				}); err != nil {
+					markFailedLink(link)
+					logWrite("PE下载失败：%v", err)
 					continue
 				}
 			}
@@ -640,14 +771,18 @@ func downloadPEFromLinks(links []string) (string, error) {
 	wimPath := filepath.Join(peDir, "boot.wim")
 	for _, link := range out {
 		if !httpStatus(link) {
+			logWrite("PE链接不可用：%s", link)
 			continue
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 		defer cancel()
-		if err := DownloadFile(ctx, link, wimPath, func(pct float64) {
-			uiSetStatus(fmt.Sprintf("正在下载PE... %.1f%%", pct))
+		if err := DownloadFile(ctx, link, wimPath, func(pct float64, speed int64) {
+			uiSetStatus(fmt.Sprintf("正在下载PE... %.1f%% 速度: %.2f MB/s", pct, float64(speed)/1024/1024))
 			uiSetProgress(int32(pct))
+			logWrite("PE下载进度：%.1f%% 速度: %.2f MB/s", pct, float64(speed)/1024/1024)
 		}); err != nil {
+			markFailedLink(link)
+			logWrite("PE下载失败：%v", err)
 			continue
 		}
 		if err := copySDIToPETEMP(peDir); err != nil {
@@ -675,7 +810,124 @@ func copySDIToPETEMP(peDir string) error {
 			return err
 		}
 	}
+	logWrite("已复制SDI文件到PETEMP：%s", peDir)
 	return nil
+}
+
+// tryLocalWepe：优先在运行目录和用户下载目录中查找 WEPE 安装包。
+// 要求：文件名与列表匹配，且 MD5 校验一致；若有 offset 则直接 PeelFile 抽出 WIM。
+func tryLocalWepe(wepe []WinPEImg, arch string) (string, error) {
+	type cand struct {
+		img  WinPEImg
+		name string
+	}
+	var all []cand
+	for _, it := range wepe {
+		for _, link := range it.Links {
+			base := filepath.Base(strings.Split(link, "?")[0])
+			if base == "" || base == "." || base == "/" {
+				continue
+			}
+			all = append(all, cand{img: it, name: base})
+			break
+		}
+	}
+	if len(all) == 0 {
+		return "", fmt.Errorf("未找到可用WEPE列表")
+	}
+
+	preferredArch := arch
+	order := func(list []cand) []cand {
+		var a, b []cand
+		for _, it := range list {
+			if strings.TrimSpace(it.img.Arch) == preferredArch {
+				a = append(a, it)
+			} else {
+				b = append(b, it)
+			}
+		}
+		return append(a, b...)
+	}
+	all = order(all)
+
+	searchDirs := localWepeSearchDirs()
+	logWrite("本地WEPE搜索目录：%s", strings.Join(searchDirs, " | "))
+	for _, dir := range searchDirs {
+		if dir == "" {
+			continue
+		}
+		for _, it := range all {
+			candPath := filepath.Join(dir, it.name)
+			if !fileExists(candPath) {
+				continue
+			}
+			if strings.TrimSpace(it.img.MD5) != "" {
+				ok, err := matchMD5(candPath, it.img.MD5)
+				if err != nil || !ok {
+					logWrite("WEPE MD5 校验失败：%s", candPath)
+					continue
+				}
+			}
+			needBytes := int64(it.img.Sz * 1024 * 1024)
+			root, err := choosePETempRoot(needBytes * 2)
+			if err != nil {
+				return "", err
+			}
+			peDir := filepath.Join(root, "PETEMP")
+			if err := ensureCleanDir(peDir); err != nil {
+				return "", err
+			}
+			wimPath := filepath.Join(peDir, "boot.wim")
+			if it.img.OffsetEnd > it.img.OffsetStart {
+				if err := PeelFile(candPath, fmt.Sprintf("%d", it.img.OffsetStart), fmt.Sprintf("%d", it.img.OffsetEnd), wimPath); err != nil {
+					continue
+				}
+			} else {
+				if err := Copy(candPath, wimPath, true, true); err != nil {
+					continue
+				}
+			}
+			if err := copySDIToPETEMP(peDir); err != nil {
+				return "", err
+			}
+			logWrite("本地WEPE准备完成：%s", wimPath)
+			return wimPath, nil
+		}
+	}
+	return "", fmt.Errorf("未找到本地WEPE")
+}
+
+// localWepeSearchDirs：返回本地 WEPE 搜索目录（运行目录优先，其次下载目录）。
+func localWepeSearchDirs() []string {
+	var out []string
+	exe, err := os.Executable()
+	if err == nil {
+		out = append(out, filepath.Dir(exe))
+	}
+	userProfile := strings.TrimSpace(os.Getenv("USERPROFILE"))
+	if userProfile != "" {
+		out = append(out, filepath.Join(userProfile, "Downloads"))
+	}
+	drives, _ := ListDrive()
+	for _, d := range drives {
+		out = append(out, filepath.Join(d, "PETEMP"))
+	}
+	return out
+}
+
+// matchMD5：计算文件 MD5 并与期望值比较。
+func matchMD5(path, expect string) (bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	h := md5.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return false, err
+	}
+	got := fmt.Sprintf("%x", h.Sum(nil))
+	return strings.EqualFold(strings.TrimSpace(got), strings.TrimSpace(expect)), nil
 }
 
 // RunPEInstall：在 PE 模式执行安装流程。
@@ -689,9 +941,11 @@ func copySDIToPETEMP(peDir string) error {
 func RunPEInstall() error {
 	uiSetProgress(0)
 	uiSetStatus("正在读取重装信息...")
+	logWrite("进入PE安装流程")
 
 	targetRoot, diskPath, imagePath, err := loadResData()
 	if err != nil {
+		logWrite("读取重装信息失败：%v", err)
 		targetRoot = ""
 		diskPath = ""
 		imagePath = ""
@@ -705,18 +959,21 @@ func RunPEInstall() error {
 
 	if imagePath == "" {
 		uiSetStatus("未找到重装镜像，尝试本地搜索...")
+		logWrite("尝试本地搜索镜像")
 		if local, lerr := findLocalImage("", ""); lerr == nil {
 			imagePath = local
 		}
 	}
 	if imagePath == "" {
 		uiSetStatus("未找到本地镜像，尝试下载Win10...")
+		logWrite("本地无镜像，尝试下载Win10")
 		if dl, derr := downloadImage(targetWin10, "64"); derr == nil {
 			imagePath = dl
 		} else {
 			return fmt.Errorf("未找到镜像且下载失败: %w", derr)
 		}
 	}
+	logWrite("最终使用镜像：%s", imagePath)
 
 	if targetRoot == "" {
 		targetRoot = chooseInstallTargetRoot()
@@ -724,6 +981,7 @@ func RunPEInstall() error {
 			return fmt.Errorf("未找到可用系统分区")
 		}
 	}
+	logWrite("目标分区：%s", targetRoot)
 
 	uiSetProgress(10)
 	uiSetStatus("正在准备分区...")
@@ -745,6 +1003,7 @@ func RunPEInstall() error {
 			if err != nil {
 				return err
 			}
+			logWrite("C盘无空闲分区，已拆分分区：%s", newVol)
 			tempVol = normalizeRootPath(newVol)
 			newPath := filepath.Join(tempVol, filepath.Base(imagePath))
 			if err := Copy(imagePath, newPath, true, true); err != nil {
@@ -758,6 +1017,7 @@ func RunPEInstall() error {
 	if err := Format(strings.ReplaceAll(strings.ReplaceAll(targetRoot, "\\", ""), ":", ""), "ntfs", "Windows", true); err != nil {
 		return fmt.Errorf("格式化失败: %w", err)
 	}
+	logWrite("格式化完成：%s", targetRoot)
 
 	uiSetProgress(20)
 	uiSetStatus("正在解析镜像...")
@@ -765,7 +1025,9 @@ func RunPEInstall() error {
 	index := 1
 	if err == nil {
 		index = selectInstallIndex(infos)
+		logWrite("镜像索引列表：%s", formatImageInfos(infos))
 	}
+	logWrite("选择镜像索引：%d", index)
 
 	uiSetStatus(fmt.Sprintf("正在应用镜像（索引 %d）...", index))
 	ImageProgress = func(phase string, pct float64, raw string) {
@@ -797,6 +1059,7 @@ func RunPEInstall() error {
 	if err := FixBoot(targetRoot, "", "zh-cn"); err != nil {
 		return err
 	}
+	logWrite("引导修复完成")
 
 	targetOS := detectTargetFromInfos(infos)
 	if targetOS == "" {
@@ -805,14 +1068,17 @@ func RunPEInstall() error {
 	if err := postInstallTasks(targetRoot, targetOS); err != nil {
 		return err
 	}
+	logWrite("安装后处理完成")
 
 	if tempVol != "" {
 		_, _ = DeleteVolume(tempVol)
 		_, _ = MergeVolume(targetRoot, 0)
+		logWrite("已合并临时分区回系统分区：%s", targetRoot)
 	}
 
 	uiSetStatus("安装完成，正在重启...")
 	uiSetProgress(100)
+	logWrite("PE安装流程完成，准备重启")
 	Shutdown(true)
 	return nil
 }
@@ -821,6 +1087,7 @@ func RunPEInstall() error {
 func chooseInstallTargetRoot() string {
 	parts := Findpart()
 	if len(parts) > 0 {
+		logWrite("选择未装系统分区：%s", parts[0])
 		return normalizeRootPath(parts[0])
 	}
 	drives, _ := ListDrive()
@@ -829,6 +1096,7 @@ func chooseInstallTargetRoot() string {
 			continue
 		}
 		if GetDriveType(d) == driveFixed {
+			logWrite("回退选择固定盘分区：%s", d)
 			return normalizeRootPath(d)
 		}
 	}
@@ -869,6 +1137,7 @@ func postInstallTasks(targetRoot, targetOS string) error {
 	_ = Copy(unattend, filepath.Join(targetRoot, "Windows", "Panther", "Unattend.xml"), true, true)
 	_ = Copy(filepath.Join(baseDir, "tools", "HEU_KMS_Activator.exe"), filepath.Join(targetRoot, "HEU_KMS_Activator.exe"), true, true)
 	_, _ = CreateShortcut(filepath.Join(targetRoot, "Users", "Public", "Desktop")+`\\`, "百度", "https://www.baidu.com")
+	logWrite("已写入应答文件/激活工具/快捷方式")
 
 	driveExe := filepath.Join(baseDir, "tools", "drive10.exe")
 	if targetOS == targetWin7 {
@@ -877,5 +1146,16 @@ func postInstallTasks(targetRoot, targetOS string) error {
 	if fileExists(driveExe) {
 		_ = Copy(driveExe, filepath.Join(targetRoot, "drive.exe"), true, true)
 	}
+	logWrite("驱动安装工具准备完成")
 	return nil
+}
+
+// formatImageInfos：格式化镜像索引信息用于日志输出。
+func formatImageInfos(infos []ImageMeta) string {
+	var parts []string
+	for _, info := range infos {
+		parts = append(parts, fmt.Sprintf("Index=%d Name=%s Desc=%s Edition=%s Flags=%s Arch=%s",
+			info.Index, info.Name, info.Description, info.Edition, info.Flags, info.Arch))
+	}
+	return strings.Join(parts, " | ")
 }

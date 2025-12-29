@@ -748,7 +748,15 @@ func FindFile(root string, pattern string, maxDepth int) ([]string, error) {
 	skipDirs := map[string]struct{}{
 		"system volume information": {},
 		"$recycle.bin":              {},
-		"windows":                   {},
+		"Windows":                   {},
+		"Program Files":             {},
+		"Program Files (x86)":       {},
+		"ProgramData":               {},
+		"AppData":                   {},
+		"Music":                     {},
+		"Pictures":                  {},
+		"Videos":                    {},
+		"Temp":                      {},
 	}
 
 	var matches []string
@@ -1201,7 +1209,7 @@ func selectInstallIndex(infos []ImageMeta) int {
 	return infos[len(infos)-1].Index
 }
 
-// 返回没装系统而且有足够大小的分区数组
+// 返回有足够大小的分区数组
 // SSD>HDD>USB
 func Findpart() []string {
 	D, err := ListDrive()
@@ -1222,9 +1230,9 @@ func Findpart() []string {
 		root := D[i]
 
 		// 有 Windows 目录的认为已经装系统，跳过
-		if dirExists(root + "Windows\\") {
-			continue
-		}
+		//if dirExists(root + "Windows\\") {
+		//	continue
+		//}
 
 		// 剩余空间
 		freeBytes, err := GetFreeSize(root)
@@ -1288,6 +1296,7 @@ func Findpart() []string {
 	for _, c := range cs {
 		part = append(part, c.path)
 	}
+	logWrite("Findpart: %v", part)
 	return part
 }
 
@@ -1642,7 +1651,11 @@ func Patwim(wim string) error {
 	if wim == "" {
 		return fmt.Errorf("wim为空")
 	}
-	wim, _ = filepath.Abs(wim)
+	wimAbs, err := filepath.Abs(wim)
+	if err != nil {
+		return err
+	}
+	wim = wimAbs
 
 	// 自身程序路径 & 名字
 	selfExe, err := os.Executable()
@@ -1857,24 +1870,90 @@ func Patwim(wim string) error {
 		return fmt.Errorf("找不到 wimlib-imagex.exe（PATH 或 %s）", filepath.Join(dir, "tools", "wimlib-imagex.exe"))
 	}
 
-	// 获取所有 Index
-	out, err := runWithTimeout(wimlib, []string{"info", wim}, 2*time.Minute)
-	if err != nil {
-		return fmt.Errorf("wimlib info失败: %w\n%s", err, out)
-	}
-	reIdx := regexp.MustCompile(`(?m)^\s*Image\s+(\d+)\s*:`)
-	ms := reIdx.FindAllStringSubmatch(out, -1)
-	var idxs []int
-	seen := map[int]bool{}
-	for _, m := range ms {
-		i, _ := strconv.Atoi(m[1])
-		if i > 0 && !seen[i] {
-			seen[i] = true
-			idxs = append(idxs, i)
+	// ---- 获取 Index：info 文本 -> info --xml -> 默认 1 ----
+	getIdxs := func() ([]int, error) {
+		out, err := runWithTimeout(wimlib, []string{"info", wim}, 2*time.Minute)
+		if err != nil {
+			return nil, fmt.Errorf("wimlib info失败: %w\n%s", err, out)
 		}
+
+		// 先用你原来的文本输出解析
+		reIdx := regexp.MustCompile(`(?m)^\s*Image\s+(\d+)\s*:`)
+		ms := reIdx.FindAllStringSubmatch(out, -1)
+
+		seen := map[int]bool{}
+		idxs := make([]int, 0, len(ms))
+		for _, m := range ms {
+			i, _ := strconv.Atoi(m[1])
+			if i > 0 && !seen[i] {
+				seen[i] = true
+				idxs = append(idxs, i)
+			}
+		}
+		if len(idxs) > 0 {
+			return idxs, nil
+		}
+
+		// 兜底：用 --xml（通常是 UTF-16LE + BOM）
+		xout, xerr := runWithTimeout(wimlib, []string{"info", wim, "--xml"}, 2*time.Minute)
+		if xerr == nil && len(xout) > 0 {
+			b := []byte(xout)
+
+			// 如果是 UTF-16LE BOM: FF FE，解码成 UTF-8 string
+			if len(b) >= 2 && b[0] == 0xFF && b[1] == 0xFE {
+				raw := b[2:]
+				if len(raw)%2 != 0 {
+					raw = raw[:len(raw)-1]
+				}
+				u := make([]uint16, len(raw)/2)
+				for i := range u {
+					u[i] = binary.LittleEndian.Uint16(raw[i*2 : i*2+2])
+				}
+				s := string(utf16.Decode(u))
+
+				reXML := regexp.MustCompile(`(?i)<\s*image\b[^>]*\bindex\s*=\s*"(\d+)"`)
+				ms2 := reXML.FindAllStringSubmatch(s, -1)
+
+				seen2 := map[int]bool{}
+				idxs2 := make([]int, 0, len(ms2))
+				for _, m := range ms2 {
+					i, _ := strconv.Atoi(m[1])
+					if i > 0 && !seen2[i] {
+						seen2[i] = true
+						idxs2 = append(idxs2, i)
+					}
+				}
+				if len(idxs2) > 0 {
+					return idxs2, nil
+				}
+			} else {
+				// 不是 BOM，就当作 UTF-8/XML 直接扫一下（兼容某些输出）
+				s := xout
+				reXML := regexp.MustCompile(`(?i)<\s*image\b[^>]*\bindex\s*=\s*"(\d+)"`)
+				ms2 := reXML.FindAllStringSubmatch(s, -1)
+
+				seen2 := map[int]bool{}
+				idxs2 := make([]int, 0, len(ms2))
+				for _, m := range ms2 {
+					i, _ := strconv.Atoi(m[1])
+					if i > 0 && !seen2[i] {
+						seen2[i] = true
+						idxs2 = append(idxs2, i)
+					}
+				}
+				if len(idxs2) > 0 {
+					return idxs2, nil
+				}
+			}
+		}
+
+		// 再兜底：默认走 1（不要省略 IMAGE，避免参数歧义）
+		return []int{1}, nil
 	}
-	if len(idxs) == 0 {
-		return fmt.Errorf("未解析到Index")
+
+	idxs, err := getIdxs()
+	if err != nil {
+		return err
 	}
 
 	// 启动项
@@ -1882,7 +1961,8 @@ func Patwim(wim string) error {
 
 	// 对每个 Index 写入自身 exe + 修改 Pecmd.ini
 	for _, idx := range idxs {
-		dout, de := runWithTimeout(wimlib, []string{"dir", wim, strconv.Itoa(idx), `\Windows`}, 2*time.Minute)
+		// 注意：dir 要用 --path
+		dout, de := runWithTimeout(wimlib, []string{"dir", wim, strconv.Itoa(idx), `--path=\Windows`}, 2*time.Minute)
 		if de != nil {
 			return fmt.Errorf("dir失败 idx=%d: %v\n%s", idx, de, dout)
 		}
@@ -1924,7 +2004,10 @@ func Patwim(wim string) error {
 		// 抽取并修改 Pecmd.ini
 		tmp, _ := os.MkdirTemp("", "wim_")
 		// 不用 defer（避免循环里堆积），用完就清
-		_, _ = runWithTimeout(wimlib, []string{"extract", wim, strconv.Itoa(idx), `\Windows\` + iniName, "--dest-dir=" + tmp}, 5*time.Minute)
+		_, _ = runWithTimeout(wimlib,
+			[]string{"extract", wim, strconv.Itoa(idx), `\Windows\` + iniName, "--dest-dir=" + tmp},
+			5*time.Minute,
+		)
 
 		p1 := filepath.Join(tmp, "Windows", iniName)
 		p2 := filepath.Join(tmp, iniName)

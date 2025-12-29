@@ -138,6 +138,37 @@ func Message(w *window.Window, title, text string) bool {
 
 	return isOK
 }
+
+// 重试/退出消息框，返回 true 表示重试。
+func MessageRetryExit(w *window.Window, title, text string) bool {
+	retry := false
+	md := w.Msg_Create(title, text,
+		xcc.MessageBox_Flag_Ok|xcc.MessageBox_Flag_Cancel,
+		xcc.Window_Style_Modal)
+	md.SetBorderSize(0, 34, 0, 0)
+	md.SetTransparentType(xcc.Window_Transparent_Shadow)
+	md.SetTransparentAlpha(240)
+	md.SetShadowInfo(4, 255, 6, false, 0)
+	for i := int32(0); i < md.GetChildCount(); i++ {
+		hEle := md.GetChildByIndex(i)
+		if xc.XC_IsHXCGUI(hEle, xcc.XC_BUTTON) {
+			btn := widget.NewButtonByHandle(hEle)
+			txt := btn.GetText()
+			if txt == "确 定" || txt == "确定" {
+				btn.SetText("重试")
+				btn.AddEvent_BnClick(func(hEle int, pbHandled *bool) int {
+					retry = true
+					return 0
+				})
+			} else if txt == "取 消" || txt == "取消" {
+				btn.SetText("退出")
+			}
+		}
+	}
+	md.DoModal()
+	return retry
+}
+
 func test(p *widget.ProgressBar) {
 
 	s := 0

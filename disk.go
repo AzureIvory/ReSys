@@ -4,10 +4,12 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -650,6 +652,7 @@ func ListDrive() ([]string, error) {
 			drives = append(drives, syscall.UTF16ToString(buf[i:j]))
 			i = j + 1
 		}
+		logWrite(fmt.Sprintf("[ListDrive] 枚举磁盘: %v\n", drives))
 		return drives, nil
 	}
 
@@ -708,19 +711,22 @@ func RunDiskpart(lines []string) (string, error) {
 
 	script := strings.Join(lines, "\r\n") + "\r\n"
 
-	f, err := os.CreateTemp("", "dp_fmt_*.txt")
+	// 在当前运行目录创建临时脚本文件（不使用系统临时目录）
+	name := fmt.Sprintf("dp_fmt_%d.txt", time.Now().UnixNano())
+	path := filepath.Join(".", name)
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
-		return "", fmt.Errorf("create temp script failed: %w", err)
+		return "", fmt.Errorf("create script in workdir failed: %w", err)
 	}
-	path := f.Name()
-	defer os.Remove(path)
+	defer Remove(path, false) //用完就删除
 
 	if _, err := f.WriteString(script); err != nil {
-		f.Close()
-		return "", fmt.Errorf("write temp script failed: %w", err)
+		_ = f.Close()
+		return "", fmt.Errorf("write script failed: %w", err)
 	}
 	if err := f.Close(); err != nil {
-		return "", fmt.Errorf("close temp script failed: %w", err)
+		return "", fmt.Errorf("close script failed: %w", err)
 	}
 
 	out, err := runCmd("diskpart.exe", nil, "/s", path)
