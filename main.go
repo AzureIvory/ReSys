@@ -3,7 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"encoding/binary"
+
 	"errors"
 	"fmt"
 	"os"
@@ -21,46 +21,7 @@ import (
 )
 
 // UI 可以在初始化时赋值，用于显示进度条。
-// phase: 阶段（例："Creating files", "Extracting", "Applying metadata", "DISM" 等）
-// percent: 0~100（如果没解析到就传 -1）
-// raw: 原始行
 var ImageProgress func(phase string, percent float64, raw string)
-
-var (
-	modShell32                  = syscall.NewLazyDLL("shell32.dll")
-	procShellExecuteW           = modShell32.NewProc("ShellExecuteW")
-	modKernel32                 = syscall.NewLazyDLL("kernel32.dll")
-	procGetLogicalDriveStringsW = modKernel32.NewProc("GetLogicalDriveStringsW")
-	procGetDriveTypeW           = modKernel32.NewProc("GetDriveTypeW")
-	procCopyFileW               = modKernel32.NewProc("CopyFileW")
-	//关机相关
-	modUser32              = syscall.NewLazyDLL("user32.dll")
-	modAdvapi32            = syscall.NewLazyDLL("advapi32.dll")
-	procExitWindowsEx      = modUser32.NewProc("ExitWindowsEx")
-	procOpenProcessToken   = modAdvapi32.NewProc("OpenProcessToken")
-	procLookupPrivilegeVal = modAdvapi32.NewProc("LookupPrivilegeValueW")
-	procAdjustTokenPriv    = modAdvapi32.NewProc("AdjustTokenPrivileges")
-)
-
-const (
-	driveUnknown = 0
-	driveNoRoot  = 1
-	driveRemov   = 2
-	driveFixed   = 3
-	driveRemote  = 4
-	driveCdrom   = 5
-	driveRamdisk = 6
-	//磁盘相关
-	ioctlVolumeGetVolumeDiskExtents = 0x00560000 // IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS
-	ioctlDiskGetDriveLayoutEx       = 0x00070050 // IOCTL_DISK_GET_DRIVE_LAYOUT_EX
-	partitionStyleMBR               = 0          // PARTITION_STYLE_MBR
-	partitionStyleGPT               = 1          // PARTITION_STYLE_GPT
-	partitionStyleRAW               = 2          // PARTITION_STYLE_RAW
-)
-
-const (
-	swHide = 0
-)
 
 // 调用ShellExecuteW执行指定动作（如 "mount" / "open"）。
 func shellExecuteVerb(path string, verb string) error {
@@ -89,77 +50,6 @@ func shellExecuteVerb(path string, verb string) error {
 		return fmt.Errorf("ShellExecuteW failed: ret=%d", r)
 	}
 	return nil
-}
-
-// 返回当前系统所有逻辑盘根路径，如 "C:\", "D:\" 等。
-func ListDrive() ([]string, error) {
-	// GetLogicalDriveStringsW 正常拿
-	buf := make([]uint16, 256)
-	r, _, err := procGetLogicalDriveStringsW.Call(
-		uintptr(len(buf)),
-		uintptr(unsafe.Pointer(&buf[0])),
-	)
-	if r != 0 {
-		n := int(r)
-		drives := make([]string, 0, 26)
-		for i := 0; i < n; {
-			j := i
-			for j < n && buf[j] != 0 {
-				j++
-			}
-			if j == i {
-				break
-			}
-			drives = append(drives, syscall.UTF16ToString(buf[i:j]))
-			i = j + 1
-		}
-		return drives, nil
-	}
-
-	// 失败就遍历 A-Z（兜底）
-	drives := make([]string, 0, 26)
-	for c := 'A'; c <= 'Z'; c++ {
-		root := fmt.Sprintf("%c:\\", c)
-		p := syscall.StringToUTF16Ptr(root)
-		t, _, _ := procGetDriveTypeW.Call(uintptr(unsafe.Pointer(p)))
-		// DRIVE_NO_ROOT_DIR(1) 表示不存在
-		if t != 1 {
-			drives = append(drives, root)
-		}
-	}
-
-	if len(drives) == 0 {
-		if err != syscall.Errno(0) {
-			return nil, err
-		}
-		return nil, fmt.Errorf("failed to list drives")
-	}
-	return drives, nil
-}
-
-// 判断盘符类型。
-func GetDriveType(root string) uint32 {
-	pRoot, err := syscall.UTF16PtrFromString(root)
-	if err != nil {
-		return driveUnknown
-	}
-	r, _, _ := procGetDriveTypeW.Call(uintptr(unsafe.Pointer(pRoot)))
-	return uint32(r)
-}
-
-// 列出当前系统中的所有光驱盘符。
-func ListCD() ([]string, error) {
-	roots, err := ListDrive()
-	if err != nil {
-		return nil, err
-	}
-	var cds []string
-	for _, r := range roots {
-		if GetDriveType(r) == driveCdrom {
-			cds = append(cds, r)
-		}
-	}
-	return cds, nil
 }
 
 // 使用ShellExecute挂载ISO，返回新挂载出来的光驱盘符
@@ -226,7 +116,6 @@ func UnpackISO(isoPath, dstDir string) error {
 
 // 执行外部命令，返回stdout+stderr文本。
 // onLine：不为 nil 时，每输出一行（或一条 \r 结尾的进度）就回调一次。
-// 这个是同步函数
 func runCmd(bin string, onLine func(string), args ...string) (string, error) {
 	cmd := exec.Command(bin, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
@@ -334,18 +223,6 @@ func normRoot(vol string) string {
 	v = strings.ReplaceAll(v, `/`, `\`)
 	return v
 }
-
-// 固件类型检测BIOS/UEFI
-var (
-	procGetFirmwareType = modKernel32.NewProc("GetFirmwareType")
-)
-
-const (
-	fwTypeUnknown = 0
-	fwTypeBios    = 1
-	fwTypeUefi    = 2
-	fwTypeMax     = 3
-)
 
 func GetFwType() (uint32, error) {
 	var t uint32
@@ -560,89 +437,6 @@ func ApplyISOImage(isoPath string, index int, targetVol string) error {
 	return fmt.Errorf("ISO安装镜像类型不支持！")
 }
 
-var (
-	procGetVolumeInformationW = modKernel32.NewProc("GetVolumeInformationW")
-	procGetDiskFreeSpaceExW   = modKernel32.NewProc("GetDiskFreeSpaceExW")
-)
-
-// 获取卷的文件系统类型和总大小（字节）
-func getVolumeInfo(root string) (fsType string, totalBytes uint64, err error) {
-	root = normRoot(root)
-	if root == "" {
-		return "", 0, fmt.Errorf("empty root")
-	}
-	pRoot, e := syscall.UTF16PtrFromString(root)
-	if e != nil {
-		return "", 0, e
-	}
-
-	volName := make([]uint16, 256)
-	fsName := make([]uint16, 256)
-	var serial, maxCompLen, flags uint32
-
-	r1, _, e1 := procGetVolumeInformationW.Call(
-		uintptr(unsafe.Pointer(pRoot)),
-		uintptr(unsafe.Pointer(&volName[0])),
-		uintptr(len(volName)),
-		uintptr(unsafe.Pointer(&serial)),
-		uintptr(unsafe.Pointer(&maxCompLen)),
-		uintptr(unsafe.Pointer(&flags)),
-		uintptr(unsafe.Pointer(&fsName[0])),
-		uintptr(len(fsName)),
-	)
-	if r1 == 0 {
-		if e1 != nil && e1 != syscall.Errno(0) {
-			return "", 0, fmt.Errorf("GetVolumeInformationW: %w", e1)
-		}
-		return "", 0, fmt.Errorf("GetVolumeInformationW failed")
-	}
-	fsType = strings.ToUpper(syscall.UTF16ToString(fsName))
-
-	var freeBytes, total, freeTotal uint64
-	r2, _, e2 := procGetDiskFreeSpaceExW.Call(
-		uintptr(unsafe.Pointer(pRoot)),
-		uintptr(unsafe.Pointer(&freeBytes)),
-		uintptr(unsafe.Pointer(&total)),
-		uintptr(unsafe.Pointer(&freeTotal)),
-	)
-	if r2 == 0 {
-		if e2 != nil && e2 != syscall.Errno(0) {
-			return fsType, 0, fmt.Errorf("GetDiskFreeSpaceExW: %w", e2)
-		}
-		return fsType, 0, fmt.Errorf("GetDiskFreeSpaceExW failed")
-	}
-	return fsType, total, nil
-}
-
-// 读取指定卷的剩余空间
-func GetFreeSize(vol string) (freeBytes uint64, err error) {
-	root := normRoot(vol)
-	if root == "" {
-		return 0, fmt.Errorf("empty volume")
-	}
-
-	pRoot, e := syscall.UTF16PtrFromString(root)
-	if e != nil {
-		return 0, e
-	}
-
-	var freeAvail, total, freeTotal uint64
-
-	r, _, e2 := procGetDiskFreeSpaceExW.Call(
-		uintptr(unsafe.Pointer(pRoot)),
-		uintptr(unsafe.Pointer(&freeAvail)), // 当前用户可用空间
-		uintptr(unsafe.Pointer(&total)),     // 卷总大小
-		uintptr(unsafe.Pointer(&freeTotal)), // 卷总空闲（包括管理员保留）
-	)
-	if r == 0 {
-		if e2 != nil && e2 != syscall.Errno(0) {
-			return 0, fmt.Errorf("GetDiskFreeSpaceExW: %w", e2)
-		}
-		return 0, fmt.Errorf("GetDiskFreeSpaceExW failed")
-	}
-	return freeAvail, nil
-}
-
 // 找系统分区（有 \Windows 目录的卷）
 func FindOS(hint string) (string, error) {
 	// 先用参数的看看有没有
@@ -713,7 +507,7 @@ func FindESP(osRoot string) (string, error) {
 			continue
 		}
 
-		fs, size, err := getVolumeInfo(root)
+		fs, size, err := GetVolumeInfo(root)
 		if err != nil {
 			continue
 		}
@@ -837,7 +631,7 @@ func FixUEFI(osRoot, sysHint, locale string) error {
 	if sysHint != "" {
 		r := normRoot(sysHint)
 		if r != "" {
-			if fs, _, err := getVolumeInfo(r); err == nil && fs == "FAT32" {
+			if fs, _, err := GetVolumeInfo(r); err == nil && fs == "FAT32" {
 				sysRoot = r
 				fmt.Println("[FixUEFI] use sysVol hint:", sysRoot)
 			} else {
@@ -925,160 +719,6 @@ func FixBIOS(osRoot, sysHint, locale string) error {
 	fmt.Println("[FixBIOS] bcdboot ok")
 	fmt.Println(out)
 	return nil
-}
-
-// DISK_EXTENT
-type diskExtent struct {
-	DiskNumber     uint32
-	_              uint32
-	StartingOffset int64
-	ExtentLength   int64
-}
-
-// VOLUME_DISK_EXTENTS
-type volumeDiskExtents struct {
-	NumberOfDiskExtents uint32
-	_                   uint32
-	Extents             [1]diskExtent
-}
-
-// 根据分区取第一个物理磁盘号
-func GetDiskNum(vol string) (uint32, error) {
-	root := normRoot(vol)
-	if root == "" {
-		return 0, fmt.Errorf("invalid volume: %q", vol)
-	}
-	// \\.\C:
-	volPath := `\\.\` + strings.TrimRight(root, `\`)
-	pVol, err := syscall.UTF16PtrFromString(volPath)
-	if err != nil {
-		return 0, err
-	}
-
-	hVol, err := syscall.CreateFile(
-		pVol,
-		0, // 只读
-		syscall.FILE_SHARE_READ|syscall.FILE_SHARE_WRITE,
-		nil,
-		syscall.OPEN_EXISTING,
-		0,
-		0,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("CreateFile volume %s failed: %w", volPath, err)
-	}
-	defer syscall.CloseHandle(hVol)
-
-	out := make([]byte, 1024)
-	var bytesRet uint32
-	err = syscall.DeviceIoControl(
-		hVol,
-		ioctlVolumeGetVolumeDiskExtents,
-		nil,
-		0,
-		&out[0],
-		uint32(len(out)),
-		&bytesRet,
-		nil,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("DeviceIoControl IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS failed: %w", err)
-	}
-	if bytesRet < uint32(unsafe.Sizeof(volumeDiskExtents{})) {
-		return 0, fmt.Errorf("VOLUME_DISK_EXTENTS too small: %d", bytesRet)
-	}
-
-	vde := (*volumeDiskExtents)(unsafe.Pointer(&out[0]))
-	if vde.NumberOfDiskExtents == 0 {
-		return 0, fmt.Errorf("no disk extents for volume %s", volPath)
-	}
-	//第一个Extent的DiskNumber
-	//有个坑，32位偏移量是4开始，64是8开始
-	//直接用 Extents[0].DiskNumber，兼容32/64
-	diskNum := vde.Extents[0].DiskNumber
-	return diskNum, nil
-}
-
-// 根据分区取磁盘的分区格式（MBR/GPT/RAW）
-// 返回: style ("MBR"/"GPT"/"RAW")、磁盘号 (PhysicalDriveN)、错误
-func GetDiskInfo(vol string) (string, uint32, error) {
-	diskNum, err := GetDiskNum(vol)
-	if err != nil {
-		return "", 0, err
-	}
-
-	diskPath := fmt.Sprintf(`\\.\PhysicalDrive%d`, diskNum)
-	pDisk, err := syscall.UTF16PtrFromString(diskPath)
-	if err != nil {
-		return "", 0, err
-	}
-
-	hDisk, err := syscall.CreateFile(
-		pDisk,
-		syscall.GENERIC_READ,
-		syscall.FILE_SHARE_READ|syscall.FILE_SHARE_WRITE,
-		nil,
-		syscall.OPEN_EXISTING,
-		0,
-		0,
-	)
-	if err != nil {
-		return "", 0, fmt.Errorf("CreateFile %s failed: %w", diskPath, err)
-	}
-	defer syscall.CloseHandle(hDisk)
-
-	out := make([]byte, 4096)
-	var bytesRet uint32
-	err = syscall.DeviceIoControl(
-		hDisk,
-		ioctlDiskGetDriveLayoutEx,
-		nil,
-		0,
-		&out[0],
-		uint32(len(out)),
-		&bytesRet,
-		nil,
-	)
-	if err != nil {
-		return "", 0, fmt.Errorf("DeviceIoControl IOCTL_DISK_GET_DRIVE_LAYOUT_EX failed: %w", err)
-	}
-	if bytesRet < 4 {
-		return "", 0, fmt.Errorf("unexpected DRIVE_LAYOUT_INFORMATION_EX size: %d", bytesRet)
-	}
-
-	// DRIVE_LAYOUT_INFORMATION_EX 第一个字段就是 PartitionStyle (DWORD)
-	styleVal := binary.LittleEndian.Uint32(out[0:4])
-	var style string
-	switch styleVal {
-	case partitionStyleMBR:
-		style = "MBR"
-	case partitionStyleGPT:
-		style = "GPT"
-	case partitionStyleRAW:
-		style = "RAW"
-	default:
-		style = "UNKNOWN"
-	}
-
-	fmt.Printf("[GetDiskInfo] vol=%s disk=%d style=%s\n", normRoot(vol), diskNum, style)
-	return style, diskNum, nil
-}
-
-type ImageMeta struct {
-	Index       int
-	Name        string
-	Description string
-	Flags       string
-
-	SizeBytes uint64 // 原始字节数
-	Size      string // 转换为MB/GB格式
-
-	Edition      string // Professional/WindowsPE/...
-	Installation string // Client/Server/WindowsPE/...
-	SystemRoot   string // WINDOWS/...
-	Arch         string // x86 / x64 / arm64 ...
-
-	IsOS bool // 是否认为是系统
 }
 
 // 解析DISM/wimlib-imagex info输出信息
@@ -1286,125 +926,35 @@ func ListImageInfos(imagePath string) ([]ImageMeta, error) {
 	}
 }
 
-// 把diskpart命令写入临时文件并执行。
-// 返回diskpart的输出，便于日志记录/排错。
-func RunDiskpart(lines []string) (string, error) {
-	if len(lines) == 0 {
-		return "", fmt.Errorf("empty diskpart script")
+// 获取启动模式
+// 引导 ：0 BIOS 1 UEFI -1错误
+// 安全启动：0 关闭 1开启 -1错误
+func GetBootMode() (int, int) {
+	if dirExists("tools\\BootMode.exe") != true {
+		return -1, -1
 	}
-
-	script := strings.Join(lines, "\r\n") + "\r\n"
-
-	f, err := os.CreateTemp("", "dp_fmt_*.txt")
+	text, err := runCmd("tools\\BootMode.exe", nil, "")
 	if err != nil {
-		return "", fmt.Errorf("create temp script failed: %w", err)
+		return -1, -1
 	}
-	path := f.Name()
-	defer os.Remove(path)
-
-	if _, err := f.WriteString(script); err != nil {
-		f.Close()
-		return "", fmt.Errorf("write temp script failed: %w", err)
+	text = strings.TrimSpace(text)
+	parts := strings.Split(text, " | ")
+	if len(parts) != 2 {
+		return -1, -1
 	}
-	if err := f.Close(); err != nil {
-		return "", fmt.Errorf("close temp script failed: %w", err)
+	var mode int
+	var safe int
+	if parts[0] == "UEFI" || parts[0] == "efi" {
+		mode = 1
+	} else {
+		mode = 0
 	}
-
-	out, err := runCmd("diskpart.exe", nil, "/s", path)
-	if err != nil {
-		return out, fmt.Errorf("diskpart failed: %w", err)
+	if parts[1] == "SecureBoot: disabled" {
+		safe = 0
+	} else {
+		safe = 1
 	}
-	return out, nil
-}
-
-// 使用 diskpart，按盘符格式化卷。
-// letter: 盘符，可以是 "C" / "C:" / "C:\"
-// fs: 文件系统，例如 "ntfs" "fat32" "exfat"
-// label: 卷标，允许为空
-// quick: true：快速格式化, false：全格式
-func Format(letter, fs, label string, quick bool) error {
-	l := strings.TrimSpace(letter)
-	if l == "" {
-		return fmt.Errorf("empty volume letter")
-	}
-
-	// "C:" -> "C"
-	l = strings.ToUpper(l)
-	if strings.HasSuffix(l, ":") {
-		l = l[:len(l)-1]
-	}
-	if len(l) != 1 || l[0] < 'A' || l[0] > 'Z' {
-		return fmt.Errorf("invalid volume letter: %q", letter)
-	}
-
-	if fs == "" {
-		fs = "ntfs"
-	}
-	fs = strings.ToLower(fs)
-
-	cmds := []string{
-		fmt.Sprintf("select volume %s", l),
-	}
-
-	// 这里加上OVERRIDE强制执行
-	fmtCmd := fmt.Sprintf("format fs=%s", fs)
-	if label != "" {
-		fmtCmd += fmt.Sprintf(" label=\"%s\"", label)
-	}
-	if quick {
-		fmtCmd += " quick"
-	}
-	fmtCmd += " override" //强制格式化
-
-	cmds = append(cmds, fmtCmd)
-
-	out, err := RunDiskpart(cmds)
-	fmt.Println("[Format] diskpart output:\n", out)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// FormatPartition 使用 diskpart 格式化指定磁盘上的指定分区。
-// diskIdx: diskpart里的磁盘编号（list disk）
-// partIdx: 该磁盘上的分区编号（list partition）
-// fs/label/quick
-func FormatPartition(diskIdx, partIdx int, fs, label string, quick bool) error {
-	if diskIdx < 0 {
-		return fmt.Errorf("invalid disk index: %d", diskIdx)
-	}
-	if partIdx <= 0 {
-		return fmt.Errorf("invalid partition index: %d", partIdx)
-	}
-	if fs == "" {
-		fs = "ntfs"
-	}
-	fs = strings.ToLower(fs)
-
-	cmds := []string{
-		fmt.Sprintf("select disk %d", diskIdx),
-		fmt.Sprintf("select partition %d", partIdx),
-	}
-
-	// 同样这里加 OVERRIDE
-	fmtCmd := fmt.Sprintf("format fs=%s", fs)
-	if label != "" {
-		fmtCmd += fmt.Sprintf(" label=\"%s\"", label)
-	}
-	if quick {
-		fmtCmd += " quick"
-	}
-	fmtCmd += " override" // *** 关键：强制格式化 ***
-
-	cmds = append(cmds, fmtCmd)
-
-	out, err := RunDiskpart(cmds)
-	fmt.Println("[FormatPartition] diskpart output:\n", out)
-	if err != nil {
-		return err
-	}
-	return nil
+	return mode, safe
 }
 
 // pe专用
@@ -1525,13 +1075,13 @@ func PE() int {
 	}
 	uiSetText("正在处理自动应答文件...")
 
-	Copy(filepath.Join(path, "win10.xml"), filepath.Join(part, "Windows\\Panther\\Unattend.xml"), true, true)
-	Copy(filepath.Join(path, "HEU_KMS_Activator.exe"), filepath.Join(part, "HEU_KMS_Activator.exe"), true, true)
+	Copy(filepath.Join(path, "tools\\win10.xml"), filepath.Join(part, "Windows\\Panther\\Unattend.xml"), true, true)
+	Copy(filepath.Join(path, "tools\\HEU_KMS_Activator.exe"), filepath.Join(part, "HEU_KMS_Activator.exe"), true, true)
 	CreateShortcut(filepath.Join(part, "Users\\Public\\Desktop\\"), "应用商店", "https://store.ttraw.com/")
-	Copy(filepath.Join(path, "drive10.exe"), filepath.Join(part, "drive.exe"), true, true)
+	Copy(filepath.Join(path, "tools\\drive10.exe"), filepath.Join(part, "drive.exe"), true, true)
 
 	files := FindFileAll("DrvCeo.exe", 3)
-	//p := filepath.Join(filepath.Dir(path), "win10.xml")
+	//p := filepath.Join(filepath.Dir(path), "tools\\win10.xml")
 	//b, err := os.ReadFile(p)
 	//b = bytes.ReplaceAll(b,
 	//	[]byte(`C:\Users\Public\Desktop\driveceo.lnk`),
@@ -1547,17 +1097,15 @@ func PE() int {
 
 func main() {
 
-	//Un7z("C:\\WEPE64.WIM","C:\\Temp")
-	//BuildWIM([]string{"C:\\Temp"}, "C:\\1.wim")
 	Uiinit()
-	err := GoToPE()
-	Message(w, "", err.Error())
+	//GoToPE()
+
 	w.Show(true)
 	//判断是否在PE
 	if strings.ToUpper(os.Getenv("SystemRoot")) == `X:\WINDOWS` {
 		go PE()
 	}
-	Shutdown(true)
+	//Shutdown(true)
 	a.Run()
 
 	//窗口关闭后执行
@@ -1567,7 +1115,7 @@ func main() {
 	return
 	fmt.Println(GetDiskNum("E:\\"))
 	path, err := os.Getwd()
-	img, err := ListImageInfos(path + "\\win10.esd")
+	img, err := ListImageInfos(path + "\\win10.esd") //测试
 	fmt.Println(img, err)
 	fmt.Println(Format("C", "ntfs", "win10", true))
 	//  绑定进度回调

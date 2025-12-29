@@ -23,79 +23,6 @@ import (
 	"unsafe"
 )
 
-// 以下是创建快捷方式相关代码，参考：https://docs.microsoft.com/en-us/windows/win32/shell/links
-var (
-	ole32                = syscall.NewLazyDLL("ole32.dll")
-	procCoInitializeEx   = ole32.NewProc("CoInitializeEx")
-	procCoUninitialize   = ole32.NewProc("CoUninitialize")
-	procCoCreateInstance = ole32.NewProc("CoCreateInstance")
-)
-
-const (
-	COINIT_APARTMENTTHREADED = 0x2
-	CLSCTX_INPROC_SERVER     = 0x1
-)
-
-type GUID struct {
-	Data1 uint32
-	Data2 uint16
-	Data3 uint16
-	Data4 [8]byte
-}
-
-// CLSID / IID
-var (
-	CLSID_ShellLink  = GUID{0x00021401, 0x0000, 0x0000, [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
-	IID_IShellLinkW  = GUID{0x000214F9, 0x0000, 0x0000, [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
-	IID_IPersistFile = GUID{0x0000010b, 0x0000, 0x0000, [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
-)
-
-// IShellLinkW vtable
-type iShellLinkWVtbl struct {
-	QueryInterface      uintptr
-	AddRef              uintptr
-	Release             uintptr
-	GetArguments        uintptr
-	GetDescription      uintptr
-	GetHotkey           uintptr
-	GetIconLocation     uintptr
-	GetIDList           uintptr
-	GetPath             uintptr
-	GetShowCmd          uintptr
-	GetWorkingDirectory uintptr
-	Resolve             uintptr
-	SetArguments        uintptr
-	SetDescription      uintptr
-	SetHotkey           uintptr
-	SetIconLocation     uintptr
-	SetIDList           uintptr
-	SetPath             uintptr
-	SetRelativePath     uintptr
-	SetShowCmd          uintptr
-	SetWorkingDirectory uintptr
-}
-
-type IShellLinkW struct {
-	lpVtbl *iShellLinkWVtbl
-}
-
-// IPersistFile vtable（IUnknown + IPersist + IPersistFile）
-type iPersistFileVtbl struct {
-	QueryInterface uintptr
-	AddRef         uintptr
-	Release        uintptr
-	GetClassID     uintptr
-	IsDirty        uintptr
-	Load           uintptr
-	Save           uintptr
-	SaveCompleted  uintptr
-	GetCurFile     uintptr
-}
-
-type IPersistFile struct {
-	lpVtbl *iPersistFileVtbl
-}
-
 func hresultFailed(hr uintptr) bool {
 	return int32(hr) < 0
 }
@@ -428,44 +355,70 @@ func Copy(src, dst string, overwrite, createDir bool) error {
 	return copyOneFile(src, dst, overwrite, createDir)
 }
 
-// ExitWindowsEx flags
-const (
-	EWX_LOGOFF      = 0x00000000 //注销
-	EWX_SHUTDOWN    = 0x00000008 //关机
-	EWX_REBOOT      = 0x00000002 //重启
-	EWX_FORCE       = 0x00000004 //强制关闭应用
-	EWX_FORCEIFHUNG = 0x00000010 //程序无响应，强制关闭
-	//调用nt内核
-	ShutdownNoReboot = 0 // 只是退出系统，不重启
-	ShutdownReboot   = 1 // 重启
-	ShutdownPowerOff = 2 // 关机断电
-)
+// Remove 删除文件/目录。
+// recursive=true：递归删除；false：仅删除文件或空目录
+func Remove(path string, recursive bool) error {
+	if _, err := os.Lstat(path); err != nil {
+		return fmt.Errorf("Remove: stat failed: %w", err)
+	}
 
-// token 权限相关
-const (
-	SE_PRIVILEGE_ENABLED    = 0x00000002
-	TOKEN_ADJUST_PRIVILEGES = 0x0020
-	TOKEN_QUERY             = 0x0008
-)
+	// os
+	if recursive {
+		if err := os.RemoveAll(path); err == nil {
+			return nil
+		}
+	} else {
+		if err := os.Remove(path); err == nil {
+			return nil
+		}
+	}
+	//winapi
+	// 先清掉只读/系统/隐藏等属性
+	if pW, err := syscall.UTF16PtrFromString(path); err == nil {
+		_, _, _ = procSetFileAttrsW.Call(uintptr(unsafe.Pointer(pW)), uintptr(FILE_ATTRIBUTE_NORMAL))
+	}
+	if recursive {
+		// SHFileOperation 需要 double-null terminated 的 pFrom
+		from := syscall.StringToUTF16(path)
+		from = append(from, 0) // 再补一个 0，形成双 0 结尾
 
-// 调用nt内核
-var modNtdll = syscall.NewLazyDLL("ntdll.dll")
-var procNtShutdownSystem = modNtdll.NewProc("NtShutdownSystem")
+		op := shFileOpStructW{
+			wFunc:  FO_DELETE,
+			pFrom:  &from[0],
+			fFlags: FOF_SILENT | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_NOCONFIRMMKDIR,
+		}
+		r, _, _ := procSHFileOperationW.Call(uintptr(unsafe.Pointer(&op)))
+		if r == 0 && op.fAnyOperationsAborted == 0 {
+			return nil
+		}
+	} else {
+		// 先按文件删，失败再按目录删
+		if pW, err := syscall.UTF16PtrFromString(path); err == nil {
+			if rr, _, _ := procDeleteFileW.Call(uintptr(unsafe.Pointer(pW))); rr != 0 {
+				return nil
+			}
+			if rr, _, _ := procRemoveDirectoryW.Call(uintptr(unsafe.Pointer(pW))); rr != 0 {
+				return nil
+			}
+		}
+	}
 
-// LUID / TOKEN_PRIVILEGES 结构体
-type luid struct {
-	LowPart  uint32
-	HighPart int32
-}
+	// cmd.exe
+	pQ := `"` + path + `"`
+	if recursive {
+		if err := exec.Command("cmd.exe", "/C", "rmdir", "/S", "/Q", pQ).Run(); err == nil {
+			return nil
+		} else {
+			return fmt.Errorf("Remove: cmd rmdir failed: %w", err)
+		}
+	}
 
-type luidAndAttributes struct {
-	Luid       luid
-	Attributes uint32
-}
-
-type tokenPrivileges struct {
-	PrivilegeCount uint32
-	Privileges     [1]luidAndAttributes
+	// 先 del，再 rmdir
+	_ = exec.Command("cmd.exe", "/C", "del", "/F", "/Q", pQ).Run()
+	if err := exec.Command("cmd.exe", "/C", "rmdir", pQ).Run(); err == nil {
+		return nil
+	}
+	return fmt.Errorf("Remove: failed (os/winapi/cmd): %s", path)
 }
 
 // 开启当前进程的关机权限SeShutdownPrivilege
@@ -573,20 +526,6 @@ func Shutdown(reboot bool) {
 	procNtShutdownSystem.Call(action)
 
 }
-
-var (
-	advapi32             = syscall.NewLazyDLL("advapi32.dll")
-	procRegLoadKeyW      = advapi32.NewProc("RegLoadKeyW")
-	procRegUnLoadKeyW    = advapi32.NewProc("RegUnLoadKeyW")
-	procRegOpenKeyExW    = advapi32.NewProc("RegOpenKeyExW")
-	procRegCloseKey      = advapi32.NewProc("RegCloseKey")
-	procRegQueryValueExW = advapi32.NewProc("RegQueryValueExW")
-)
-
-const (
-	HKEY_LOCAL_MACHINE = syscall.Handle(0x80000002)
-	KEY_READ           = 0x20019 // 标准 KEY_READ
-)
 
 // 检测指定盘符上的离线 Windows 版本和架构。
 // drive：可以是 "D", "D:", "D:\"
@@ -738,194 +677,6 @@ func normalizeRoot(drive string) (string, error) {
 	}
 	s = strings.ToUpper(s[:1]) + s[1:]
 	return s, nil
-}
-
-// 磁盘相关
-const (
-	ioctlStorageQueryProperty = 0x002D1400 // IOCTL_STORAGE_QUERY_PROPERTY
-)
-
-// STORAGE_PROPERTY_ID
-const (
-	storagePropertyDevice      = 0 // StorageDeviceProperty
-	storagePropertySeekPenalty = 7 // StorageDeviceSeekPenaltyProperty
-)
-
-// STORAGE_QUERY_TYPE
-const (
-	storageQueryStandard = 0 // PropertyStandardQuery
-)
-
-// STORAGE_BUS_TYPE（只列一些常见的）
-const (
-	busTypeUnknown = 0
-	busTypeScsi    = 1
-	busTypeAtapi   = 2
-	busTypeAta     = 3
-	busTypeUsb     = 7
-	busTypeSata    = 8
-	busTypeSas     = 9
-)
-
-// 对应 STORAGE_PROPERTY_QUERY
-type storagePropertyQuery struct {
-	PropertyId           uint32
-	QueryType            uint32
-	AdditionalParameters [1]byte
-}
-
-// 对应 STORAGE_DEVICE_SEEK_PENALTY_DESCRIPTOR
-type storageDeviceSeekPenaltyDescriptor struct {
-	Version           uint32
-	Size              uint32
-	IncursSeekPenalty byte
-	Reserved          [3]byte // 对齐填充
-}
-
-// 对应 STORAGE_DEVICE_DESCRIPTOR（只用到 BusType）
-type storageDeviceDescriptor struct {
-	Version               uint32
-	Size                  uint32
-	DeviceType            byte
-	DeviceTypeModifier    byte
-	RemovableMedia        byte
-	CommandQueueing       byte
-	VendorIdOffset        uint32
-	ProductIdOffset       uint32
-	ProductRevisionOffset uint32
-	SerialNumberOffset    uint32
-	BusType               uint32
-	RawPropertiesLength   uint32
-	// RawDeviceProperties[1] 后面用大 buffer 覆盖
-}
-
-// GetDiskKind 判断指定卷所在物理盘是 SSD / HDD / 移动设备 / 光驱。
-// vol 可以是 "C" / "C:" / "C:\"。
-// 返回值： "SSD" / "HDD" / "Removable" / "CDROM" / "Unknown"
-func GetDiskKind(vol string) (string, error) {
-	root := normRoot(vol)
-	if root == "" {
-		return "Unknown", fmt.Errorf("invalid volume: %q", vol)
-	}
-
-	// 先看逻辑盘类型
-	dt := GetDriveType(root)
-
-	// 光驱 / 挂载的 ISO
-	if dt == driveCdrom {
-		return "CDROM", nil
-	}
-
-	// 后面是非光驱的情况：U 盘 / 机械 / 固态
-	// 找到对应的物理磁盘号
-	diskNum, err := GetDiskNum(root)
-	if err != nil {
-		// 如果至少知道是可移动盘，就返回 Removable
-		if dt == driveRemov {
-			return "Removable", nil
-		}
-		return "Unknown", fmt.Errorf("GetDiskNum failed: %w", err)
-	}
-
-	diskPath := fmt.Sprintf(`\\.\PhysicalDrive%d`, diskNum)
-	pDisk, err := syscall.UTF16PtrFromString(diskPath)
-	if err != nil {
-		if dt == driveRemov {
-			return "Removable", nil
-		}
-		return "Unknown", err
-	}
-
-	hDisk, err := syscall.CreateFile(
-		pDisk,
-		syscall.GENERIC_READ,
-		syscall.FILE_SHARE_READ|syscall.FILE_SHARE_WRITE,
-		nil,
-		syscall.OPEN_EXISTING,
-		0,
-		0,
-	)
-	if err != nil {
-		if dt == driveRemov {
-			return "Removable", nil
-		}
-		return "Unknown", fmt.Errorf("CreateFile %s failed: %w", diskPath, err)
-	}
-	defer syscall.CloseHandle(hDisk)
-
-	// 看是不是 USB 之类的移动设备
-	busType := uint32(busTypeUnknown)
-	{
-		q := storagePropertyQuery{
-			PropertyId: storagePropertyDevice,
-			QueryType:  storageQueryStandard,
-		}
-		out := make([]byte, 512)
-		var bytesRet uint32
-
-		err = syscall.DeviceIoControl(
-			hDisk,
-			ioctlStorageQueryProperty,
-			(*byte)(unsafe.Pointer(&q)),
-			uint32(unsafe.Sizeof(q)),
-			&out[0],
-			uint32(len(out)),
-			&bytesRet,
-			nil,
-		)
-		if err == nil && bytesRet >= uint32(unsafe.Sizeof(storageDeviceDescriptor{})) {
-			dev := (*storageDeviceDescriptor)(unsafe.Pointer(&out[0]))
-			busType = dev.BusType
-		}
-	}
-
-	// USB 总线 / DRIVE_REMOVABLE 认为是移动设备
-	if dt == driveRemov || busType == busTypeUsb {
-		return "Removable", nil
-	}
-
-	// 尝试用 SeekPenalty 判断 SSD / HDD
-	hasSeekInfo := false
-	incursSeek := false
-	{
-		q := storagePropertyQuery{
-			PropertyId: storagePropertySeekPenalty,
-			QueryType:  storageQueryStandard,
-		}
-		out := make([]byte, 32)
-		var bytesRet uint32
-
-		err = syscall.DeviceIoControl(
-			hDisk,
-			ioctlStorageQueryProperty,
-			(*byte)(unsafe.Pointer(&q)),
-			uint32(unsafe.Sizeof(q)),
-			&out[0],
-			uint32(len(out)),
-			&bytesRet,
-			nil,
-		)
-		if err == nil && bytesRet >= uint32(unsafe.Sizeof(storageDeviceSeekPenaltyDescriptor{})) {
-			desc := (*storageDeviceSeekPenaltyDescriptor)(unsafe.Pointer(&out[0]))
-			hasSeekInfo = true
-			incursSeek = desc.IncursSeekPenalty != 0
-		}
-	}
-
-	if hasSeekInfo {
-		if incursSeek {
-			return "HDD", nil // 有寻道惩罚 -> 机械盘
-		}
-		return "SSD", nil // 无寻道惩罚 -> 固态盘
-	}
-
-	//没拿到 SeekPenalty，就根据 BusType 做个保守猜测
-	switch busType {
-	case busTypeSata, busTypeSas, busTypeScsi, busTypeAta:
-		return "HDD", nil // 老接口大多数是机械盘
-	}
-
-	return "Unknown", nil
 }
 
 // 搜索文件
@@ -2059,11 +1810,11 @@ func PeelFile(exePath, start, end, out string) error {
 	}
 
 	// 输出文件
-	out, err := os.OpenFile(out, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	out1, err := os.OpenFile(out, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return fmt.Errorf("创建输出文件失败: %w", err)
 	}
-	defer func() { _ = out.Close() }()
+	defer func() { _ = out1.Close() }()
 
 	// 只读取指定区间
 	length := endOffset - startOffset
@@ -2071,7 +1822,7 @@ func PeelFile(exePath, start, end, out string) error {
 
 	// 拷贝
 	buf := make([]byte, 1024*1024) // 1MB buffer
-	written, err := io.CopyBuffer(out, section, buf)
+	written, err := io.CopyBuffer(out1, section, buf)
 	if err != nil {
 		return fmt.Errorf("写出失败: %w", err)
 	}
@@ -2079,7 +1830,7 @@ func PeelFile(exePath, start, end, out string) error {
 		return fmt.Errorf("写出字节数不一致: expect=%d got=%d", length, written)
 	}
 
-	if err := out.Sync(); err != nil {
+	if err := out1.Sync(); err != nil {
 		return fmt.Errorf("输出文件 Sync 失败: %w", err)
 	}
 	return nil
@@ -2263,23 +2014,6 @@ func RegGetString(h syscall.Handle, name string) (string, error) {
 	}
 	return syscall.UTF16ToString(buf[:n]), nil
 }
-
-type memoryStatusEx struct {
-	dwLength                uint32
-	dwMemoryLoad            uint32
-	ullTotalPhys            uint64
-	ullAvailPhys            uint64
-	ullTotalPageFile        uint64
-	ullAvailPageFile        uint64
-	ullTotalVirtual         uint64
-	ullAvailVirtual         uint64
-	ullAvailExtendedVirtual uint64
-}
-
-// 获取物理内存总量
-var (
-	procGlobalMemoryStatus = modKernel32.NewProc("GlobalMemoryStatusEx")
-)
 
 // 返回本机物理内存总量
 // 返回值：GiB
