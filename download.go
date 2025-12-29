@@ -375,6 +375,20 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 	return nil
 }
 
+// 使用 HEAD 快速检测 URL 是否可用
+func httpStatus(raw string) bool {
+	req, err := http.NewRequest(http.MethodHead, raw, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
 // 计算文件的 SHA1，并和sha1Hex比较。
 // path: 文件路径
 // sha1Hex: 期望的 SHA1 字符串（不区分大小写，可带/不带空格）

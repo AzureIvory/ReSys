@@ -652,6 +652,16 @@ func detectArch(root string, hasPFx86, hasSysWOW, systemLoaded bool) string {
 	return "x86"
 }
 
+// 返回当前系统架构（32/64）
+func systemArch() string {
+	arch := strings.ToLower(os.Getenv("PROCESSOR_ARCHITECTURE"))
+	wow := strings.ToLower(os.Getenv("PROCESSOR_ARCHITEW6432"))
+	if strings.Contains(arch, "64") || strings.Contains(wow, "64") || runtime.GOARCH == "amd64" {
+		return "64"
+	}
+	return "32"
+}
+
 // 目录/文件是否存在
 func dirExists(path string) bool {
 	_, err := os.Stat(path)
@@ -677,6 +687,29 @@ func normalizeRoot(drive string) (string, error) {
 	}
 	s = strings.ToUpper(s[:1]) + s[1:]
 	return s, nil
+}
+
+// normalizeRootPath 统一盘符为类似 "C:\" 的格式。
+func normalizeRootPath(root string) string {
+	if root == "" {
+		return root
+	}
+	root = strings.ReplaceAll(root, "/", `\`)
+	if len(root) == 2 && root[1] == ':' {
+		root += `\`
+	}
+	if len(root) == 1 {
+		root += `:\`
+	}
+	return root
+}
+
+// volumeRootFromPath 从路径中提取盘符根（例如 C:\）。
+func volumeRootFromPath(p string) string {
+	if len(p) >= 3 && p[1] == ':' {
+		return strings.ToUpper(p[:1]) + `:\`
+	}
+	return ""
 }
 
 // 搜索文件
@@ -985,6 +1018,187 @@ func FindFileAll(pattern string, maxDepth int) []string {
 	}
 	sort.Strings(dedup)
 	return dedup
+}
+
+// 写入 restall_win.dat，并在无法获取物理磁盘时写 restall_img.dat。
+func writeResFile(imagePath string) error {
+	imagePath, _ = filepath.Abs(imagePath)
+	imageRoot := volumeRootFromPath(imagePath)
+	var diskPath string
+	if imageRoot != "" {
+		if diskNum, err := GetDiskNum(imageRoot); err == nil {
+			diskPath = fmt.Sprintf(`\\.\PhysicalDrive%d`, diskNum)
+		}
+	}
+
+	systemDrive := os.Getenv("SystemDrive")
+	if systemDrive == "" {
+		systemDrive = "C:"
+	}
+	restallPath := normalizeRootPath(systemDrive) + "restall_win.dat"
+	content := fmt.Sprintf("disk=%s\nimage=%s\n", diskPath, imagePath)
+	if err := os.WriteFile(restallPath, []byte(content), 0o644); err != nil {
+		return err
+	}
+
+	if diskPath == "" && imageRoot != "" {
+		imgDat := filepath.Join(imageRoot, "restall_img.dat")
+		_ = os.WriteFile(imgDat, []byte("image="+imagePath+"\n"), 0o644)
+	}
+	return nil
+}
+
+// loadRestallData 从所有盘符读取 restall_win.dat。
+// 返回：目标盘符、物理磁盘路径、镜像路径。
+func loadResData() (targetRoot string, diskPath string, imagePath string, err error) {
+	drives, err := ListDrive()
+	if err != nil {
+		return "", "", "", err
+	}
+	for _, root := range drives {
+		cand := filepath.Join(root, "restall_win.dat")
+		if _, err := os.Stat(cand); err == nil {
+			targetRoot = normalizeRootPath(root)
+			b, err := os.ReadFile(cand)
+			if err != nil {
+				return targetRoot, "", "", err
+			}
+			lines := strings.Split(string(b), "\n")
+			for _, ln := range lines {
+				ln = strings.TrimSpace(ln)
+				if strings.HasPrefix(ln, "disk=") {
+					diskPath = strings.TrimSpace(strings.TrimPrefix(ln, "disk="))
+				}
+				if strings.HasPrefix(ln, "image=") {
+					imagePath = strings.TrimSpace(strings.TrimPrefix(ln, "image="))
+				}
+			}
+			return targetRoot, diskPath, imagePath, nil
+		}
+	}
+	return "", "", "", fmt.Errorf("未找到 restall_win.dat")
+}
+
+// 根据 restall 信息定位镜像：
+// 1) 直接使用 imagePath；2) 在同物理磁盘的分区中查找同名；
+// 3) 查找 restall_img.dat；4) 全盘按同名查找。
+func resolveImagePath(diskPath, imagePath string) (string, error) {
+	if imagePath != "" {
+		if _, err := os.Stat(imagePath); err == nil {
+			return imagePath, nil
+		}
+	}
+
+	base := filepath.Base(imagePath)
+	if diskPath != "" {
+		_, roots, err := GetDiskPartitions(diskPath)
+		if err == nil && len(roots) > 0 {
+			for _, root := range roots {
+				root = normalizeRootPath(root)
+				if root == "" {
+					continue
+				}
+				if imagePath != "" {
+					rel := strings.TrimPrefix(imagePath[2:], `\`)
+					cand := filepath.Join(root, rel)
+					if _, err := os.Stat(cand); err == nil {
+						return cand, nil
+					}
+				}
+				if base != "" {
+					found, _ := FindFile(root, base, 3)
+					if len(found) > 0 {
+						return found[0], nil
+					}
+				}
+			}
+		}
+	}
+
+	roots, _ := ListDrive()
+	for _, root := range roots {
+		imgDat := filepath.Join(root, "restall_img.dat")
+		if _, err := os.Stat(imgDat); err != nil {
+			continue
+		}
+		b, err := os.ReadFile(imgDat)
+		if err != nil {
+			continue
+		}
+		for _, ln := range strings.Split(string(b), "\n") {
+			ln = strings.TrimSpace(ln)
+			if strings.HasPrefix(ln, "image=") {
+				cand := strings.TrimSpace(strings.TrimPrefix(ln, "image="))
+				if _, err := os.Stat(cand); err == nil {
+					return cand, nil
+				}
+				base = filepath.Base(cand)
+				found, _ := FindFile(root, base, 3)
+				if len(found) > 0 {
+					return found[0], nil
+				}
+			}
+		}
+	}
+	return "", fmt.Errorf("未找到镜像文件")
+}
+
+// 从 WIM/ESD 或 ISO 中读取镜像元数据。
+func detectImageInfos(imagePath string) ([]ImageMeta, error) {
+	ext := strings.ToLower(filepath.Ext(imagePath))
+	if ext != ".iso" {
+		return ListImageInfos(imagePath)
+	}
+	isoRoot, err := MountISO(imagePath, 30*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	installPath := filepath.Join(isoRoot, "sources", "install.wim")
+	if _, err := os.Stat(installPath); err != nil {
+		installPath = filepath.Join(isoRoot, "sources", "install.esd")
+	}
+	if _, err := os.Stat(installPath); err != nil {
+		found, err := FindFile(isoRoot, "install.wim|install.esd", 3)
+		if err != nil || len(found) == 0 {
+			return nil, fmt.Errorf("ISO中未找到安装镜像")
+		}
+		sort.Strings(found)
+		installPath = found[0]
+	}
+	return ListImageInfos(installPath)
+}
+
+// 按优先级选择镜像索引（中英文关键字）。
+func selectInstallIndex(infos []ImageMeta) int {
+	if len(infos) == 0 {
+		return 1
+	}
+	preferred := []string{
+		"旗舰版", "ultimate",
+		"专业工作站", "professional workstation", "pro workstation",
+		"专业教育", "professional education", "pro education",
+		"专业版", "professional", "pro",
+		"家庭版", "home",
+		"企业版", "enterprise",
+		"教育版", "education",
+		"家庭高级版", "home premium",
+		"家庭普通版", "home basic",
+		"纯净版", "clean",
+	}
+	best := 0
+	for _, key := range preferred {
+		for _, info := range infos {
+			if !info.IsOS {
+				continue
+			}
+			text := strings.ToLower(info.Name + " " + info.Description + " " + info.Edition + " " + info.Flags)
+			if strings.Contains(text, strings.ToLower(key)) {
+				best = info.Index
+				return best
+			}
+		}
+	}
+	return infos[len(infos)-1].Index
 }
 
 // 返回没装系统而且有足够大小的分区数组
