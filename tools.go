@@ -1842,6 +1842,7 @@ func Patwim(wim string) error {
 		{src: filepath.Join(dir, "Windows.json"), dst: `\Windows\Windows.json`, isDir: false},
 		{src: filepath.Join(dir, "WinPE.json"), dst: `\Windows\WinPE.json`, isDir: false},
 		{src: filepath.Join(dir, "xcgui.dll"), dst: `\Windows\xcgui.dll`, isDir: false},
+		{src: filepath.Join(dir, "wait.gif"), dst: `\Windows\wait.gif`, isDir: false},
 		{src: filepath.Join(dir, "trackers.txt"), dst: `\Windows\trackers.txt`, isDir: false},
 		{src: filepath.Join(dir, "tools"), dst: `\Windows\tools`, isDir: true},
 	}

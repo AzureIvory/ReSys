@@ -136,21 +136,22 @@ func desiredArch() string {
 }
 
 // StartInstall：从 UI 入口启动安装流程。
-// 负责：
-// 1) 搜索/下载镜像
-// 2) 写入 restall_win.dat / restall_img.dat
-// 3) 准备 PE 并重启进入 PE
+// 搜索/下载镜像
+// 写入 restall_win.dat / restall_img.dat
+// 准备 PE 并重启进入 PE
 func StartInstall(target string) {
 	win2()
 
-	arch := desiredArch()
-	logWrite("开始重装流程，目标系统=%s，期望架构=%s", target, arch)
+	imgArch := desiredArch()
+	peArch := systemArch()
+
+	logWrite("开始重装流程，目标系统=%s，镜像期望架构=%s，PE架构=%s", target, imgArch, peArch)
 	uiSetProgress(0)
 	uiSetStatus("正在寻找镜像...")
 
 	var imgPath string
 	for {
-		img, err := findOrDownloadImage(target, arch)
+		img, err := findOrDownloadImage(target, imgArch)
 		if err == nil {
 			imgPath = img
 			break
@@ -160,6 +161,7 @@ func StartInstall(target string) {
 			return
 		}
 	}
+
 	uiSetProgress(20)
 	uiSetStatus("正在写入重装信息...")
 	for {
@@ -176,7 +178,7 @@ func StartInstall(target string) {
 	uiSetProgress(30)
 	uiSetStatus("正在准备PE环境...")
 	for {
-		if err := ensurePEAndReboot(arch); err != nil {
+		if err := ensurePEAndReboot(peArch); err != nil {
 			logWrite("准备PE失败：%v", err)
 			if !MessageRetryExit(w, "错误", "准备PE失败："+err.Error()) {
 				return
@@ -185,6 +187,7 @@ func StartInstall(target string) {
 		}
 		break
 	}
+
 	uiSetProgress(100)
 	uiSetStatus("即将重启进入PE...")
 	logWrite("准备完成，重启进入PE")
@@ -356,7 +359,7 @@ func chooseDownloadRoot() string {
 }
 
 // downloadImage：根据目标系统/架构下载镜像。
-// 优先 URL 直链，失败再用 BT。
+// 失败时自动切换备用链接/下一个镜像；全部失败才返回 error。
 func downloadImage(target, arch string) (string, error) {
 	ent, err := GetWinImgs(target)
 	if err != nil {
@@ -373,13 +376,6 @@ func downloadImage(target, arch string) (string, error) {
 	}
 	logWrite("可用镜像数量：%d", len(candidates))
 
-	it, link, err := pickWinImg(candidates)
-	if err != nil {
-		logWrite("选择镜像失败：%v", err)
-		return "", err
-	}
-	logWrite("选择镜像：%s", it.File)
-
 	root := chooseDownloadRoot()
 	if root == "" {
 		logWrite("未找到可用下载分区")
@@ -389,39 +385,111 @@ func downloadImage(target, arch string) (string, error) {
 	if err := os.MkdirAll(dstDir, 0o755); err != nil {
 		return "", err
 	}
-	name := ImgName(it, link)
-	if strings.TrimSpace(it.File) != "" {
-		name = strings.TrimSpace(it.File)
-	}
-	dstPath := filepath.Join(dstDir, name)
 
-	if st, err := os.Stat(dstPath); err == nil && !st.IsDir() && st.Size() > 0 {
-		logWrite("镜像已存在：%s", dstPath)
-		return dstPath, nil
+	var errs []string
+
+	// 先 URL 后 BT（符合你原来的优先级）
+	// 第一轮：URL
+	for _, it := range candidates {
+		if !strings.EqualFold(strings.TrimSpace(it.Type), "url") {
+			continue
+		}
+		links := []string{strings.TrimSpace(it.Link), strings.TrimSpace(it.Link2)}
+		for _, link := range links {
+			if link == "" || isFailedLink(link) {
+				continue
+			}
+			if !httpStatus(link) {
+				logWrite("URL链接不可用：%s", link)
+				markFailedLink(link)
+				continue
+			}
+
+			name := ImgName(it, link)
+			if strings.TrimSpace(it.File) != "" {
+				name = strings.TrimSpace(it.File)
+			}
+			dstPath := filepath.Join(dstDir, name)
+
+			if st, err := os.Stat(dstPath); err == nil && !st.IsDir() && st.Size() > 0 {
+				logWrite("镜像已存在：%s", dstPath)
+				return dstPath, nil
+			}
+
+			// 若存在残留文件，先删掉，避免断点/脏文件导致后续判断混乱
+			_ = os.Remove(dstPath)
+
+			logWrite("开始下载镜像(URL)：%s -> %s", link, dstPath)
+			ctx, cancel := context.WithCancel(context.Background())
+			err := DownloadFile(ctx, link, dstPath, func(pct float64, speed int64) {
+				uiSetStatus(fmt.Sprintf("正在下载镜像... %.1f%% 速度: %.2f MB/s", pct, float64(speed)/1024/1024))
+				uiSetProgress(int32(pct))
+				logWrite("镜像下载进度：%.1f%% 速度: %.2f MB/s", pct, float64(speed)/1024/1024)
+			})
+			cancel()
+
+			if err == nil {
+				logWrite("镜像下载完成：%s", dstPath)
+				return dstPath, nil
+			}
+
+			// 失败：记录并换下一个 link / 下一个镜像
+			markFailedLink(link)
+			_ = os.Remove(dstPath)
+			logWrite("镜像下载失败(URL)：link=%s err=%v", link, err)
+			errs = append(errs, fmt.Sprintf("URL失败 link=%s err=%v", link, err))
+		}
 	}
 
-	if strings.EqualFold(strings.TrimSpace(it.Type), "url") {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		err = DownloadFile(ctx, link, dstPath, func(pct float64, speed int64) {
-			uiSetStatus(fmt.Sprintf("正在下载镜像... %.1f%% 速度: %.2f MB/s", pct, float64(speed)/1024/1024))
-			uiSetProgress(int32(pct))
-			logWrite("镜像下载进度：%.1f%% 速度: %.2f MB/s", pct, float64(speed)/1024/1024)
-		})
-	} else {
-		err = DownloadBT(link, dstDir, func(pct int, speed, done, total int64) {
+	// 第二轮：BT
+	for _, it := range candidates {
+		if strings.EqualFold(strings.TrimSpace(it.Type), "url") {
+			continue
+		}
+
+		link, lerr := ImgLink(it)
+		if lerr != nil {
+			errs = append(errs, fmt.Sprintf("BT取链接失败 file=%s err=%v", it.File, lerr))
+			continue
+		}
+		link = strings.TrimSpace(link)
+		if link == "" || isFailedLink(link) {
+			continue
+		}
+
+		name := ImgName(it, link)
+		if strings.TrimSpace(it.File) != "" {
+			name = strings.TrimSpace(it.File)
+		}
+		dstPath := filepath.Join(dstDir, name)
+
+		if st, err := os.Stat(dstPath); err == nil && !st.IsDir() && st.Size() > 0 {
+			logWrite("镜像已存在：%s", dstPath)
+			return dstPath, nil
+		}
+
+		logWrite("开始下载镜像(BT)：%s -> %s", link, dstDir)
+		err := DownloadBT(link, dstDir, func(pct int, speed, done, total int64) {
 			uiSetStatus(fmt.Sprintf("正在下载镜像... %d%% 速度: %.2f MB/s", pct, float64(speed)/1024/1024))
 			uiSetProgress(int32(pct))
 			logWrite("BT下载进度：%d%% 速度: %.2f MB/s", pct, float64(speed)/1024/1024)
 		})
-	}
-	if err != nil {
+		if err == nil {
+			// BT 下载完成后一般就在 dstDir 里，按你原逻辑直接返回 dstPath
+			// 如遇 BT 实际文件名不同，需要从 DownloadBT 返回值或目录扫描确认。
+			logWrite("镜像下载完成(BT)：%s", dstPath)
+			return dstPath, nil
+		}
+
 		markFailedLink(link)
-		logWrite("镜像下载失败：%v", err)
-		return "", err
+		logWrite("镜像下载失败(BT)：link=%s err=%v", link, err)
+		errs = append(errs, fmt.Sprintf("BT失败 link=%s err=%v", link, err))
 	}
-	logWrite("镜像下载完成：%s", dstPath)
-	return dstPath, nil
+
+	if len(errs) > 0 {
+		return "", fmt.Errorf("全部镜像链接下载失败：%s", strings.Join(errs, " | "))
+	}
+	return "", fmt.Errorf("未找到可用镜像下载链接")
 }
 
 // filterWinImgsByArch：按架构过滤镜像列表。

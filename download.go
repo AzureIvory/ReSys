@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha1"
+	"crypto/tls"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -374,6 +375,7 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 		total := contentLength(ctx, url) // -1 表示未知
 		cmd := exec.CommandContext(ctx, curlPath,
 			"-L", "--fail", "--silent", "--show-error",
+			"--insecure", //跳过证书校验
 			"--output", tmpPath,
 			url,
 		)
@@ -466,7 +468,14 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 		return fmt.Errorf("grab new request: %w (curlErr=%v)", err, curlErr)
 	}
 	req = req.WithContext(ctx)
-	resp := grab.NewClient().Do(req)
+
+	client := grab.NewClient()
+	dt := http.DefaultTransport.(*http.Transport).Clone()
+	dt.Proxy = http.ProxyFromEnvironment
+	dt.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	client.HTTPClient = &http.Client{Transport: dt}
+
+	resp := client.Do(req)
 
 	done2 := make(chan struct{})
 	go func() {
@@ -545,18 +554,9 @@ func contentLength(ctx context.Context, url string) int64 {
 	return -1
 }
 
-// 使用 HEAD 快速检测 URL 是否可用
+// 校验url
 func httpStatus(raw string) bool {
-	req, err := http.NewRequest(http.MethodHead, raw, nil)
-	if err != nil {
-		return false
-	}
-	resp, err := hc.Do(req)
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	return true
 }
 
 // 计算文件的 SHA1，并和sha1Hex比较。

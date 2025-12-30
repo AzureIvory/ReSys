@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-
 	"errors"
 	"fmt"
 	"os"
@@ -969,16 +968,13 @@ func PE() int {
 }
 
 func main() {
-
 	Uiinit()
-	//GoToPE()
 
 	w.Show(true)
 	//判断是否在PE
 	if strings.ToUpper(os.Getenv("SystemRoot")) == `X:\WINDOWS` {
 		go PE()
 	}
-	//Shutdown(true)
 	a.Run()
 
 	//窗口关闭后执行
