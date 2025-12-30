@@ -950,6 +950,7 @@ func RunPEInstall() error {
 		diskPath = ""
 		imagePath = ""
 	}
+
 	imagePath = strings.TrimSpace(imagePath)
 	if imagePath != "" {
 		if resolved, rerr := resolveImagePath(diskPath, imagePath); rerr == nil {
@@ -987,30 +988,108 @@ func RunPEInstall() error {
 	uiSetStatus("正在准备分区...")
 
 	tempVol := ""
-	imageRoot := volumeRootFromPath(imagePath)
+	targetRoot = normalizeRootPath(targetRoot)
+	imagePath = strings.TrimSpace(imagePath)
+
+	imageRoot := normalizeRootPath(volumeRootFromPath(imagePath))
 	if strings.EqualFold(imageRoot, targetRoot) {
+		// 先拿到镜像大小，供空间判断/拆分使用
+		fi, err := os.Stat(imagePath)
+		if err != nil {
+			return err
+		}
+		imageBytes := uint64(fi.Size())
+
+		// 复制冗余
+		const extraBytes uint64 = 512 * 1024 * 1024
+		needBytes := imageBytes + extraBytes
+
+		var moved bool
+		var moveErrs []string
+
 		alts := otherInstallVolumes(targetRoot)
-		if len(alts) == 0 {
-			fi, err := os.Stat(imagePath)
-			if err != nil {
-				return err
+
+		for _, v := range alts {
+			altRoot := normalizeRootPath(v)
+			if altRoot == "" {
+				continue
 			}
-			sizeMB := int((fi.Size() + 512*1024*1024) / (1024 * 1024))
+			// 跳过目标分区
+			if strings.EqualFold(altRoot, targetRoot) {
+				continue
+			}
+			// 跳过 X:\
+			if strings.EqualFold(altRoot, "X:\\") || strings.EqualFold(strings.TrimRight(altRoot, `\`), "X:") {
+				continue
+			}
+			if GetDriveType(altRoot) != driveFixed {
+				continue
+			}
+
+			freeBytes, ferr := GetFreeSize(altRoot)
+			if ferr != nil {
+				moveErrs = append(moveErrs, fmt.Sprintf("%s GetFreeSize失败:%v", altRoot, ferr))
+				continue
+			}
+			if freeBytes < needBytes {
+				moveErrs = append(moveErrs, fmt.Sprintf("%s 空间不足: free=%d need=%d", altRoot, freeBytes, needBytes))
+				continue
+			}
+
+			dstDir := filepath.Join(altRoot, "install_images")
+			_ = os.MkdirAll(dstDir, 0755)
+			dstPath := filepath.Join(dstDir, filepath.Base(imagePath))
+
+			logWrite("镜像在目标分区上，尝试复制到其它卷：%s -> %s", imagePath, dstPath)
+			if err := Copy(imagePath, dstPath, true, true); err != nil {
+				moveErrs = append(moveErrs, fmt.Sprintf("%s Copy失败:%v", altRoot, err))
+				_ = os.Remove(dstPath)
+				continue
+			}
+
+			// 复制后校验
+			if dfi, derr := os.Stat(dstPath); derr != nil || dfi.Size() <= 0 {
+				moveErrs = append(moveErrs, fmt.Sprintf("%s 复制后校验失败:%v", altRoot, derr))
+				_ = os.Remove(dstPath)
+				continue
+			}
+
+			imagePath = dstPath
+			moved = true
+			logWrite("已将镜像复制到其它卷并更新路径：%s", imagePath)
+			break
+		}
+
+		if !moved {
+			if len(moveErrs) > 0 {
+				logWrite("复制到其它卷失败/不可用，原因：%s", strings.Join(moveErrs, " | "))
+			} else {
+				logWrite("无可用其它卷用于复制镜像，准备拆分TEMP分区")
+			}
+
+			// 拆分大小：镜像大小+512MB，且至少1GB
+			sizeMB := int((int64(imageBytes) + 512*1024*1024) / (1024 * 1024))
 			if sizeMB < 1024 {
 				sizeMB = 1024
 			}
+
 			newVol, err := SplitVolume(targetRoot, sizeMB, "ntfs", "TEMP", "")
 			if err != nil {
 				return err
 			}
-			logWrite("C盘无空闲分区，已拆分分区：%s", newVol)
 			tempVol = normalizeRootPath(newVol)
+
 			newPath := filepath.Join(tempVol, filepath.Base(imagePath))
+			logWrite("仅能拆分分区保存镜像：%s -> %s", imagePath, newPath)
+
 			if err := Copy(imagePath, newPath, true, true); err != nil {
 				return err
 			}
-			_ = os.Remove(imagePath)
+			if _, err := os.Stat(newPath); err != nil {
+				return err
+			}
 			imagePath = newPath
+			logWrite("已拆分TEMP并复制镜像，更新镜像路径：%s", imagePath)
 		}
 	}
 
