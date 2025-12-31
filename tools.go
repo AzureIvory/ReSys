@@ -1649,7 +1649,7 @@ func Patwim(wim string) error {
 		return out, err
 	}
 
-	// update 专用：把多条命令从 stdin 喂进去（每行一条）
+	//把多条命令从 stdin 喂进去
 	runUpdateWithStdin := func(exe string, args []string, stdinText string, to time.Duration) (string, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), to)
 		defer cancel()
@@ -1667,9 +1667,7 @@ func Patwim(wim string) error {
 		return out, err
 	}
 
-	// 命令文件语法里也需要给带空格参数加引号
 	qCmdArg := func(s string) string {
-		// 只在需要时加双引号；并转义内部双引号
 		if !strings.ContainsAny(s, " \t") && !strings.Contains(s, `"`) {
 			return s
 		}
@@ -1831,7 +1829,6 @@ func Patwim(wim string) error {
 		return fmt.Errorf("找不到 wimlib-imagex.exe（PATH 或 %s）", filepath.Join(dir, "tools", "wimlib-imagex.exe"))
 	}
 
-	// ---- 需要一并写入 WIM(\Windows 下) 的资源 ----
 	type wimRes struct {
 		src   string
 		dst   string
@@ -1842,6 +1839,7 @@ func Patwim(wim string) error {
 		{src: filepath.Join(dir, "Windows.json"), dst: `\Windows\Windows.json`, isDir: false},
 		{src: filepath.Join(dir, "WinPE.json"), dst: `\Windows\WinPE.json`, isDir: false},
 		{src: filepath.Join(dir, "xcgui.dll"), dst: `\Windows\xcgui.dll`, isDir: false},
+		{src: filepath.Join(dir, "disk.dll"), dst: `\Windows\disk.dll`, isDir: false},
 		{src: filepath.Join(dir, "wait.gif"), dst: `\Windows\wait.gif`, isDir: false},
 		{src: filepath.Join(dir, "trackers.txt"), dst: `\Windows\trackers.txt`, isDir: false},
 		{src: filepath.Join(dir, "tools"), dst: `\Windows\tools`, isDir: true},
@@ -1861,7 +1859,6 @@ func Patwim(wim string) error {
 		}
 	}
 
-	// WIM 路径小工具（WIM 用 \，不要用 filepath）
 	wimBase := func(p string) string {
 		p = strings.TrimRight(p, `\/`)
 		if i := strings.LastIndexAny(p, `\/`); i >= 0 {
@@ -1886,7 +1883,7 @@ func Patwim(wim string) error {
 		return a + `\` + b
 	}
 
-	// ---- 获取 Index：info 文本 -> info --xml -> 默认 1 ----
+	//获取 Index：info 文本 -> info --xml -> 默认 1
 	getIdxs := func() ([]int, error) {
 		out, err := runWithTimeout(wimlib, []string{"info", wim}, 2*time.Minute)
 		if err != nil {
@@ -1970,7 +1967,7 @@ func Patwim(wim string) error {
 	line := "EXEC %WinDir%\\" + selfName
 
 	for _, idx := range idxs {
-		// 列出 \Windows 下的文件，用于拿到“真实大小写”的名字
+		// 列出 \Windows 下的文件
 		dout, de := runWithTimeout(wimlib, []string{"dir", wim, strconv.Itoa(idx), `--path=\Windows`}, 2*time.Minute)
 		if de != nil {
 			return fmt.Errorf("dir失败 idx=%d: %v\n%s", idx, de, dout)
@@ -1993,10 +1990,9 @@ func Patwim(wim string) error {
 			}
 		}
 
-		// 生成 update 命令脚本（stdin）
+		// 生成 update 命令脚本
 		cmdLines := make([]string, 0, len(resList)*2)
 		for _, r := range resList {
-			// 先 delete（文件用 --force；目录用 --recursive --force）
 			baseLower := strings.ToLower(wimBase(r.dst))
 			delPath := r.dst
 			if act, ok := actual[baseLower]; ok && act != "" {
@@ -2008,7 +2004,6 @@ func Patwim(wim string) error {
 				cmdLines = append(cmdLines, "delete --force "+qCmdArg(delPath))
 			}
 
-			// 再 add
 			cmdLines = append(cmdLines, "add "+qCmdArg(r.src)+" "+qCmdArg(r.dst))
 		}
 		script := strings.Join(cmdLines, "\n") + "\n"
@@ -2023,7 +2018,7 @@ func Patwim(wim string) error {
 			return fmt.Errorf("写入资源失败 idx=%d: %v\n%s", idx, ue, uout)
 		}
 
-		// Pecmd.ini 文件名（保持原大小写；不存在则默认）
+		// Pecmd.ini 文件名
 		iniName := pecmdActual
 		if iniName == "" {
 			iniName = "Pecmd.ini"
@@ -2059,7 +2054,7 @@ func Patwim(wim string) error {
 			return fmt.Errorf("写入ini失败 idx=%d: %w", idx, err)
 		}
 
-		// 写回 Pecmd.ini（同样用 stdin 多条命令）
+		// 写回 Pecmd.ini
 		iniDst := `\Windows\` + iniName
 		iniScript := strings.Join([]string{
 			"delete --force " + qCmdArg(iniDst),

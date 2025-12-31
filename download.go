@@ -25,13 +25,11 @@ import (
 	"github.com/cavaliergopher/grab/v3"
 )
 
-// trackers.txt订阅URL列表
 var trackerTxtURLs = []string{
 	"https://raw.githubusercontent.com/adysec/tracker/main/trackers_best.txt",
 	"https://down.adysec.com/trackers_best.txt",
 }
 
-// 备用 trackers.txt URL
 const fallbackTrackerURL = "https://api.ttraw.com/trackers.txt"
 
 // 下载bt

@@ -1218,8 +1218,8 @@ func RunPEInstall() error {
 	logWrite("安装后处理完成")
 
 	if tempVol != "" {
-		_, _ = DeleteVolume(tempVol)
-		_, _ = MergeVolume(targetRoot, 0)
+		_ = DeleteVolume(tempVol)
+		_ = MergeVolume(targetRoot, 0)
 		logWrite("已合并临时分区回系统分区：%s", targetRoot)
 	}
 
