@@ -1512,7 +1512,8 @@ func GoToPE(paths ...string) error {
 	fmt.Println("PE:", nm, "DRV:", lt, "SDI:", sdi, "WIM:", wim)
 
 	// /device guid
-	out, err := runCmd("bcdedit", nil, "/create", "/d", "pe", "/device")
+	exe, _ := os.Executable()
+	out, err := runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/create", "/d", "pe", "/device")
 	if err != nil {
 		return err
 	}
@@ -1524,17 +1525,17 @@ func GoToPE(paths ...string) error {
 	gd1 := strings.ToLower(m1[1])
 
 	// ramdisksdi*
-	_, err = runCmd("bcdedit", nil, "/set", "{"+gd1+"}", "ramdisksdidevice", "partition="+lt+":")
+	_, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/set", "{"+gd1+"}", "ramdisksdidevice", "partition="+lt+":")
 	if err != nil {
 		return err
 	}
-	_, err = runCmd("bcdedit", nil, "/set", "{"+gd1+"}", "ramdisksdipath", sdi)
+	_, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/set", "{"+gd1+"}", "ramdisksdipath", sdi)
 	if err != nil {
 		return err
 	}
 
 	// /application osloader guid2
-	out, err = runCmd("bcdedit", nil, "/create", "/d", "pe", "/application", "osloader")
+	out, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/create", "/d", "pe", "/application", "osloader")
 	if err != nil {
 		return err
 	}
@@ -1546,11 +1547,11 @@ func GoToPE(paths ...string) error {
 
 	// device/osdevice
 	dev := fmt.Sprintf("ramdisk=[%s:]%s,{%s}", lt, wim, gd1)
-	_, err = runCmd("bcdedit", nil, "/set", "{"+gd2+"}", "device", dev)
+	_, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/set", "{"+gd2+"}", "device", dev)
 	if err != nil {
 		return err
 	}
-	_, err = runCmd("bcdedit", nil, "/set", "{"+gd2+"}", "osdevice", dev)
+	_, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/set", "{"+gd2+"}", "osdevice", dev)
 	if err != nil {
 		return err
 	}
@@ -1573,27 +1574,27 @@ func GoToPE(paths ...string) error {
 	if fw == 1 {
 		p1, p2 = p2, p1
 	}
-	if _, err = runCmd("bcdedit", nil, "/set", "{"+gd2+"}", "path", p1); err != nil {
-		if _, err = runCmd("bcdedit", nil, "/set", "{"+gd2+"}", "path", p2); err != nil {
+	if _, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/set", "{"+gd2+"}", "path", p1); err != nil {
+		if _, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/set", "{"+gd2+"}", "path", p2); err != nil {
 			return err
 		}
 	}
 
-	if _, err = runCmd("bcdedit", nil, "/set", "{"+gd2+"}", "systemroot", `\windows`); err != nil {
+	if _, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/set", "{"+gd2+"}", "systemroot", `\windows`); err != nil {
 		return err
 	}
-	if _, err = runCmd("bcdedit", nil, "/set", "{"+gd2+"}", "detecthal", "YES"); err != nil {
+	if _, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/set", "{"+gd2+"}", "detecthal", "YES"); err != nil {
 		return err
 	}
-	if _, err = runCmd("bcdedit", nil, "/set", "{"+gd2+"}", "winpe", "YES"); err != nil {
+	if _, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/set", "{"+gd2+"}", "winpe", "YES"); err != nil {
 		return err
 	}
-	if _, err = runCmd("bcdedit", nil, "/set", "{"+gd2+"}", "nx", "OptIn"); err != nil {
+	if _, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/set", "{"+gd2+"}", "nx", "OptIn"); err != nil {
 		return err
 	}
 
 	// 设置下次启动
-	if _, err = runCmd("bcdedit", nil, "/bootsequence", "{"+gd2+"}"); err != nil {
+	if _, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/bootsequence", "{"+gd2+"}"); err != nil {
 		return err
 	}
 	return nil
