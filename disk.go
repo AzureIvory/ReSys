@@ -13,6 +13,20 @@ import (
 	"unsafe"
 )
 
+// HRESULT helpers
+func failed(hr uintptr) bool { return int32(hr) < 0 }
+
+func hresultErr(hr uintptr, what string) error {
+	if !failed(hr) {
+		return nil
+	}
+	return fmt.Errorf("%s failed: HRESULT=0x%08X", what, uint32(hr))
+}
+
+func utf16Ptr(s string) (*uint16, error) {
+	return syscall.UTF16PtrFromString(s)
+}
+
 // 分割卷，创建新分区并格式化。
 // vol: 源卷盘符，如 "C"。
 // sizeMB: 新分区大小，单位 MB。
@@ -21,6 +35,41 @@ import (
 // letter: 指定盘符，如 "E"。为空则自动分配。
 // 返回新分区盘符，如 "E:"。
 func SplitVolume(vol string, sizeMB int, fs, label, letter string) (string, error) {
+	pVol, err := utf16Ptr(vol)
+	if err != nil {
+		return "", err
+	}
+	pFs, err := utf16Ptr(fs)
+	if err != nil {
+		return "", err
+	}
+	pLabel, err := utf16Ptr(label)
+	if err != nil {
+		return "", err
+	}
+	// desired letter can be "" => auto
+	pDesired, err := utf16Ptr(letter)
+	if err != nil {
+		return "", err
+	}
+
+	// out buffer for "X:" + NUL
+	out := make([]uint16, 8)
+
+	hr, _, _ := procSplitW.Call(
+		uintptr(unsafe.Pointer(pVol)),
+		uintptr(int32(sizeMB)),
+		uintptr(unsafe.Pointer(pFs)),
+		uintptr(unsafe.Pointer(pLabel)),
+		uintptr(unsafe.Pointer(pDesired)),
+		uintptr(unsafe.Pointer(&out[0])),
+		uintptr(int32(len(out))),
+	)
+	if err := hresultErr(hr, "SplitVolumeW"); err != nil {
+		return "", err
+	}
+
+	return syscall.UTF16ToString(out), nil
 	vol = strings.TrimSpace(vol)
 	if vol == "" {
 		return "", fmt.Errorf("vol 不能为空（请输入盘符，如 C / C: / C:\\）")
@@ -123,7 +172,7 @@ func SplitVolume(vol string, sizeMB int, fs, label, letter string) (string, erro
 		lines = append(lines, "assign")
 	}
 
-	out, err := RunDiskpart(lines)
+	_, err = RunDiskpart(lines)
 	if err != nil {
 		return "", fmt.Errorf("diskpart 执行失败: %w\n输出:\n%s", err, out)
 	}
@@ -243,10 +292,20 @@ func GetDiskPartitions(diskID string) (int, []string, error) {
 // 合并分区：将目标卷卷尾紧邻的未分配空间扩展到指定卷。
 // vol: 例如 "C" / "C:" / "C:\"
 // sizeMB: 扩展大小（MB），<=0 表示使用全部
-func MergeVolume(vol string, sizeMB int) (string, error) {
+func MergeVolume(vol string, sizeMB int) error {
+	pVol, err := utf16Ptr(vol)
+	if err != nil {
+		return err
+	}
+	hr, _, _ := procMergeW.Call(
+		uintptr(unsafe.Pointer(pVol)),
+		uintptr(int32(sizeMB)),
+	)
+	return hresultErr(hr, "MergeVolumeW")
+
 	vol = strings.TrimSpace(vol)
 	if vol == "" {
-		return "", fmt.Errorf("vol 不能为空（请输入盘符，如 C / C: / C:\\）")
+		return fmt.Errorf("vol 不能为空（请输入盘符，如 C / C: / C:\\）")
 	}
 
 	volUp := strings.ToUpper(vol)
@@ -255,10 +314,10 @@ func MergeVolume(vol string, sizeMB int) (string, error) {
 	} else if len(volUp) == 1 {
 		// ok
 	} else {
-		return "", fmt.Errorf("vol 格式不支持：%q（请用盘符如 C 或 C:）", vol)
+		return fmt.Errorf("vol 格式不支持：%q（请用盘符如 C 或 C:）", vol)
 	}
 	if volUp[0] < 'A' || volUp[0] > 'Z' {
-		return "", fmt.Errorf("vol 不是有效盘符：%q", vol)
+		return fmt.Errorf("vol 不是有效盘符：%q", vol)
 	}
 
 	lines := []string{"select volume=" + volUp}
@@ -268,19 +327,26 @@ func MergeVolume(vol string, sizeMB int) (string, error) {
 		lines = append(lines, "extend")
 	}
 
-	out, err := RunDiskpart(lines)
+	_, err = RunDiskpart(lines)
 	if err != nil {
-		return out, fmt.Errorf("diskpart 执行失败: %w", err)
+		return fmt.Errorf("diskpart 执行失败: %w", err)
 	}
-	return out, nil
+	return nil
 }
 
 // 删除指定卷（转为未分配空间）。
 // vol: 例如 "C" / "C:" / "C:\\"
-func DeleteVolume(vol string) (string, error) {
+func DeleteVolume(vol string) error {
+	pVol, err := utf16Ptr(vol) // "E:"
+	if err != nil {
+		return err
+	}
+	hr, _, _ := procDeleteW.Call(uintptr(unsafe.Pointer(pVol)))
+	return hresultErr(hr, "DeleteVolumeW")
+
 	vol = strings.TrimSpace(vol)
 	if vol == "" {
-		return "", fmt.Errorf("卷标为空")
+		return fmt.Errorf("卷标为空")
 	}
 	if len(vol) >= 2 && vol[1] == ':' {
 		vol = vol[:2]
@@ -294,11 +360,11 @@ func DeleteVolume(vol string) (string, error) {
 		"delete volume",
 	}
 
-	out, err := RunDiskpart(lines)
+	_, err = RunDiskpart(lines)
 	if err != nil {
-		return out, fmt.Errorf("diskpart 执行失败: %w", err)
+		return fmt.Errorf("diskpart 执行失败: %w", err)
 	}
-	return out, nil
+	return nil
 }
 
 // 获取卷的文件系统类型和总大小（字节）
@@ -742,6 +808,32 @@ func RunDiskpart(lines []string) (string, error) {
 // label: 卷标，允许为空
 // quick: true：快速格式化, false：全格式
 func Format(letter, fs, label string, quick bool) error {
+	pLetter, err := utf16Ptr(letter) // e.g. "E:"
+	if err != nil {
+		return err
+	}
+	pFs, err := utf16Ptr(fs) // "NTFS" / "FAT32"
+	if err != nil {
+		return err
+	}
+	pLabel, err := utf16Ptr(label)
+	if err != nil {
+		return err
+	}
+
+	var q uintptr = 0
+	if quick {
+		q = 1
+	}
+
+	hr, _, _ := procFormatW.Call(
+		uintptr(unsafe.Pointer(pLetter)),
+		uintptr(unsafe.Pointer(pFs)),
+		uintptr(unsafe.Pointer(pLabel)),
+		q,
+	)
+	return hresultErr(hr, "FormatW")
+
 	l := strings.TrimSpace(letter)
 	if l == "" {
 		return fmt.Errorf("empty volume letter")
