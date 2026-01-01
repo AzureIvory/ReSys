@@ -46,11 +46,16 @@ var (
 )
 
 func Uiinit() {
+	logWrite("ui初始化\n")
 	// 初始化
 	app.Init()
-	a = app.New(true)
+	logWrite("炫彩dll初始化\n")
+	logWrite(xc.SetXcguiPath("xcgui.dll").Error())
+	a = app.New(false)
 	// 启用自适应DPI
+	logWrite("启用自适应DPI\n")
 	a.EnableAutoDPI(true).EnableDPI(true)
+	logWrite("创建UI组件\n")
 	w = window.New(0, 0, 600, 400, "ReSys", 0, xcc.Window_Style_Caption|xcc.Window_Style_Btn_Close|xcc.Window_Style_Btn_Min|xcc.Window_Style_Title|xcc.Window_Style_Icon|xcc.Window_Style_Center|xcc.Window_Style_Border|xcc.Window_Style_Drag_Border)
 	w.SetBorderSize(0, 34, 0, 0)                        //边框
 	w.SetTransparentType(xcc.Window_Transparent_Shadow) //透明类型
@@ -87,6 +92,7 @@ func Uiinit() {
 	progbar = widget.NewProgressBar(2048, 2048, 300, 30, w.Handle)
 	progbar.SetPos(0)
 
+	logWrite("注册UI事件\n")
 	//注册事件
 	btn_win7.AddEvent_BnClick(func(hEle int, pbHandled *bool) int {
 		if Message(w, "提示", "重装系统将会清除C盘数据,是否继续?") {
@@ -169,28 +175,6 @@ func MessageRetryExit(w *window.Window, title, text string) bool {
 	return retry
 }
 
-func test(p *widget.ProgressBar) {
-
-	s := 0
-	for i := 0; i <= 100; i++ {
-		q := s + i
-		fmt.Println(q)
-		time.Sleep(100 * time.Millisecond)
-		p.SetPos(int32(q))
-		p.Redraw(false)
-	}
-
-}
-func Click_w7() {
-	// 注册按钮事件
-	btn_win7.AddEvent_BnClick(func(hEle int, pbHandled *bool) int {
-		if Message(w, "提示", "重装系统将会清除C盘数据,是否继续?") {
-			//点了确定后
-			go StartInstall(targetWin7)
-		}
-		return 0
-	})
-}
 func win2() {
 	//禁用
 	btn_win7.Enable(false)

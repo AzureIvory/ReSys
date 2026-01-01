@@ -968,19 +968,19 @@ func PE() int {
 }
 
 func main() {
+	logWrite("启动\n")
 	Uiinit()
-
+	logWrite("Show\n")
 	w.Show(true)
 	//判断是否在PE
 	if strings.ToUpper(os.Getenv("SystemRoot")) == `X:\WINDOWS` {
 		go PE()
 	}
+	logWrite("Run\n")
 	a.Run()
-
+	logWrite("Exit\n")
 	//窗口关闭后执行
 	a.Exit()
-	Findpart()
-
 	return
 	fmt.Println(GetDiskNum("E:\\"))
 	path, err := os.Getwd()

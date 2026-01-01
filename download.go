@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha1"
-	"crypto/tls"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -22,7 +21,6 @@ import (
 	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/anacrolix/torrent/storage"
-	"github.com/cavaliergopher/grab/v3"
 )
 
 var trackerTxtURLs = []string{
@@ -337,9 +335,33 @@ func uniqueStrings(in []string) []string {
 	return out
 }
 
-// 下载大文件。
-// - 会先写 dstPath+".part"，成功后再重命名为 dstPath。
-// - 如果 .part 已存在且服务器支持 Range，会自动从已有位置续传。
+func findCurl() (string, error) {
+	// PATH
+	if p, err := exec.LookPath("curl"); err == nil {
+		return p, nil
+	}
+	// ./tools/curl.exe
+	exe, err := os.Executable()
+	if err == nil {
+		toolsDir := filepath.Join(filepath.Dir(exe), "tools")
+
+		p := filepath.Join(toolsDir, "curl.exe")
+		if st, e := os.Stat(p); e == nil && !st.IsDir() {
+			return p, nil
+		}
+
+		p2 := filepath.Join(toolsDir, "curl")
+		if st, e := os.Stat(p2); e == nil && !st.IsDir() {
+			return p2, nil
+		}
+	}
+
+	return "", fmt.Errorf("curl not found in PATH and not found in ./tools")
+}
+
+// 下载大文件（仅 curl）。
+// - 写入 dstPath+".part"，成功后重命名为 dstPath。
+// - 若 .part 已存在，会尝试用 curl 的 -C - 续传；若服务器不支持 Range，会自动从头下载。
 func DownloadFile(ctx context.Context, url, dstPath string, progressCallback func(float64, int64)) error {
 	if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
 		return fmt.Errorf("create dir: %w", err)
@@ -348,173 +370,166 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 		progressCallback = func(float64, int64) {}
 	}
 
-	tmpPath := dstPath + ".part"
-
-	// 尝试找到curl
-	var curlPath string
-	if p, err := exec.LookPath("curl"); err == nil {
-		curlPath = p
-	} else {
-		exe, e2 := os.Executable()
-		if e2 == nil {
-			name := "curl.exe"
-			p2 := filepath.Join(filepath.Dir(exe), "tools", name)
-			if st, e3 := os.Stat(p2); e3 == nil && !st.IsDir() {
-				curlPath = p2
-			}
-		}
+	curlPath, err := findCurl()
+	if err != nil {
+		return err
 	}
 
-	//curl
-	var curlErr error
-	if curlPath == "" {
-		curlErr = fmt.Errorf("curl not found in PATH and not found in ./tools")
-	} else {
-		total := contentLength(ctx, url) // -1 表示未知
-		cmd := exec.CommandContext(ctx, curlPath,
+	tmpPath := dstPath + ".part"
+	total := contentLength(ctx, url) // -1 表示未知
+
+	// 是否有已存在 part
+	var hasPart bool
+	if st, e := os.Stat(tmpPath); e == nil && !st.IsDir() && st.Size() > 0 {
+		hasPart = true
+	}
+
+	runCurl := func(withResume bool) error {
+		args := []string{
 			"-L", "--fail", "--silent", "--show-error",
-			"--insecure", //跳过证书校验
+			"--connect-timeout", "5",
+			"--max-time", "0", // 0=不限制总时长（按需）
 			"--output", tmpPath,
-			url,
-		)
+		}
+
+		// 强制跳过证书校验
+		args = append(args, "--insecure")
+
+		if withResume {
+			args = append(args, "-C", "-")
+		}
+		args = append(args, url)
+
+		cmd := exec.CommandContext(ctx, curlPath, args...)
 		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 
 		if err := cmd.Start(); err != nil {
-			curlErr = fmt.Errorf("start curl (%s): %w", curlPath, err)
-		} else {
-			done := make(chan struct{})
-			go func() {
-				ticker := time.NewTicker(1 * time.Second)
-				defer ticker.Stop()
-				var lastBytes int64
-				lastTime := time.Now()
+			return fmt.Errorf("start curl (%s): %w", curlPath, err)
+		}
 
-				for {
-					select {
-					case <-ctx.Done():
-						return
-					case <-done:
-						return
-					case <-ticker.C:
-						var nowBytes int64
-						if st, err := os.Stat(tmpPath); err == nil {
-							nowBytes = st.Size()
-						}
-						now := time.Now()
-						dt := now.Sub(lastTime).Seconds()
-						if dt <= 0 {
-							dt = 1
-						}
-						speed := int64(float64(nowBytes-lastBytes) / dt)
-						if speed < 0 {
-							speed = 0
-						}
+		done := make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(1 * time.Second)
+			defer ticker.Stop()
 
-						percent := 0.0
-						if total > 0 {
-							percent = float64(nowBytes) * 100 / float64(total)
-							if percent > 99.9 {
-								percent = 99.9
-							}
-							if percent < 0 {
-								percent = 0
-							}
-						}
-						progressCallback(percent, speed)
+			var lastBytes int64
+			var lastTime = time.Now()
 
-						lastBytes = nowBytes
-						lastTime = now
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-done:
+					return
+				case <-ticker.C:
+					var nowBytes int64
+					if st, e := os.Stat(tmpPath); e == nil {
+						nowBytes = st.Size()
 					}
+					now := time.Now()
+					dt := now.Sub(lastTime).Seconds()
+					if dt <= 0 {
+						dt = 1
+					}
+					speed := int64(float64(nowBytes-lastBytes) / dt)
+					if speed < 0 {
+						speed = 0
+					}
+
+					percent := 0.0
+					if total > 0 {
+						percent = float64(nowBytes) * 100 / float64(total)
+						if percent > 99.9 {
+							percent = 99.9
+						}
+						if percent < 0 {
+							percent = 0
+						}
+					}
+					progressCallback(percent, speed)
+
+					lastBytes = nowBytes
+					lastTime = now
 				}
-			}()
-
-			err := cmd.Wait()
-			close(done)
-
-			if err == nil {
-				_ = os.Remove(dstPath) // Windows rename 不覆盖，先删更稳
-				if err := os.Rename(tmpPath, dstPath); err != nil {
-					return fmt.Errorf("rename %s -> %s: %w", tmpPath, dstPath, err)
-				}
-				progressCallback(100, 0)
-				return nil
 			}
+		}()
 
-			if ctx.Err() != nil {
-				return ctx.Err()
+		err := cmd.Wait()
+		close(done)
+
+		if err == nil {
+			_ = Remove(dstPath, false)
+			if err := os.Rename(tmpPath, dstPath); err != nil {
+				return fmt.Errorf("rename %s -> %s: %w", tmpPath, dstPath, err)
 			}
-			msg := strings.TrimSpace(stderr.String())
-			if msg != "" {
-				curlErr = fmt.Errorf("curl failed (%s): %w: %s", curlPath, err, msg)
-			} else {
-				curlErr = fmt.Errorf("curl failed (%s): %w", curlPath, err)
-			}
+			progressCallback(100, 0)
+			return nil
 		}
+
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		msg := strings.TrimSpace(stderr.String())
+		if msg != "" {
+			return fmt.Errorf("curl failed: %w: %s", err, msg)
+		}
+		return fmt.Errorf("curl failed: %w", err)
 	}
 
-	// 用户取消/超时就不再 fallback
-	if ctx.Err() != nil {
-		return ctx.Err()
+	// 续传
+	if hasPart {
+		err := runCurl(true)
+		if err == nil {
+			return nil
+		}
+		// 若续传失败
+		_ = os.Remove(tmpPath)
 	}
-	_ = os.Remove(tmpPath) // 清理 curl 残留
 
-	// grab
-	req, err := grab.NewRequest(tmpPath, url)
+	// 从头下载
+	if err := runCurl(false); err != nil {
+		return err
+	}
+	return nil
+}
+
+// 判断网络是否连通。
+// 返回：ok=是否连通；err=具体失败原因
+func CheckNetwork(ctx context.Context) (ok bool, err error) {
+	curlPath, err := findCurl()
 	if err != nil {
-		return fmt.Errorf("grab new request: %w (curlErr=%v)", err, curlErr)
+		return false, err
 	}
-	req = req.WithContext(ctx)
 
-	client := grab.NewClient()
-	dt := http.DefaultTransport.(*http.Transport).Clone()
-	dt.Proxy = http.ProxyFromEnvironment
-	dt.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-	client.HTTPClient = &http.Client{Transport: dt}
+	cmd := exec.CommandContext(ctx, curlPath,
+		"-L", "--fail", "--silent", "--show-error",
+		"--connect-timeout", "3",
+		"--max-time", "5",
+		"-o", os.DevNull,
+		"https://www.baidu.com",
+	)
 
-	resp := client.Do(req)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 
-	done2 := make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(1 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-done2:
-				return
-			case <-ticker.C:
-				p := resp.Progress() * 100
-				if p > 99.9 {
-					p = 99.9
-				}
-				s := int64(resp.BytesPerSecond())
-				if s < 0 {
-					s = 0
-				}
-				progressCallback(p, s)
-			}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err == nil {
+		return true, nil
+	} else {
+		if ctx.Err() != nil {
+			return false, ctx.Err()
 		}
-	}()
-
-	grabErr := resp.Err()
-	close(done2)
-
-	if grabErr == nil {
-		_ = os.Remove(dstPath)
-		if err := os.Rename(tmpPath, dstPath); err != nil {
-			return fmt.Errorf("rename %s -> %s: %w", tmpPath, dstPath, err)
+		msg := strings.TrimSpace(stderr.String())
+		if msg != "" {
+			return false, fmt.Errorf("network check failed: %w: %s", err, msg)
 		}
-		progressCallback(100, 0)
-		return nil
+		return false, fmt.Errorf("network check failed: %w", err)
 	}
-
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-	return fmt.Errorf("download failed (curl then grab): curl=%v; grab=%w", curlErr, grabErr)
 }
 
 // 尽量拿到 Content-Length；拿不到返回 -1（percent 就只能给 0~99.9 的“未知总量”模式）
