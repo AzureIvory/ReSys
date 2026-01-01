@@ -11,8 +11,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/twgh/xcgui/app"
 )
 
 // 目标系统常量：用于按钮入口与镜像筛选的统一标识。
@@ -21,40 +19,6 @@ const (
 	targetWin10 = "win10"
 	targetWin11 = "win11"
 )
-
-// UI：更新状态文本（线程安全，走 UI 线程）。
-func uiSetStatus(text string) {
-	if text_des == nil || w == nil {
-		return
-	}
-	app.CallUT(func() {
-		text_des.SetText(text)
-		text_des.Redraw()
-		w.Redraw(false)
-	})
-}
-
-// UI：更新进度条（线程安全，走 UI 线程）。
-func uiSetProgress(pos int32) {
-	if progbar == nil || w == nil {
-		return
-	}
-	app.CallUT(func() {
-		progbar.SetPos(pos)
-		progbar.Redraw(false)
-		w.Redraw(false)
-	})
-}
-
-// UI：显示错误消息框（线程安全，走 UI 线程）。
-func uiShowError(title, text string) {
-	if w == nil {
-		return
-	}
-	app.CallUT(func() {
-		Message(w, title, text)
-	})
-}
 
 var (
 	logOnce sync.Once
@@ -166,7 +130,7 @@ func StartInstall(target string) {
 	uiSetStatus("正在准备PE环境...")
 
 	if !retryLoop("准备PE", func() error {
-		// ensurePEAndReboot 内部会走 downloadPE，并触发 GoToPE
+
 		return ensurePEAndReboot(peArch)
 	}) {
 		return
@@ -1571,7 +1535,7 @@ func retryLoop(title string, fn func() error) bool {
 			return true
 		} else {
 			logWrite("%s失败：%v", title, err)
-			if !MessageRetryExit(w, "错误", title+"失败："+err.Error()) {
+			if !MessageRetryExit("错误", title+"失败："+err.Error()) {
 				return false
 			}
 		}
@@ -1586,7 +1550,7 @@ func retryLoopWithResult[T any](title string, fn func() (T, error)) (T, bool) {
 			return v, true
 		}
 		logWrite("%s失败：%v", title, err)
-		if !MessageRetryExit(w, "错误", title+"失败："+err.Error()) {
+		if !MessageRetryExit("错误", title+"失败："+err.Error()) {
 			return zero, false
 		}
 	}

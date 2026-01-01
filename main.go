@@ -970,17 +970,13 @@ func PE() int {
 func main() {
 	logWrite("启动\n")
 	Uiinit()
-	logWrite("Show\n")
-	w.Show(true)
 	//判断是否在PE
 	if strings.ToUpper(os.Getenv("SystemRoot")) == `X:\WINDOWS` {
 		go PE()
 	}
 	logWrite("Run\n")
-	a.Run()
-	logWrite("Exit\n")
-	//窗口关闭后执行
-	a.Exit()
+	UiRun()
+
 	return
 	fmt.Println(GetDiskNum("E:\\"))
 	path, err := os.Getwd()
@@ -1032,20 +1028,4 @@ func Rew7(file string) int {
 	//path, _ := os.Getwd()
 	//img, err := ListImageInfos(path + "\\win10.esd")
 	return 0
-}
-func test1() {
-	//Findimg()
-	bt := "magnet:?xt=urn:btih:aed8ca03ed278466c4a35d509bf864051b533011&dn=zh-cn_windows_10_business_editions_version_22h2_updated_oct_2025_x64_dvd_d4e92df7.iso&xl=6985566208"
-	SHA1 := "FA15E803EEDA7F0856203F27DA81AF6468902477"
-	fmt.Println(DownloadBT(bt, "K:\\镜像", func(pct int, speed, done, total int64) {
-		fmt.Printf("进度: %d%%  速度: %f MB/s  已下: %d / %d 字节\n",
-			pct, float64(float64(speed/1024)/1024), done, total)
-		w.SetTitle(fmt.Sprintln("进度: %d%%  速度: %f MB/s  已下: %d / %d 字节\n",
-			pct, float64(float64(speed/1024)/1024), done, total))
-		progbar.SetPos(int32(pct))
-		progbar.Redraw(false)
-		w.Redraw(false)
-	}))
-
-	fmt.Println(CheckFileSHA1("K:\\镜像\\zh-cn_windows_10_business_editions_version_22h2_updated_oct_2025_x64_dvd_d4e92df7.iso", SHA1))
 }

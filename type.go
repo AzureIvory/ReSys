@@ -129,7 +129,7 @@ type memoryStatusEx struct {
 	ullAvailExtendedVirtual uint64
 }
 
-//镜像信息
+// 镜像信息
 type ImageMeta struct {
 	Index       int
 	Name        string

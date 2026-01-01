@@ -56,7 +56,7 @@ var (
 	IID_IPersistFile = GUID{0x0000010b, 0x0000, 0x0000, [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
 )
 
-//disk.dll
+// disk.dll
 var (
 	modDisk     = syscall.NewLazyDLL("disk.dll")
 	procFormatW = modDisk.NewProc("FormatW")

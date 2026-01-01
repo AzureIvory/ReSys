@@ -1839,26 +1839,30 @@ func Patwim(wim string) error {
 		{src: selfExe, dst: `\Windows\` + selfName, isDir: false},
 		{src: filepath.Join(dir, "Windows.json"), dst: `\Windows\Windows.json`, isDir: false},
 		{src: filepath.Join(dir, "WinPE.json"), dst: `\Windows\WinPE.json`, isDir: false},
-		{src: filepath.Join(dir, "xcgui.dll"), dst: `\Windows\xcgui.dll`, isDir: false},
 		{src: filepath.Join(dir, "disk.dll"), dst: `\Windows\disk.dll`, isDir: false},
-		{src: filepath.Join(dir, "wait.gif"), dst: `\Windows\wait.gif`, isDir: false},
 		{src: filepath.Join(dir, "trackers.txt"), dst: `\Windows\trackers.txt`, isDir: false},
 		{src: filepath.Join(dir, "tools"), dst: `\Windows\tools`, isDir: true},
 	}
 
 	// 资源存在性检查
+	keep := make([]wimRes, 0, len(resList))
 	for _, r := range resList {
 		st, e := os.Stat(r.src)
 		if e != nil {
-			return fmt.Errorf("缺少资源：%s（%v）", r.src, e)
+			fmt.Fprintf(os.Stderr, "WARN: 跳过缺少资源: %s (%v)\n", r.src, e)
+			continue
 		}
 		if r.isDir && !st.IsDir() {
-			return fmt.Errorf("资源应为目录但不是：%s", r.src)
+			fmt.Fprintf(os.Stderr, "WARN: 跳过资源(应为目录但不是): %s\n", r.src)
+			continue
 		}
 		if !r.isDir && st.IsDir() {
-			return fmt.Errorf("资源应为文件但却是目录：%s", r.src)
+			fmt.Fprintf(os.Stderr, "WARN: 跳过资源(应为文件但却是目录): %s\n", r.src)
+			continue
 		}
+		keep = append(keep, r)
 	}
+	resList = keep
 
 	wimBase := func(p string) string {
 		p = strings.TrimRight(p, `\/`)

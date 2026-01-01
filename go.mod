@@ -6,7 +6,6 @@ require (
 	github.com/anacrolix/generics v0.1.0
 	github.com/anacrolix/torrent v1.59.1
 	github.com/kdomanski/iso9660 v0.4.0
-	github.com/twgh/xcgui v1.3.398
 	golang.org/x/sys v0.34.0
 	golang.org/x/text v0.31.0
 )
