@@ -1,6 +1,0 @@
-LIBRARY "disk"
-EXPORTS
-  DeleteVolumeW = _DeleteVolumeW@4
-  FormatW       = _FormatW@16
-  MergeVolumeW  = _MergeVolumeW@8
-  SplitVolumeW  = _SplitVolumeW@28

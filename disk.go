@@ -13,196 +13,151 @@ import (
 	"unsafe"
 )
 
-// HRESULT helpers
-func failed(hr uintptr) bool { return int32(hr) < 0 }
-
-func hresultErr(hr uintptr, what string) error {
-	if !failed(hr) {
-		return nil
+func GetDiskTool() (string, error) {
+	base := "."
+	if exe, err := os.Executable(); err == nil {
+		base = filepath.Dir(exe)
 	}
-	return fmt.Errorf("%s failed: HRESULT=0x%08X", what, uint32(hr))
+	arch := systemArch()
+	name := "DiskTool_32.exe"
+	if arch == "64" {
+		name = "DiskTool_64.exe"
+	}
+	candidates := []string{
+		filepath.Join(base, "tools", name),
+		filepath.Join(base, name),
+		filepath.Join(".", "tools", name),
+		filepath.Join(".", name),
+	}
+	for _, c := range candidates {
+		if st, err := os.Stat(c); err == nil && !st.IsDir() {
+			return c, nil
+		}
+	}
+	return "", fmt.Errorf("DiskTool not found: %s (arch=%s)", name, arch)
 }
 
-func utf16Ptr(s string) (*uint16, error) {
-	return syscall.UTF16PtrFromString(s)
+func runDiskTool(args ...string) (string, error) {
+	path, err := GetDiskTool()
+	if err != nil {
+		return "", err
+	}
+	out, err := runCmd(path, nil, args...)
+	if err != nil {
+		return out, fmt.Errorf("DiskTool failed: %w", err)
+	}
+	return out, nil
 }
 
-// 分割卷，创建新分区并格式化。
-// vol: 源卷盘符，如 "C"。
-// sizeMB: 新分区大小，单位 MB。
-// fs: 文件系统，如 "ntfs"。
-// label: 分区标签。
-// letter: 指定盘符，如 "E"。为空则自动分配。
-// 返回新分区盘符，如 "E:"。
-func SplitVolume(vol string, sizeMB int, fs, label, letter string) (string, error) {
-	pVol, err := utf16Ptr(vol)
-	if err != nil {
-		return "", err
+func normalizeDriveLetter(letter string) (string, error) {
+	l := strings.TrimSpace(letter)
+	if l == "" {
+		return "", fmt.Errorf("empty drive letter")
 	}
-	pFs, err := utf16Ptr(fs)
-	if err != nil {
-		return "", err
+	l = strings.ToUpper(l)
+	if len(l) >= 2 && l[1] == ':' {
+		l = l[:1]
+	} else if len(l) >= 3 && l[1] == ':' && (l[2] == '\\' || l[2] == '/') {
+		l = l[:1]
+	} else if len(l) != 1 {
+		return "", fmt.Errorf("invalid drive letter: %q", letter)
 	}
-	pLabel, err := utf16Ptr(label)
-	if err != nil {
-		return "", err
+	if l[0] < 'A' || l[0] > 'Z' {
+		return "", fmt.Errorf("invalid drive letter: %q", letter)
 	}
-	// desired letter can be "" => auto
-	pDesired, err := utf16Ptr(letter)
-	if err != nil {
-		return "", err
-	}
+	return l, nil
+}
 
-	// out buffer for "X:" + NUL
-	out := make([]uint16, 8)
-
-	hr, _, _ := procSplitW.Call(
-		uintptr(unsafe.Pointer(pVol)),
-		uintptr(int32(sizeMB)),
-		uintptr(unsafe.Pointer(pFs)),
-		uintptr(unsafe.Pointer(pLabel)),
-		uintptr(unsafe.Pointer(pDesired)),
-		uintptr(unsafe.Pointer(&out[0])),
-		uintptr(int32(len(out))),
-	)
-	if err := hresultErr(hr, "SplitVolumeW"); err != nil {
-		return "", err
+func normalizeOptionalLetter(letter string) (string, error) {
+	if strings.TrimSpace(letter) == "" {
+		return "", nil
 	}
-
-	return syscall.UTF16ToString(out), nil
-	vol = strings.TrimSpace(vol)
-	if vol == "" {
-		return "", fmt.Errorf("vol 不能为空（请输入盘符，如 C / C: / C:\\）")
-	}
-
-	volUp := strings.ToUpper(vol)
-	if len(volUp) >= 2 && volUp[1] == ':' {
-		volUp = volUp[:1]
-	} else if len(volUp) >= 3 && volUp[1] == ':' && (volUp[2] == '\\' || volUp[2] == '/') {
-		volUp = volUp[:1]
-	} else if len(volUp) == 1 {
-	} else {
-		return "", fmt.Errorf("vol 格式不支持：%q（请用盘符如 C 或 C:）", vol)
-	}
-	if volUp[0] < 'A' || volUp[0] > 'Z' {
-		return "", fmt.Errorf("vol 不是有效盘符：%q", vol)
-	}
-	volForGetInfo := volUp + ":" // 传给 GetDiskInfo 用
-
-	if sizeMB <= 0 {
-		return "", fmt.Errorf("sizeMB 必须大于 0")
-	}
-
-	fs = strings.ToLower(strings.TrimSpace(fs))
+	return normalizeDriveLetter(letter)
+}
+func toDiskToolFS(fs string) (string, error) {
+	fs = strings.TrimSpace(fs)
 	if fs == "" {
 		return "", fmt.Errorf("fs 不能为空")
 	}
+	fs = strings.ToUpper(fs)
 	switch fs {
-	case "ntfs", "exfat", "fat32", "refs":
+	case "NTFS", "FAT32":
+		return fs, nil
 	default:
-		return "", fmt.Errorf("不支持的 fs：%q（建议 ntfs/exfat/fat32）", fs)
+		return "", fmt.Errorf("不支持的 fs：%q（仅支持 NTFS/FAT32）", fs)
 	}
+}
+func collectDriveLetters() (map[string]struct{}, error) {
+	drives, err := ListDrive()
+	if err != nil {
+		return nil, err
+	}
+	set := make(map[string]struct{}, len(drives))
+	for _, root := range drives {
+		root = strings.TrimSpace(root)
+		if len(root) < 1 {
+			continue
+		}
+		ch := strings.ToUpper(string(root[0]))
+		if ch[0] >= 'A' && ch[0] <= 'Z' {
+			set[ch] = struct{}{}
+		}
+	}
+	return set, nil
+}
 
+// 分割卷，创建新分区并格式化。
+// vol: 源卷盘符
+// sizeMB: 新分区大小，单位 MB。
+// fs: 文件系统，如 "ntfs"。
+// label: 分区标签。
+// letter: 指定盘符，为空则自动分配。
+// 返回新分区盘符
+func SplitVolume(vol string, sizeMB int, fs, label, letter string) (string, error) {
+	volLetter, err := normalizeDriveLetter(vol)
+	if err != nil {
+	}
+	if sizeMB <= 0 {
+		return "", fmt.Errorf("sizeMB 必须大于 0")
+	}
+	fs, err = toDiskToolFS(fs)
+	if err != nil {
+		return "", err
+	}
 	label = strings.TrimSpace(label)
-	if strings.ContainsAny(label, "\r\n\t") {
-		return "", fmt.Errorf("label 含非法控制字符")
+	if label == "" {
+		label = "NO_LABEL"
 	}
-
-	letter = strings.TrimSpace(letter)
-	if len(letter) >= 2 && letter[1] == ':' {
-		letter = letter[:1]
-	}
-	letter = strings.ToUpper(letter)
-	if letter != "" {
-		if len(letter) != 1 || letter[0] < 'A' || letter[0] > 'Z' {
-			return "", fmt.Errorf("letter 非法：%q（应为 A-Z 或空）", letter)
-		}
-	}
-	//获取物理磁盘号
-	style, diskNo, err := GetDiskInfo(volForGetInfo)
+	newLetter, err := normalizeOptionalLetter(letter)
 	if err != nil {
-		return "", fmt.Errorf("GetDiskInfo(%q) 失败: %w", volForGetInfo, err)
+		return "", err
 	}
-
-	beforeCount, beforeRoots, err := GetDiskPartitions(fmt.Sprintf("%d", diskNo))
+	beforeLetters, err := collectDriveLetters()
 	if err != nil {
-		return "", fmt.Errorf("GetDiskPartitions(disk=%d) 失败: %w", diskNo, err)
+		return "", err
 	}
-	beforeLetters := make(map[string]struct{}, len(beforeRoots))
-	for _, r := range beforeRoots {
-		r = strings.TrimSpace(r)
-		if len(r) >= 1 {
-			ch := strings.ToUpper(string(r[0]))
-			if ch[0] >= 'A' && ch[0] <= 'Z' {
-				beforeLetters[ch] = struct{}{}
-			}
+	args := []string{"split", volLetter, strconv.Itoa(sizeMB), fs, label}
+	if newLetter != "" {
+		if _, ok := beforeLetters[newLetter]; ok {
+			return "", fmt.Errorf("指定盘符 %s 已被占用", newLetter+":")
 		}
+		args = append(args, newLetter)
 	}
-
-	// MBR 主分区数量限制
-	if strings.EqualFold(style, "MBR") && beforeCount >= 4 {
-		return "", fmt.Errorf("磁盘为 MBR 且当前分区数=%d，可能已达主分区上限（4）。需改用扩展/逻辑分区策略或先调整现有分区", beforeCount)
-	}
-
-	if letter != "" {
-		if _, ok := beforeLetters[letter]; ok {
-			return "", fmt.Errorf("指定盘符 %s 已被占用", letter+":")
-		}
-		if letter == volUp {
-			return "", fmt.Errorf("指定盘符不能与源卷相同：%s", volUp+":")
-		}
-	}
-
-	lines := []string{
-		"select volume=" + volUp,
-		fmt.Sprintf("shrink desired=%d minimum=%d", sizeMB, sizeMB),
-		fmt.Sprintf("select disk %d", diskNo),
-		fmt.Sprintf("create partition primary size=%d", sizeMB),
-	}
-
-	formatLine := "format fs=" + fs + " quick"
-	if label != "" {
-		formatLine += " label=" + label
-	}
-	lines = append(lines, formatLine)
-
-	if letter != "" {
-		lines = append(lines, "assign letter="+letter)
-	} else {
-		lines = append(lines, "assign")
-	}
-
-	_, err = RunDiskpart(lines)
+	out, err := runDiskTool(args...)
 	if err != nil {
-		return "", fmt.Errorf("diskpart 执行失败: %w\n输出:\n%s", err, out)
+		return "", fmt.Errorf("split failed: %w\n输出:\n%s", err, out)
 	}
-
-	if letter != "" {
-		return letter + ":", nil
+	if newLetter != "" {
+		return newLetter + ":", nil
 	}
-
-	// 再次枚举磁盘盘符，取差集
-	_, afterRoots, err := GetDiskPartitions(fmt.Sprintf("%d", diskNo))
+	afterLetters, err := collectDriveLetters()
 	if err != nil {
-		return "", fmt.Errorf("GetDiskPartitions(disk=%d) 获取新分区盘符失败: %w\n输出:\n%s", diskNo, err, out)
+		return "", err
 	}
 	newLetters := make([]string, 0, 2)
-	seen := make(map[string]struct{}, len(afterRoots))
-	for _, r := range afterRoots {
-		r = strings.TrimSpace(r)
-		if len(r) < 1 {
-			continue
-		}
-		ch := strings.ToUpper(string(r[0]))
-		if ch[0] < 'A' || ch[0] > 'Z' {
-			continue
-		}
-		if _, ok := seen[ch]; ok {
-			continue
-		}
-		seen[ch] = struct{}{}
-		if _, existed := beforeLetters[ch]; !existed {
-			newLetters = append(newLetters, ch)
+	for l := range afterLetters {
+		if _, existed := beforeLetters[l]; !existed {
+			newLetters = append(newLetters, l)
 		}
 	}
 
@@ -210,14 +165,14 @@ func SplitVolume(vol string, sizeMB int, fs, label, letter string) (string, erro
 		return newLetters[0] + ":", nil
 	}
 	if len(newLetters) == 0 {
-		return "", fmt.Errorf("diskpart 执行成功但未检测到新盘符（可能未分配盘符或枚举未刷新）\n输出:\n%s", out)
+		return "", fmt.Errorf("DiskTool 执行成功但未检测到新盘符（可能未分配盘符或枚举未刷新）")
 	}
-	return "", fmt.Errorf("检测到多个可能的新盘符：%v（无法唯一确定）\n输出:\n%s", newLetters, out)
+	return "", fmt.Errorf("检测到多个可能的新盘符：%v（无法唯一确定）", newLetters)
 }
 
 // 根据物理磁盘号或盘符获取分区数量和盘符列表。
 // diskID: 可传 "0"/"1" 或 "PhysicalDrive0"，也可传 "C"/"C:"/"C:\"。
-// 返回：盘符数量、盘符数组（如 "C:"）。
+// 返回：盘符数量、盘符数组
 func GetDiskPartitions(diskID string) (int, []string, error) {
 	diskID = strings.TrimSpace(diskID)
 	if diskID == "" {
@@ -293,43 +248,17 @@ func GetDiskPartitions(diskID string) (int, []string, error) {
 // vol: 例如 "C" / "C:" / "C:\"
 // sizeMB: 扩展大小（MB），<=0 表示使用全部
 func MergeVolume(vol string, sizeMB int) error {
-	pVol, err := utf16Ptr(vol)
+	volLetter, err := normalizeDriveLetter(vol)
 	if err != nil {
 		return err
 	}
-	hr, _, _ := procMergeW.Call(
-		uintptr(unsafe.Pointer(pVol)),
-		uintptr(int32(sizeMB)),
-	)
-	return hresultErr(hr, "MergeVolumeW")
-
-	vol = strings.TrimSpace(vol)
-	if vol == "" {
-		return fmt.Errorf("vol 不能为空（请输入盘符，如 C / C: / C:\\）")
+	mergeSize := sizeMB
+	if mergeSize < 0 {
+		mergeSize = 0
 	}
-
-	volUp := strings.ToUpper(vol)
-	if len(volUp) >= 2 && volUp[1] == ':' {
-		volUp = volUp[:1]
-	} else if len(volUp) == 1 {
-		// ok
-	} else {
-		return fmt.Errorf("vol 格式不支持：%q（请用盘符如 C 或 C:）", vol)
-	}
-	if volUp[0] < 'A' || volUp[0] > 'Z' {
-		return fmt.Errorf("vol 不是有效盘符：%q", vol)
-	}
-
-	lines := []string{"select volume=" + volUp}
-	if sizeMB > 0 {
-		lines = append(lines, fmt.Sprintf("extend size=%d", sizeMB))
-	} else {
-		lines = append(lines, "extend")
-	}
-
-	_, err = RunDiskpart(lines)
+	out, err := runDiskTool("merge", volLetter, strconv.Itoa(mergeSize))
 	if err != nil {
-		return fmt.Errorf("diskpart 执行失败: %w", err)
+		return fmt.Errorf("merge failed: %w\n输出:\n%s", err, out)
 	}
 	return nil
 }
@@ -337,32 +266,13 @@ func MergeVolume(vol string, sizeMB int) error {
 // 删除指定卷（转为未分配空间）。
 // vol: 例如 "C" / "C:" / "C:\\"
 func DeleteVolume(vol string) error {
-	pVol, err := utf16Ptr(vol) // "E:"
+	volLetter, err := normalizeDriveLetter(vol)
 	if err != nil {
 		return err
 	}
-	hr, _, _ := procDeleteW.Call(uintptr(unsafe.Pointer(pVol)))
-	return hresultErr(hr, "DeleteVolumeW")
-
-	vol = strings.TrimSpace(vol)
-	if vol == "" {
-		return fmt.Errorf("卷标为空")
-	}
-	if len(vol) >= 2 && vol[1] == ':' {
-		vol = vol[:2]
-	}
-	if len(vol) == 1 {
-		vol = strings.ToUpper(vol) + ":"
-	}
-
-	lines := []string{
-		"select volume " + vol,
-		"delete volume",
-	}
-
-	_, err = RunDiskpart(lines)
+	out, err := runDiskTool("delete", volLetter)
 	if err != nil {
-		return fmt.Errorf("diskpart 执行失败: %w", err)
+		return fmt.Errorf("delete failed: %w\n输出:\n%s", err, out)
 	}
 	return nil
 }
@@ -549,7 +459,6 @@ func GetDiskInfo(vol string) (string, uint32, error) {
 		return "", 0, fmt.Errorf("unexpected DRIVE_LAYOUT_INFORMATION_EX size: %d", bytesRet)
 	}
 
-	// DRIVE_LAYOUT_INFORMATION_EX 第一个字段就是 PartitionStyle (DWORD)
 	styleVal := binary.LittleEndian.Uint32(out[0:4])
 	var style string
 	switch styleVal {
@@ -808,71 +717,25 @@ func RunDiskpart(lines []string) (string, error) {
 // label: 卷标，允许为空
 // quick: true：快速格式化, false：全格式
 func Format(letter, fs, label string, quick bool) error {
-	pLetter, err := utf16Ptr(letter) // e.g. "E:"
+	volLetter, err := normalizeDriveLetter(letter)
 	if err != nil {
 		return err
 	}
-	pFs, err := utf16Ptr(fs) // "NTFS" / "FAT32"
+	fs, err = toDiskToolFS(fs)
 	if err != nil {
 		return err
 	}
-	pLabel, err := utf16Ptr(label)
-	if err != nil {
-		return err
+	label = strings.TrimSpace(label)
+	if label == "" {
+		label = "NO_LABEL"
 	}
-
-	var q uintptr = 0
+	q := "0"
 	if quick {
-		q = 1
+		q = "1"
 	}
-
-	hr, _, _ := procFormatW.Call(
-		uintptr(unsafe.Pointer(pLetter)),
-		uintptr(unsafe.Pointer(pFs)),
-		uintptr(unsafe.Pointer(pLabel)),
-		q,
-	)
-	return hresultErr(hr, "FormatW")
-
-	l := strings.TrimSpace(letter)
-	if l == "" {
-		return fmt.Errorf("empty volume letter")
-	}
-
-	// "C:" -> "C"
-	l = strings.ToUpper(l)
-	if strings.HasSuffix(l, ":") {
-		l = l[:len(l)-1]
-	}
-	if len(l) != 1 || l[0] < 'A' || l[0] > 'Z' {
-		return fmt.Errorf("invalid volume letter: %q", letter)
-	}
-
-	if fs == "" {
-		fs = "ntfs"
-	}
-	fs = strings.ToLower(fs)
-
-	cmds := []string{
-		fmt.Sprintf("select volume %s", l),
-	}
-
-	// 加上OVERRIDE强制执行
-	fmtCmd := fmt.Sprintf("format fs=%s", fs)
-	if label != "" {
-		fmtCmd += fmt.Sprintf(" label=\"%s\"", label)
-	}
-	if quick {
-		fmtCmd += " quick"
-	}
-	fmtCmd += " override" //强制格式化
-
-	cmds = append(cmds, fmtCmd)
-
-	out, err := RunDiskpart(cmds)
-	fmt.Println("[Format] diskpart output:\n", out)
+	out, err := runDiskTool("format", volLetter, fs, label, q)
 	if err != nil {
-		return err
+		return fmt.Errorf("format failed: %w\n输出:\n%s", err, out)
 	}
 	return nil
 }

@@ -18,10 +18,10 @@ import (
 	"golang.org/x/text/encoding/simplifiedchinese"
 )
 
-// UI 可以在初始化时赋值，用于显示进度条。
+// 用于显示进度条。
 var ImageProgress func(phase string, percent float64, raw string)
 
-// 调用ShellExecuteW执行指定动作（如 "mount" / "open"）。
+// 调用ShellExecuteW
 func shellExecuteVerb(path string, verb string) error {
 	pPath, err := syscall.UTF16PtrFromString(path)
 	if err != nil {
@@ -50,13 +50,13 @@ func shellExecuteVerb(path string, verb string) error {
 	return nil
 }
 
-// 使用ShellExecute挂载ISO，返回新挂载出来的光驱盘符
+// 使用ShellExecute挂载ISO，返回新挂载的光驱盘符
 func MountISO(isoPath string, wait time.Duration) (string, error) {
 	if _, err := os.Stat(isoPath); err != nil {
 		return "", fmt.Errorf("iso not found: %w", err)
 	}
 
-	// 先记录现有CD盘符
+	// 记录现有CD盘符
 	before, err := ListCD()
 	if err != nil {
 		return "", fmt.Errorf("list cdrom before mount: %w", err)
@@ -66,15 +66,13 @@ func MountISO(isoPath string, wait time.Duration) (string, error) {
 		beforeSet[d] = struct{}{}
 	}
 
-	// 先使用"mount"，不行再用"open"
 	if err := shellExecuteVerb(isoPath, "mount"); err != nil {
-		// 某些PE/组件不支持mount verb就退回到open
 		if err2 := shellExecuteVerb(isoPath, "open"); err2 != nil {
 			return "", fmt.Errorf("mount/open iso failed: %v / %v", err, err2)
 		}
 	}
 
-	// 轮询寻找新的CD盘符
+	// 找新的CD盘符
 	deadline := time.Now().Add(wait)
 	for time.Now().Before(deadline) {
 		time.Sleep(500 * time.Millisecond)
@@ -85,7 +83,6 @@ func MountISO(isoPath string, wait time.Duration) (string, error) {
 		}
 		for _, d := range now {
 			if _, ok := beforeSet[d]; !ok {
-				// 找到新出现的CD盘符，认为是挂载的ISO
 				return d, nil
 			}
 		}
@@ -94,7 +91,7 @@ func MountISO(isoPath string, wait time.Duration) (string, error) {
 	return "", errors.New("timeout: iso mounted but no new cdrom drive detected")
 }
 
-// 将ISO的内容解包到指定目录（第三方库）。
+// 将ISO的内容解包到指定目录
 func UnpackISO(isoPath, dstDir string) error {
 	if err := os.MkdirAll(dstDir, 0755); err != nil {
 		return fmt.Errorf("create dst dir: %w", err)
@@ -112,8 +109,8 @@ func UnpackISO(isoPath, dstDir string) error {
 	return nil
 }
 
-// 执行外部命令，返回stdout+stderr文本。
-// onLine：不为 nil 时，每输出一行（或一条 \r 结尾的进度）就回调一次。
+// 执行外部命令，返回stdout+stderr
+// onLine：不为 nil 时，每输出一行就回调一次。
 func runCmd(bin string, onLine func(string), args ...string) (string, error) {
 	cmd := exec.Command(bin, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
@@ -124,11 +121,11 @@ func runCmd(bin string, onLine func(string), args ...string) (string, error) {
 
 	var buf bytes.Buffer
 
-	// 自定义writer：一方面把原始输出塞进buf，另一方面拆分成行给onLine。
+	// 自定义writer
 	type lineWriter struct {
 		all    *bytes.Buffer
 		onLine func(string)
-		part   []byte // 当前未结束的一行（以\n或\r为界）
+		part   []byte
 	}
 
 	lw := &lineWriter{
@@ -137,8 +134,6 @@ func runCmd(bin string, onLine func(string), args ...string) (string, error) {
 		part:   make([]byte, 0, 256),
 	}
 
-	// 实现 io.Writer
-	// 注意：wimlib / DISM 进度通常用 '\r' 覆盖同一行，这里把 '\r' 也当作一次行结束处理。
 	writeLine := func(l string) {
 		if lw.onLine != nil {
 			lw.onLine(l)
@@ -148,7 +143,6 @@ func runCmd(bin string, onLine func(string), args ...string) (string, error) {
 	}
 
 	lwWrite := func(p []byte) {
-		// 先全部记录下来，便于最终返回完整输出
 		lw.all.Write(p)
 
 		for _, b := range p {
@@ -164,17 +158,14 @@ func runCmd(bin string, onLine func(string), args ...string) (string, error) {
 		}
 	}
 
-	// 包装成真正的io.Writer
 	cmd.Stdout = writerFunc(func(p []byte) (int, error) {
 		lwWrite(p)
 		return len(p), nil
 	})
 	cmd.Stderr = cmd.Stdout
 
-	// 同步执行命令
 	err = cmd.Run()
 
-	// 处理最后一行（没有 \n/\r 结尾）
 	if len(lw.part) > 0 {
 		writeLine(string(lw.part))
 		lw.part = lw.part[:0]
@@ -207,7 +198,6 @@ func normRoot(vol string) string {
 	if v == "" {
 		return ""
 	}
-	// 转成大写盘符，方便 log
 	v = strings.ToUpper(v)
 	if len(v) == 1 && v[0] >= 'A' && v[0] <= 'Z' {
 		return v + ":\\"
@@ -222,6 +212,7 @@ func normRoot(vol string) string {
 	return v
 }
 
+// 获取固件类型（UEFI/BIOS）
 func GetFwType() (uint32, error) {
 	var t uint32
 	r, _, err := procGetFirmwareType.Call(uintptr(unsafe.Pointer(&t)))
@@ -234,15 +225,13 @@ func GetFwType() (uint32, error) {
 	return t, nil
 }
 
-// 从一行输出中提取百分比（形如 "(100%)" / "50.3%"），失败返回 -1
+// 从一行输出中提取百分比,失败返回 -1
 func extractPercent(line string) float64 {
-	// 找第一个 '%' 左边的数字
 	idx := strings.Index(line, "%")
 	if idx == -1 {
 		return -1
 	}
 
-	// 向左回溯，找到连续的数字和小数点
 	i := idx - 1
 	for i >= 0 && ((line[i] >= '0' && line[i] <= '9') || line[i] == '.') {
 		i--
@@ -293,7 +282,7 @@ func ApplyImage(imagePath string, index int, targetVol string) error {
 		if ImageProgress == nil {
 			return
 		}
-		// 尝试从 DISM 输出中解析百分比（大部分是 "xx.x%"）
+		// 从 DISM 输出解析百分比
 		pct := extractPercent(line)
 		if pct >= 0 {
 			ImageProgress("DISM", pct, line)
@@ -303,7 +292,7 @@ func ApplyImage(imagePath string, index int, targetVol string) error {
 	if out, err := runCmd("dism.exe", dismOnLine, dismArgs...); err == nil {
 		fmt.Println("[ApplyImage] DISM ok")
 		fmt.Println(out)
-		// DISM 结束，报 100%
+		// DISM 结束
 		if ImageProgress != nil {
 			ImageProgress("DISM", 100, "DISM apply finished")
 		}
@@ -339,7 +328,6 @@ func ApplyImage(imagePath string, index int, targetVol string) error {
 		case strings.HasPrefix(lower, "applying metadata"):
 			phase = "Applying metadata"
 		default:
-			// 其他行我们就当普通日志，不一定有进度
 		}
 
 		pct := extractPercent(line)
@@ -369,7 +357,6 @@ func ApplyImage(imagePath string, index int, targetVol string) error {
 func ApplyWimImage(wimPath string, index int, targetVol string) error {
 	if !strings.EqualFold(strings.TrimSpace(
 		wimPath[len(wimPath)-4:]), ".wim") && !strings.HasSuffix(strings.ToLower(wimPath), ".wim") {
-		// 简单校验一下后缀，不强制
 	}
 	return ApplyImage(wimPath, index, targetVol)
 }
@@ -435,9 +422,8 @@ func ApplyISOImage(isoPath string, index int, targetVol string) error {
 	return fmt.Errorf("ISO安装镜像类型不支持！")
 }
 
-// 找系统分区（有 \Windows 目录的卷）
+// 找系统分区
 func FindOS(hint string) (string, error) {
-	// 先用参数的看看有没有
 	if hint != "" {
 		root := normRoot(hint)
 		if root != "" {
@@ -449,7 +435,6 @@ func FindOS(hint string) (string, error) {
 		}
 	}
 
-	// 枚举所有卷
 	roots, err := ListDrive()
 	if err != nil {
 		return "", fmt.Errorf("ListDrive: %w", err)
@@ -476,7 +461,7 @@ func FindOS(hint string) (string, error) {
 	return cand, nil
 }
 
-// 找 ESP：只看FAT32,在有EFI目录的中选最小的
+// 找 ESP分区
 func FindESP(osRoot string) (string, error) {
 	roots, err := ListDrive()
 	if err != nil {
@@ -513,7 +498,7 @@ func FindESP(osRoot string) (string, error) {
 			continue
 		}
 
-		// 略过>4GB的大FAT32
+		// >4GB
 		if size > 4*1024*1024*1024 {
 			continue
 		}
@@ -556,7 +541,6 @@ func FixBoot(osVol, sysVol, locale string) error {
 		locale = "zh-cn"
 	}
 
-	// 自动找系统
 	osRoot, err := FindOS(osVol)
 	if err != nil {
 		return fmt.Errorf("FindOS failed: %w", err)
@@ -569,7 +553,6 @@ func FixBoot(osVol, sysVol, locale string) error {
 		fmt.Println("[FixBoot] OS volume:", osRoot)
 	}
 
-	// 获取固件类型（UEFI/BIOS）
 	fw, err := GetFwType()
 	if err != nil {
 		fmt.Println("[FixBoot] GetFirmwareType failed, treat as BIOS:", err)
@@ -584,7 +567,7 @@ func FixBoot(osVol, sysVol, locale string) error {
 		}
 	}
 
-	// 检测OS卷所在磁盘的分区格式（MBR/GPT）
+	// 检测OS卷所在磁盘的分区格式
 	diskStyle, diskNum, err := GetDiskInfo(osRoot)
 	if err != nil {
 		fmt.Println("[FixBoot] GetDiskInfo failed, will fallback:", err)
@@ -592,20 +575,17 @@ func FixBoot(osVol, sysVol, locale string) error {
 		fmt.Printf("[FixBoot] Disk %d style: %s\n", diskNum, diskStyle)
 	}
 
-	mode := "BIOS" // 默认 BIOS
+	mode := "BIOS"
 	switch diskStyle {
 	case "MBR":
-		// MBR:走BIOS分支
 		mode = "BIOS"
 	case "GPT":
-		// GPT:如果固件是UEFI,就走UEFI,否则只能按BIOS尝试
 		if fw == fwTypeUefi {
 			mode = "UEFI"
 		} else {
 			mode = "BIOS"
 		}
 	default:
-		// RAW/UNKNOWN：按固件来猜
 		if fw == fwTypeUefi {
 			mode = "UEFI"
 		} else {
@@ -638,7 +618,6 @@ func FixUEFI(osRoot, sysHint, locale string) error {
 		}
 	}
 
-	// 找ESP
 	if sysRoot == "" {
 		if r, err := FindESP(osRoot); err == nil {
 			sysRoot = r
@@ -653,7 +632,6 @@ func FixUEFI(osRoot, sysHint, locale string) error {
 		fmt.Println("[FixUEFI] WARN: no ESP found, fallback to OS volume:", sysRoot)
 	}
 
-	// 调用bcdboot
 	args := []string{
 		winDir,
 		"/l", locale,
@@ -783,7 +761,7 @@ func parseImageInfoText(out string) ([]ImageMeta, error) {
 
 		case key == "Architecture" || key == "Arch":
 			if cur != nil {
-				cur.Arch = val // 例如 "x64" / "x86" / "arm64"
+				cur.Arch = val
 			}
 
 		case strings.HasPrefix(key, "System Root"):
@@ -806,10 +784,9 @@ func parseImageInfoText(out string) ([]ImageMeta, error) {
 	return res, nil
 }
 
-// 从 "25,912,203,411 bytes" 这类字符串中提取字节数
+// 提取字节数
 func parseSizeBytes(s string) uint64 {
 	s = strings.ToLower(s)
-	// 去掉"bytes"/"字节"
 	if idx := strings.Index(s, "bytes"); idx != -1 {
 		s = s[:idx]
 	} else if idx := strings.Index(s, "字节"); idx != -1 {
@@ -830,7 +807,7 @@ func parseSizeBytes(s string) uint64 {
 	return n
 }
 
-// 把字节转成 "xxx MB" 或 "xxx GB"
+// 把字节转成MB/GB
 func bytesToMBGBStr(size uint64) string {
 	const (
 		mb = 1024 * 1024
@@ -840,16 +817,14 @@ func bytesToMBGBStr(size uint64) string {
 		return ""
 	}
 	if size < gb {
-		// 小于 1GB 用 MB，保留 1 位小数
 		v := float64(size) / float64(mb)
 		return fmt.Sprintf("%.1f MB", v)
 	}
-	// 大于等于 1GB 用 GB，保留 2 位小数
 	v := float64(size) / float64(gb)
 	return fmt.Sprintf("%.2f GB", v)
 }
 
-// 结合 Installation / Edition / 名称 做系统索引判断 + 填充 Size 文本
+// 结合 Installation / Edition / 名称 做系统索引判断 + Size
 func finalizeImageMeta(m *ImageMeta) {
 	m.Size = bytesToMBGBStr(m.SizeBytes)
 
@@ -857,7 +832,6 @@ func finalizeImageMeta(m *ImageMeta) {
 	inst := strings.ToLower(m.Installation)
 	edition := strings.ToLower(m.Edition)
 
-	// 明确是 WinPE/安装环境 的情况
 	isPEInstall := strings.Contains(inst, "windowspe") || strings.Contains(inst, "winpe")
 	isPEEdition := strings.Contains(edition, "windowspe")
 
@@ -868,23 +842,15 @@ func finalizeImageMeta(m *ImageMeta) {
 			strings.Contains(name, "winpe") ||
 			strings.Contains(name, "winre") ||
 			strings.Contains(name, "recovery")
-
-	// Client/Server 一般是正常系统
 	isClientOrServer := strings.Contains(inst, "client") || strings.Contains(inst, "server")
-
-	// 如果 Installation 根本没被解析到（inst == ""），那我们就不强制要求它里边有 client/server，
-	// 只要不是明显 PE / Setup 就当成系统 —— 这样你现在出现 IsOS 全是 false 的情况就能避免。
 	if inst == "" && !isPEInstall && !isPEEdition && !isSetupName {
 		m.IsOS = true
 		return
 	}
-
-	// Client/Server 且不是 PE/Setup，认为是系统
 	m.IsOS = isClientOrServer && !isPEInstall && !isPEEdition && !isSetupName
 }
 
 // 读取WIM/ESD中所有的信息（Index/Name/Description/Flags）。
-// 不能传入ISO路径，需要先挂载或解包出WIM/ESD文件。
 func ListImageInfos(imagePath string) ([]ImageMeta, error) {
 	if _, err := os.Stat(imagePath); err != nil {
 		return nil, fmt.Errorf("image not found: %w", err)
@@ -893,7 +859,7 @@ func ListImageInfos(imagePath string) ([]ImageMeta, error) {
 	// DISM
 	if out, err := runCmd("dism.exe",
 		nil,
-		"/English", // 固定英文输出
+		"/English",
 		"/Get-WimInfo",
 		"/WimFile:"+imagePath,
 	); err == nil {
@@ -976,56 +942,4 @@ func main() {
 	}
 	logWrite("Run\n")
 	UiRun()
-
-	return
-	fmt.Println(GetDiskNum("E:\\"))
-	path, err := os.Getwd()
-	img, err := ListImageInfos(path + "\\win10.esd") //测试
-	fmt.Println(img, err)
-	fmt.Println(Format("C", "ntfs", "win10", true))
-	//  绑定进度回调
-	ImageProgress = func(phase string, pct float64, raw string) {
-		// pct < 0 表示这一行没解析到百分比
-		if pct >= 0 {
-			if phase == "" {
-				phase = "Unknown"
-			}
-			fmt.Printf("[PROGRESS] %-18s %6.2f%%   %s\n", phase, pct, raw)
-		} else {
-			fmt.Printf("[LOG] %s\n", raw)
-		}
-	}
-	fmt.Println(ApplyImage(path+"\\win10.esd", 7, "C:\\")) //临时测试
-
-	fmt.Println(FixBoot("C:\\", "", "zh-cn"))
-	fmt.Println(Copy(path+"\\win10.xml", "C:\\Windows\\Panther\\Unattend.xml", true, true))
-	fmt.Println(Copy(path+"\\tools\\drive10.exe", "C:\\drive.exe", true, true))
-	fmt.Println(Copy(path+"\\tools\\HEU_KMS_Activator.exe", "C:\\HEU_KMS_Activator.exe", true, true))
-	fmt.Println(CreateShortcut("C:\\Users\\Public\\Desktop\\", "百度", "https://www.baidu.com"))
-	//time.Sleep(30 * time.Second)
-	Shutdown(true)
-}
-func Rew7(file string) int {
-	var cd string
-	var err error
-	tempD := Findpart()[0]
-	ext := strings.ToLower(filepath.Ext(file))
-	if ext == ".iso" || ext == ".esd" || ext == ".wim" {
-		return -1
-	}
-	if ext == ".iso" {
-		cd, err = MountISO(file, 30*time.Second) //挂载
-		if err != nil {
-			err = UnpackISO(file, tempD+"TEMPISO\\") //挂载失败就解包
-			if err != nil {
-				return -2
-			}
-			cd = tempD + "TEMPISO\\"
-		}
-	}
-	fmt.Println(cd, err)
-	FindFile(cd, "", 3) //搜iso镜像内的安装文件
-	//path, _ := os.Getwd()
-	//img, err := ListImageInfos(path + "\\win10.esd")
-	return 0
 }

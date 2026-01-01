@@ -2,16 +2,19 @@
 #include <vds.h>
 #include <string>
 #include <algorithm>
-#include <initguid.h>
 #include <objbase.h>
+#include <cstdio>
 
 #pragma comment(lib, "ole32.lib")
-#pragma comment(lib, "uuid.lib")
 
 #define SAFE_RELEASE(p) do { if ((p) != nullptr) { (p)->Release(); (p) = nullptr; } } while (0)
 
 static std::wstring ToUpperCopy(std::wstring s) {
     for (auto& ch : s) if (ch >= L'a' && ch <= L'z') ch = ch - L'a' + L'A';
+    return s;
+}
+static std::wstring ToLowerCopy(std::wstring s) {
+    for (auto& ch : s) if (ch >= L'A' && ch <= L'Z') ch = ch - L'A' + L'a';
     return s;
 }
 
@@ -34,27 +37,49 @@ static wchar_t NormalizeSingleLetter(LPCWSTR in) {
     return c;
 }
 
+static void PrintHr(HRESULT hr, const wchar_t* where) {
+    wchar_t* msg = nullptr;
+    DWORD flags = FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS;
+    DWORD lang = MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT);
+    DWORD n = FormatMessageW(flags, nullptr, (DWORD)hr, lang, (LPWSTR)&msg, 0, nullptr);
+    if (n && msg) {
+        while (n && (msg[n - 1] == L'\r' || msg[n - 1] == L'\n')) msg[--n] = 0;
+        std::fwprintf(stderr, L"[!] %s failed: hr=0x%08X (%s)\n", where, (unsigned)hr, msg);
+        LocalFree(msg);
+    } else {
+        std::fwprintf(stderr, L"[!] %s failed: hr=0x%08X\n", where, (unsigned)hr);
+    }
+
+    if (hr == (HRESULT)0x80040154) {
+        std::fwprintf(stderr,
+            L"    Tip: 0x80040154 = Class not registered. In x64 WinPE, run the x64 build.\n");
+    }
+}
+
 struct ComScope {
     bool needUninit = false;
+
     HRESULT Init() {
         HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         if (hr == RPC_E_CHANGED_MODE) {
-            needUninit = false; // already STA; don't uninit
+            needUninit = false;
         } else if (SUCCEEDED(hr)) {
             needUninit = true;
         } else {
             return hr;
         }
 
-        // If already initialized, may return RPC_E_TOO_LATE; ignore.
-        CoInitializeSecurity(
+        HRESULT hrSec = CoInitializeSecurity(
             nullptr, -1, nullptr, nullptr,
             RPC_C_AUTHN_LEVEL_CONNECT,
             RPC_C_IMP_LEVEL_IMPERSONATE,
             nullptr, EOAC_NONE, nullptr
         );
+        if (FAILED(hrSec) && hrSec != RPC_E_TOO_LATE) return hrSec;
+
         return S_OK;
     }
+
     ~ComScope() { if (needUninit) CoUninitialize(); }
 };
 
@@ -63,11 +88,14 @@ static HRESULT LoadVdsService(IVdsService** ppService) {
     *ppService = nullptr;
 
     IVdsServiceLoader* loader = nullptr;
+
+    // CLSID_VdsLoader = {9C38ED61-D565-4728-AEEE-C80952F0ECDE}
     CLSID clsidVdsLoader;
     HRESULT hr = CLSIDFromString(L"{9C38ED61-D565-4728-AEEE-C80952F0ECDE}", &clsidVdsLoader);
     if (FAILED(hr)) return hr;
+
     hr = CoCreateInstance(clsidVdsLoader, nullptr, CLSCTX_LOCAL_SERVER,
-                      IID_IVdsServiceLoader, (void**)&loader);
+                          __uuidof(IVdsServiceLoader), (void**)&loader);
     if (FAILED(hr)) return hr;
 
     IVdsService* svc = nullptr;
@@ -94,16 +122,46 @@ static HRESULT WaitAsync(IVdsAsync* async, VDS_ASYNC_OUTPUT* outOpt /*nullable*/
 
     HRESULT hrResult = E_FAIL;
     VDS_ASYNC_OUTPUT outLocal = {};
-    HRESULT hr = async->Wait(&hrResult, outOpt ? outOpt : &outLocal); // signature in vds.h :contentReference[oaicite:1]{index=1}
+    HRESULT hr = async->Wait(&hrResult, outOpt ? outOpt : &outLocal);
     SAFE_RELEASE(async);
 
-    // If CreateVolume returned an object, caller must release it (docs say Wait adds ref).
+    if (!outOpt && outLocal.type == VDS_ASYNCOUT_CREATEVOLUME && outLocal.cv.pVolumeUnk) {
+        outLocal.cv.pVolumeUnk->Release();
+        outLocal.cv.pVolumeUnk = nullptr;
+    }
+    return FAILED(hr) ? hr : hrResult;
+}
+
+static HRESULT WaitAsyncWithProgress(IVdsAsync* async, const wchar_t* stage, VDS_ASYNC_OUTPUT* outOpt /*nullable*/)
+{
+    if (!async) return E_INVALIDARG;
+
+    const HRESULT VDS_E_OPERATION_PENDING_HR = (HRESULT)0x80042409; // VDS_E_OPERATION_PENDING
+    HRESULT hrResult = VDS_E_OPERATION_PENDING_HR;
+    ULONG pct = 0;
+
+    for (;;) {
+        HRESULT hr = async->QueryStatus(&hrResult, &pct);
+        if (FAILED(hr)) {
+            SAFE_RELEASE(async);
+            return hr;
+        }
+        std::wprintf(L"\r[..] %s: %lu%%", stage ? stage : L"working", pct);
+        if (hrResult != VDS_E_OPERATION_PENDING_HR) break;
+        Sleep(500);
+    }
+    std::wprintf(L"\n");
+
+    VDS_ASYNC_OUTPUT outLocal = {};
+    HRESULT hrWait = async->Wait(&hrResult, outOpt ? outOpt : &outLocal);
+    SAFE_RELEASE(async);
+
     if (!outOpt && outLocal.type == VDS_ASYNCOUT_CREATEVOLUME && outLocal.cv.pVolumeUnk) {
         outLocal.cv.pVolumeUnk->Release();
         outLocal.cv.pVolumeUnk = nullptr;
     }
 
-    return FAILED(hr) ? hr : hrResult;
+    return FAILED(hrWait) ? hrWait : hrResult;
 }
 
 static HRESULT FindVolumeByLetter(IVdsService* svc, const std::wstring& letterPath, IVdsVolume** outVol) {
@@ -121,12 +179,12 @@ static HRESULT FindVolumeByLetter(IVdsService* svc, const std::wstring& letterPa
 
     while (enumProv->Next(1, &unkProv, &fetched) == S_OK) {
         IVdsProvider* provider = nullptr;
-        hr = unkProv->QueryInterface(IID_IVdsProvider, (void**)&provider);
+        hr = unkProv->QueryInterface(__uuidof(IVdsProvider), (void**)&provider);
         SAFE_RELEASE(unkProv);
         if (FAILED(hr)) continue;
 
         IVdsSwProvider* sw = nullptr;
-        hr = provider->QueryInterface(IID_IVdsSwProvider, (void**)&sw);
+        hr = provider->QueryInterface(__uuidof(IVdsSwProvider), (void**)&sw);
         SAFE_RELEASE(provider);
         if (FAILED(hr)) continue;
 
@@ -140,7 +198,7 @@ static HRESULT FindVolumeByLetter(IVdsService* svc, const std::wstring& letterPa
 
         while (enumPack->Next(1, &unkPack, &fetched2) == S_OK) {
             IVdsPack* pack = nullptr;
-            hr = unkPack->QueryInterface(IID_IVdsPack, (void**)&pack);
+            hr = unkPack->QueryInterface(__uuidof(IVdsPack), (void**)&pack);
             SAFE_RELEASE(unkPack);
             if (FAILED(hr)) continue;
 
@@ -154,34 +212,39 @@ static HRESULT FindVolumeByLetter(IVdsService* svc, const std::wstring& letterPa
 
             while (enumVol->Next(1, &unkVol, &fetched3) == S_OK) {
                 IVdsVolume* vol = nullptr;
-                hr = unkVol->QueryInterface(IID_IVdsVolume, (void**)&vol);
+                hr = unkVol->QueryInterface(__uuidof(IVdsVolume), (void**)&vol);
                 SAFE_RELEASE(unkVol);
                 if (FAILED(hr)) continue;
 
                 IVdsVolumeMF* mf = nullptr;
-                hr = vol->QueryInterface(IID_IVdsVolumeMF, (void**)&mf);
+                hr = vol->QueryInterface(__uuidof(IVdsVolumeMF), (void**)&mf);
                 if (SUCCEEDED(hr) && mf) {
                     LPWSTR* paths = nullptr;
                     LONG nPaths = 0;
                     hr = mf->QueryAccessPaths(&paths, &nPaths);
                     SAFE_RELEASE(mf);
 
-                    if (SUCCEEDED(hr) && nPaths > 0 && paths && paths[0]) {
-                        std::wstring p0 = ToUpperCopy(std::wstring(paths[0]));
-                        if (p0.size() == 2 && p0[1] == L':') p0.push_back(L'\\');
+                    if (SUCCEEDED(hr) && nPaths > 0 && paths) {
+                        bool hit = false;
+                        for (LONG i = 0; i < nPaths; i++) {
+                            if (!paths[i]) continue;
+                            std::wstring p = ToUpperCopy(std::wstring(paths[i]));
+                            if (p.size() == 2 && p[1] == L':') p.push_back(L'\\'); // "E:" -> "E:\"
+                            if (p == want) { hit = true; break; }
+                        }
+                        FreeAccessPaths(paths, nPaths);
 
-                        if (p0 == want) {
-                            FreeAccessPaths(paths, nPaths);
+                        if (hit) {
                             SAFE_RELEASE(enumVol);
                             SAFE_RELEASE(enumPack);
                             SAFE_RELEASE(enumProv);
                             *outVol = vol;
                             return S_OK;
                         }
+                    } else {
+                        FreeAccessPaths(paths, nPaths);
                     }
-                    FreeAccessPaths(paths, nPaths);
                 }
-
                 SAFE_RELEASE(vol);
             }
 
@@ -200,7 +263,7 @@ static HRESULT GetFileSystemNameUpper(IVdsVolume* vol, std::wstring* outFsUpper)
     outFsUpper->clear();
 
     IVdsVolumeMF2* mf2 = nullptr;
-    HRESULT hr = vol->QueryInterface(IID_IVdsVolumeMF2, (void**)&mf2);
+    HRESULT hr = vol->QueryInterface(__uuidof(IVdsVolumeMF2), (void**)&mf2);
     if (FAILED(hr)) return hr;
 
     LPWSTR fsName = nullptr;
@@ -233,7 +296,7 @@ static HRESULT GetSingleDiskEndOffset(IVdsVolume* vol, GUID* outDiskId, ULONGLON
     if (hr != S_OK) return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
 
     IVdsVolumePlex* plex = nullptr;
-    hr = unkPlex->QueryInterface(IID_IVdsVolumePlex, (void**)&plex);
+    hr = unkPlex->QueryInterface(__uuidof(IVdsVolumePlex), (void**)&plex);
     SAFE_RELEASE(unkPlex);
     if (FAILED(hr)) return hr;
 
@@ -283,7 +346,7 @@ static HRESULT FindDiskById(IVdsPack* pack, const GUID& diskId, IVdsDisk** outDi
 
     while (enumDisk->Next(1, &unkDisk, &fetched) == S_OK) {
         IVdsDisk* disk = nullptr;
-        hr = unkDisk->QueryInterface(IID_IVdsDisk, (void**)&disk);
+        hr = unkDisk->QueryInterface(__uuidof(IVdsDisk), (void**)&disk);
         SAFE_RELEASE(unkDisk);
         if (FAILED(hr)) continue;
 
@@ -336,7 +399,7 @@ static HRESULT CreateSimpleVolumeOnDisk(IVdsPack* pack, const GUID& diskId, ULON
     if (FAILED(hr)) return hr;
 
     VDS_ASYNC_OUTPUT out = {};
-    hr = WaitAsync(async, &out);
+    hr = WaitAsyncWithProgress(async, L"createVolume(VDS)", &out);
     if (FAILED(hr)) {
         if (out.type == VDS_ASYNCOUT_CREATEVOLUME && out.cv.pVolumeUnk) out.cv.pVolumeUnk->Release();
         return hr;
@@ -345,7 +408,7 @@ static HRESULT CreateSimpleVolumeOnDisk(IVdsPack* pack, const GUID& diskId, ULON
     if (out.type != VDS_ASYNCOUT_CREATEVOLUME || !out.cv.pVolumeUnk) return E_FAIL;
 
     IVdsVolume* newVol = nullptr;
-    hr = out.cv.pVolumeUnk->QueryInterface(IID_IVdsVolume, (void**)&newVol);
+    hr = out.cv.pVolumeUnk->QueryInterface(__uuidof(IVdsVolume), (void**)&newVol);
     out.cv.pVolumeUnk->Release();
     out.cv.pVolumeUnk = nullptr;
 
@@ -373,7 +436,7 @@ static wchar_t PickFreeDriveLetter() {
 static HRESULT AssignDriveLetter(IVdsVolume* vol, wchar_t letterUpper) {
     if (!vol) return E_INVALIDARG;
     IVdsVolumeMF* mf = nullptr;
-    HRESULT hr = vol->QueryInterface(IID_IVdsVolumeMF, (void**)&mf);
+    HRESULT hr = vol->QueryInterface(__uuidof(IVdsVolumeMF), (void**)&mf);
     if (FAILED(hr)) return hr;
 
     std::wstring path;
@@ -384,10 +447,110 @@ static HRESULT AssignDriveLetter(IVdsVolume* vol, wchar_t letterUpper) {
     return hr;
 }
 
-// ---------------- Exports ----------------
+// ---------------- shrink helpers ----------------
 
-extern "C" __declspec(dllexport)
-HRESULT __stdcall FormatW(LPCWSTR letter, LPCWSTR fs, LPCWSTR label, BOOL quick) {
+static HRESULT ShrinkViaVdsRelaxed(IVdsVolume* vol, ULONGLONG desiredBytes)
+{
+    if (!vol) return E_INVALIDARG;
+
+    IVdsVolumeShrink* vs = nullptr;
+    HRESULT hr = vol->QueryInterface(__uuidof(IVdsVolumeShrink), (void**)&vs);
+    if (FAILED(hr)) return hr;
+
+    // 先估算最多能回收多少，避免无意义的长时间尝试
+    ULONGLONG maxReclaim = 0;
+    HRESULT hrQ = vs->QueryMaxReclaimableBytes(&maxReclaim);
+    if (SUCCEEDED(hrQ)) {
+        if (maxReclaim == 0) { SAFE_RELEASE(vs); return HRESULT_FROM_WIN32(ERROR_DISK_FULL); }
+        if (desiredBytes > maxReclaim) desiredBytes = maxReclaim;
+    }
+
+    IVdsAsync* async = nullptr;
+    // 关键：min=0 => 不强制必须达到 desired（更像磁盘管理 / diskpart）
+    hr = vs->Shrink(desiredBytes, 0 /*min*/, &async);
+    SAFE_RELEASE(vs);
+    if (FAILED(hr)) return hr;
+
+    return WaitAsyncWithProgress(async, L"shrink(VDS)", nullptr);
+}
+
+static HRESULT ShrinkViaDiskpart_Stdin(wchar_t driveLetterUpper, int desiredMB, std::wstring* outLogPath /*nullable*/)
+{
+    wchar_t cwd[MAX_PATH] = L"";
+    GetCurrentDirectoryW(MAX_PATH, cwd);
+
+    wchar_t scriptPath[MAX_PATH] = L"";
+    swprintf(scriptPath, MAX_PATH, L"%s\\dp_shrink.txt", cwd);
+
+    wchar_t logPath[MAX_PATH] = L"";
+    swprintf(logPath, MAX_PATH, L"%s\\dp_shrink.log", cwd);
+
+    if (outLogPath) *outLogPath = logPath;
+
+    // 写脚本（ASCII + CRLF 最稳）
+    {
+        HANDLE hScript = CreateFileW(scriptPath, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                                     FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (hScript == INVALID_HANDLE_VALUE) return HRESULT_FROM_WIN32(GetLastError());
+
+        char buf[256] = {0};
+        int n = sprintf_s(buf, sizeof(buf),
+            "select volume %c\r\n"
+            "shrink desired=%d minimum=0\r\n"
+            "exit\r\n",
+            (char)driveLetterUpper, desiredMB);
+
+        DWORD written = 0;
+        BOOL ok = WriteFile(hScript, buf, (DWORD)n, &written, nullptr);
+        CloseHandle(hScript);
+        if (!ok) return HRESULT_FROM_WIN32(GetLastError());
+    }
+
+    SECURITY_ATTRIBUTES sa;
+    sa.nLength = sizeof(sa);
+    sa.lpSecurityDescriptor = nullptr;
+    sa.bInheritHandle = TRUE;
+
+    HANDLE hIn = CreateFileW(scriptPath, GENERIC_READ, FILE_SHARE_READ, &sa, OPEN_EXISTING,
+                             FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hIn == INVALID_HANDLE_VALUE) return HRESULT_FROM_WIN32(GetLastError());
+
+    HANDLE hLog = CreateFileW(logPath, GENERIC_WRITE, FILE_SHARE_READ, &sa, CREATE_ALWAYS,
+                              FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hLog == INVALID_HANDLE_VALUE) { CloseHandle(hIn); return HRESULT_FROM_WIN32(GetLastError()); }
+
+    // 启动 diskpart.exe（无参数），stdin 重定向为脚本
+    STARTUPINFOW si = {};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput  = hIn;
+    si.hStdOutput = hLog;
+    si.hStdError  = hLog;
+
+    PROCESS_INFORMATION pi = {};
+    wchar_t cmdLine[] = L"diskpart.exe";
+
+    BOOL ok = CreateProcessW(nullptr, cmdLine, nullptr, nullptr, TRUE,
+                             CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+
+    CloseHandle(hIn);
+    CloseHandle(hLog);
+
+    if (!ok) return HRESULT_FROM_WIN32(GetLastError());
+
+    WaitForSingleObject(pi.hProcess, INFINITE);
+
+    DWORD exitCode = 1;
+    GetExitCodeProcess(pi.hProcess, &exitCode);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+
+    return (exitCode == 0) ? S_OK : HRESULT_FROM_WIN32(ERROR_GEN_FAILURE);
+}
+
+// ---------------- Commands ----------------
+
+static HRESULT CmdFormat(LPCWSTR letter, LPCWSTR fs, LPCWSTR label, BOOL quick) {
     ComScope com;
     HRESULT hr = com.Init();
     if (FAILED(hr)) return hr;
@@ -404,16 +567,17 @@ HRESULT __stdcall FormatW(LPCWSTR letter, LPCWSTR fs, LPCWSTR label, BOOL quick)
     std::wstring fsUp = ToUpperCopy(fs ? std::wstring(fs) : L"");
     if (fsUp != L"NTFS" && fsUp != L"FAT32") { SAFE_RELEASE(vol); return E_INVALIDARG; }
 
+    std::wstring lbl = label ? std::wstring(label) : L"";
+
     IVdsVolumeMF2* mf2 = nullptr;
-    hr = vol->QueryInterface(IID_IVdsVolumeMF2, (void**)&mf2);
+    hr = vol->QueryInterface(__uuidof(IVdsVolumeMF2), (void**)&mf2);
     if (FAILED(hr)) { SAFE_RELEASE(vol); return hr; }
 
     IVdsAsync* async = nullptr;
     hr = mf2->FormatEx(
         const_cast<LPWSTR>(fsUp.c_str()),
-        0,
-        0,
-        const_cast<LPWSTR>(label),
+        0, 0,
+        const_cast<LPWSTR>(lbl.c_str()),
         TRUE,
         quick,
         FALSE,
@@ -423,11 +587,10 @@ HRESULT __stdcall FormatW(LPCWSTR letter, LPCWSTR fs, LPCWSTR label, BOOL quick)
     SAFE_RELEASE(vol);
     if (FAILED(hr)) return hr;
 
-    return WaitAsync(async, nullptr);
+    return WaitAsyncWithProgress(async, L"format(VDS)", nullptr);
 }
 
-extern "C" __declspec(dllexport)
-HRESULT __stdcall DeleteVolumeW(LPCWSTR volLetter) {
+static HRESULT CmdDelete(LPCWSTR volLetter) {
     ComScope com;
     HRESULT hr = com.Init();
     if (FAILED(hr)) return hr;
@@ -446,8 +609,7 @@ HRESULT __stdcall DeleteVolumeW(LPCWSTR volLetter) {
     return hr;
 }
 
-extern "C" __declspec(dllexport)
-HRESULT __stdcall MergeVolumeW(LPCWSTR volLetter, int sizeMB) {
+static HRESULT CmdMerge(LPCWSTR volLetter, int sizeMB) {
     ComScope com;
     HRESULT hr = com.Init();
     if (FAILED(hr)) return hr;
@@ -504,102 +666,142 @@ HRESULT __stdcall MergeVolumeW(LPCWSTR volLetter, int sizeMB) {
     SAFE_RELEASE(vol);
     if (FAILED(hr)) return hr;
 
-    return WaitAsync(async, nullptr);
+    return WaitAsyncWithProgress(async, L"extend(VDS)", nullptr);
 }
 
-extern "C" __declspec(dllexport)
-HRESULT __stdcall SplitVolumeW(
+static HRESULT CmdSplit(
     LPCWSTR volLetter, int sizeMB,
     LPCWSTR fs, LPCWSTR label,
     LPCWSTR desiredLetter,
-    LPWSTR outNewLetter, int outCch
+    std::wstring* outNewLetter
 ) {
-    if (!outNewLetter || outCch < 3) return E_INVALIDARG;
-    outNewLetter[0] = 0;
+    if (!outNewLetter) return E_INVALIDARG;
+    outNewLetter->clear();
     if (sizeMB <= 0) return E_INVALIDARG;
 
     std::wstring fsUp = ToUpperCopy(fs ? std::wstring(fs) : L"");
     if (fsUp != L"NTFS" && fsUp != L"FAT32") return E_INVALIDARG;
 
+    std::wstring lbl = label ? std::wstring(label) : L"";
+
     ComScope com;
     HRESULT hr = com.Init();
     if (FAILED(hr)) return hr;
 
+    // 第一次加载 VDS，拿 oldEnd
     IVdsService* svc = nullptr;
     hr = LoadVdsService(&svc);
     if (FAILED(hr)) return hr;
 
     IVdsVolume* vol = nullptr;
     hr = FindVolumeByLetter(svc, NormalizeLetterPath(volLetter), &vol);
-    SAFE_RELEASE(svc);
-    if (FAILED(hr)) return hr;
+    if (FAILED(hr)) { SAFE_RELEASE(svc); return hr; }
 
     std::wstring curFs;
     if (SUCCEEDED(GetFileSystemNameUpper(vol, &curFs)) && !IsExtendShrinkSupportedFs(curFs)) {
-        SAFE_RELEASE(vol);
+        SAFE_RELEASE(vol); SAFE_RELEASE(svc);
         return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
     }
 
+    GUID diskIdOld = GUID_NULL;
+    ULONGLONG oldEnd = 0;
+    hr = GetSingleDiskEndOffset(vol, &diskIdOld, &oldEnd);
+    if (FAILED(hr)) { SAFE_RELEASE(vol); SAFE_RELEASE(svc); return hr; }
+
+    ULONGLONG reqBytes = (ULONGLONG)sizeMB * 1024ULL * 1024ULL;
+
+    // 1) 先 VDS shrink（min=0）
+    HRESULT hrShrink = ShrinkViaVdsRelaxed(vol, reqBytes);
+
+    // 2) VDS 失败 => diskpart
+    if (FAILED(hrShrink)) {
+        PrintHr(hrShrink, L"shrink(VDS)");
+        std::fwprintf(stderr, L"[!] VDS shrink failed, fallback to diskpart...\n");
+
+        wchar_t letterUp = NormalizeSingleLetter(volLetter);
+        if (!letterUp) { SAFE_RELEASE(vol); SAFE_RELEASE(svc); return E_INVALIDARG; }
+
+        std::wstring logPath;
+        std::wprintf(L"[..] shrink(diskpart) running...\n");
+        HRESULT hrDp = ShrinkViaDiskpart_Stdin(letterUp, sizeMB, &logPath);
+        if (FAILED(hrDp)) {
+            PrintHr(hrDp, L"shrink(diskpart)");
+            std::fwprintf(stderr, L"[!] diskpart log: %s\n", logPath.c_str());
+            SAFE_RELEASE(vol); SAFE_RELEASE(svc);
+            return hrDp;
+        }
+        std::wprintf(L"[OK] diskpart shrink finished. log: %s\n", logPath.c_str());
+    }
+
+    // shrink 完后：释放旧对象，重新加载 VDS，确保拿到新布局（尤其 diskpart 做的 shrink）
+    SAFE_RELEASE(vol);
+    SAFE_RELEASE(svc);
+
+    hr = LoadVdsService(&svc);
+    if (FAILED(hr)) return hr;
+
+    hr = FindVolumeByLetter(svc, NormalizeLetterPath(volLetter), &vol);
+    if (FAILED(hr)) { SAFE_RELEASE(svc); return hr; }
+
+    GUID diskIdNew = GUID_NULL;
+    ULONGLONG newEnd = 0;
+    hr = GetSingleDiskEndOffset(vol, &diskIdNew, &newEnd);
+    if (FAILED(hr)) { SAFE_RELEASE(vol); SAFE_RELEASE(svc); return hr; }
+
+    if (memcmp(&diskIdOld, &diskIdNew, sizeof(GUID)) != 0 || newEnd >= oldEnd) {
+        SAFE_RELEASE(vol); SAFE_RELEASE(svc);
+        return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
+    }
+
+    ULONGLONG reclaimed = oldEnd - newEnd;
+    if (reclaimed == 0) {
+        SAFE_RELEASE(vol); SAFE_RELEASE(svc);
+        return HRESULT_FROM_WIN32(ERROR_DISK_FULL);
+    }
+    if (reclaimed < reqBytes) {
+        std::wprintf(L"[!] requested=%llu bytes, reclaimed=%llu bytes. Will create smaller volume.\n",
+                     reqBytes, reclaimed);
+        reqBytes = reclaimed;
+    }
+
+    // 继续用你原来的 VDS 创建 + 格式化 + 分配盘符
     IVdsPack* pack = nullptr;
     hr = vol->GetPack(&pack);
-    if (FAILED(hr)) { SAFE_RELEASE(vol); return hr; }
-
-    GUID diskId;
-    ULONGLONG endOffset = 0;
-    hr = GetSingleDiskEndOffset(vol, &diskId, &endOffset);
-    if (FAILED(hr)) { SAFE_RELEASE(pack); SAFE_RELEASE(vol); return hr; }
+    if (FAILED(hr)) { SAFE_RELEASE(vol); SAFE_RELEASE(svc); return hr; }
 
     IVdsDisk* disk = nullptr;
-    hr = FindDiskById(pack, diskId, &disk);
-    if (FAILED(hr)) { SAFE_RELEASE(pack); SAFE_RELEASE(vol); return hr; }
-
-    ULONGLONG bytesReq = (ULONGLONG)sizeMB * 1024ULL * 1024ULL;
-
-    IVdsAsync* shrinkAsync = nullptr;
-    hr = vol->Shrink(bytesReq, &shrinkAsync);
-    if (FAILED(hr)) { SAFE_RELEASE(disk); SAFE_RELEASE(pack); SAFE_RELEASE(vol); return hr; }
-
-    hr = WaitAsync(shrinkAsync, nullptr);
-    if (FAILED(hr)) { SAFE_RELEASE(disk); SAFE_RELEASE(pack); SAFE_RELEASE(vol); return hr; }
-
-    // recompute new end and free extent
-    ULONGLONG newEnd = 0;
-    GUID diskId2;
-    hr = GetSingleDiskEndOffset(vol, &diskId2, &newEnd);
-    if (FAILED(hr) || memcmp(&diskId, &diskId2, sizeof(GUID)) != 0) {
-        SAFE_RELEASE(disk); SAFE_RELEASE(pack); SAFE_RELEASE(vol);
-        return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
-    }
+    hr = FindDiskById(pack, diskIdNew, &disk);
+    if (FAILED(hr)) { SAFE_RELEASE(pack); SAFE_RELEASE(vol); SAFE_RELEASE(svc); return hr; }
 
     ULONGLONG freeBytes = 0;
     hr = GetFreeExtentAtOffset(disk, newEnd, &freeBytes);
-    if (FAILED(hr) || freeBytes < bytesReq) {
-        SAFE_RELEASE(disk); SAFE_RELEASE(pack); SAFE_RELEASE(vol);
+    if (FAILED(hr) || freeBytes < reqBytes) {
+        SAFE_RELEASE(disk); SAFE_RELEASE(pack); SAFE_RELEASE(vol); SAFE_RELEASE(svc);
         return HRESULT_FROM_WIN32(ERROR_DISK_FULL);
     }
 
     IVdsVolume* newVol = nullptr;
-    hr = CreateSimpleVolumeOnDisk(pack, diskId, bytesReq, &newVol);
-    if (FAILED(hr)) { SAFE_RELEASE(disk); SAFE_RELEASE(pack); SAFE_RELEASE(vol); return hr; }
+    hr = CreateSimpleVolumeOnDisk(pack, diskIdNew, reqBytes, &newVol);
+    if (FAILED(hr)) { SAFE_RELEASE(disk); SAFE_RELEASE(pack); SAFE_RELEASE(vol); SAFE_RELEASE(svc); return hr; }
 
-    // format new vol
+    // format 新卷（quick=true）
     IVdsVolumeMF2* mf2 = nullptr;
-    hr = newVol->QueryInterface(IID_IVdsVolumeMF2, (void**)&mf2);
-    if (FAILED(hr)) { SAFE_RELEASE(newVol); SAFE_RELEASE(disk); SAFE_RELEASE(pack); SAFE_RELEASE(vol); return hr; }
+    hr = newVol->QueryInterface(__uuidof(IVdsVolumeMF2), (void**)&mf2);
+    if (FAILED(hr)) { SAFE_RELEASE(newVol); SAFE_RELEASE(disk); SAFE_RELEASE(pack); SAFE_RELEASE(vol); SAFE_RELEASE(svc); return hr; }
 
     IVdsAsync* fmtAsync = nullptr;
     hr = mf2->FormatEx(
         const_cast<LPWSTR>(fsUp.c_str()),
         0, 0,
-        const_cast<LPWSTR>(label),
+        const_cast<LPWSTR>(lbl.c_str()),
         TRUE, TRUE, FALSE,
         &fmtAsync
     );
     SAFE_RELEASE(mf2);
-    if (FAILED(hr)) { SAFE_RELEASE(newVol); SAFE_RELEASE(disk); SAFE_RELEASE(pack); SAFE_RELEASE(vol); return hr; }
+    if (FAILED(hr)) { SAFE_RELEASE(newVol); SAFE_RELEASE(disk); SAFE_RELEASE(pack); SAFE_RELEASE(vol); SAFE_RELEASE(svc); return hr; }
 
-    hr = WaitAsync(fmtAsync, nullptr);
-    if (FAILED(hr)) { SAFE_RELEASE(newVol); SAFE_RELEASE(disk); SAFE_RELEASE(pack); SAFE_RELEASE(vol); return hr; }
+    hr = WaitAsyncWithProgress(fmtAsync, L"formatNew(VDS)", nullptr);
+    if (FAILED(hr)) { SAFE_RELEASE(newVol); SAFE_RELEASE(disk); SAFE_RELEASE(pack); SAFE_RELEASE(vol); SAFE_RELEASE(svc); return hr; }
 
     // assign letter
     wchar_t want = NormalizeSingleLetter(desiredLetter);
@@ -607,30 +809,86 @@ HRESULT __stdcall SplitVolumeW(
 
     if (want) {
         if (!IsDriveLetterFree(want)) {
-            SAFE_RELEASE(newVol); SAFE_RELEASE(disk); SAFE_RELEASE(pack); SAFE_RELEASE(vol);
+            SAFE_RELEASE(newVol); SAFE_RELEASE(disk); SAFE_RELEASE(pack); SAFE_RELEASE(vol); SAFE_RELEASE(svc);
             return HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS);
         }
         target = want;
     } else {
         target = PickFreeDriveLetter();
         if (!target) {
-            SAFE_RELEASE(newVol); SAFE_RELEASE(disk); SAFE_RELEASE(pack); SAFE_RELEASE(vol);
+            SAFE_RELEASE(newVol); SAFE_RELEASE(disk); SAFE_RELEASE(pack); SAFE_RELEASE(vol); SAFE_RELEASE(svc);
             return HRESULT_FROM_WIN32(ERROR_NO_MORE_FILES);
         }
     }
 
     hr = AssignDriveLetter(newVol, target);
-    if (FAILED(hr)) { SAFE_RELEASE(newVol); SAFE_RELEASE(disk); SAFE_RELEASE(pack); SAFE_RELEASE(vol); return hr; }
+    if (FAILED(hr)) { SAFE_RELEASE(newVol); SAFE_RELEASE(disk); SAFE_RELEASE(pack); SAFE_RELEASE(vol); SAFE_RELEASE(svc); return hr; }
 
-    outNewLetter[0] = target;
-    outNewLetter[1] = L':';
-    outNewLetter[2] = 0;
+    *outNewLetter = std::wstring(1, target) + L":";
 
     SAFE_RELEASE(newVol);
     SAFE_RELEASE(disk);
     SAFE_RELEASE(pack);
     SAFE_RELEASE(vol);
+    SAFE_RELEASE(svc);
     return S_OK;
 }
 
-BOOL WINAPI DllMain(HINSTANCE, DWORD, LPVOID) { return TRUE; }
+static void PrintUsage() {
+    std::wprintf(
+        L"DiskTool.exe commands:\n"
+        L"  format <DriveLetter> <NTFS|FAT32> <Label> [quick(0/1)]\n"
+        L"  delete <DriveLetter>\n"
+        L"  merge  <DriveLetter> <SizeMB(0=all free)>\n"
+        L"  split  <DriveLetter> <SizeMB> <NTFS|FAT32> <Label> [NewDriveLetter]\n"
+        L"\nExamples:\n"
+        L"  DiskTool.exe format E NTFS DATA 1\n"
+        L"  DiskTool.exe merge  E 10240\n"
+        L"  DiskTool.exe split  E 5120 NTFS NEWVOL F\n"
+    );
+}
+
+int wmain(int argc, wchar_t** argv) {
+    if (argc < 2) { PrintUsage(); return 2; }
+
+    std::wstring cmd = ToLowerCopy(argv[1]);
+    HRESULT hr = E_INVALIDARG;
+
+    if (cmd == L"format") {
+        if (argc < 5) { PrintUsage(); return 2; }
+        BOOL quick = TRUE;
+        if (argc >= 6) quick = (wcstol(argv[5], nullptr, 10) != 0);
+        hr = CmdFormat(argv[2], argv[3], argv[4], quick);
+        if (FAILED(hr)) { PrintHr(hr, L"format"); return 1; }
+        std::wprintf(L"[OK] format done.\n");
+        return 0;
+    }
+    else if (cmd == L"delete") {
+        if (argc < 3) { PrintUsage(); return 2; }
+        hr = CmdDelete(argv[2]);
+        if (FAILED(hr)) { PrintHr(hr, L"delete"); return 1; }
+        std::wprintf(L"[OK] delete done.\n");
+        return 0;
+    }
+    else if (cmd == L"merge") {
+        if (argc < 4) { PrintUsage(); return 2; }
+        int sizeMB = (int)wcstol(argv[3], nullptr, 10);
+        hr = CmdMerge(argv[2], sizeMB);
+        if (FAILED(hr)) { PrintHr(hr, L"merge"); return 1; }
+        std::wprintf(L"[OK] merge done.\n");
+        return 0;
+    }
+    else if (cmd == L"split") {
+        if (argc < 6) { PrintUsage(); return 2; }
+        int sizeMB = (int)wcstol(argv[3], nullptr, 10);
+        LPCWSTR desired = (argc >= 7) ? argv[6] : nullptr;
+        std::wstring newLetter;
+        hr = CmdSplit(argv[2], sizeMB, argv[4], argv[5], desired, &newLetter);
+        if (FAILED(hr)) { PrintHr(hr, L"split"); return 1; }
+        std::wprintf(L"[OK] split done, new volume letter: %s\n", newLetter.c_str());
+        return 0;
+    }
+
+    PrintUsage();
+    return 2;
+}

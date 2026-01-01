@@ -285,7 +285,6 @@ func Copy(src, dst string, overwrite, createDir bool) error {
 			return fmt.Errorf("Copy: dst UTF16 failed: %w", err)
 		}
 
-		// bFailIfExists: TRUE(1) 目标存在就失败；FALSE(0) 覆盖
 		var failIfExists uintptr = 0
 		if !overwrite {
 			failIfExists = 1
@@ -352,7 +351,6 @@ func Copy(src, dst string, overwrite, createDir bool) error {
 		})
 	}
 
-	// 单文件
 	return copyOneFile(src, dst, overwrite, createDir)
 }
 
@@ -374,7 +372,6 @@ func Remove(path string, recursive bool) error {
 		}
 	}
 	//winapi
-	// 先清掉只读/系统/隐藏等属性
 	if pW, err := syscall.UTF16PtrFromString(path); err == nil {
 		_, _, _ = procSetFileAttrsW.Call(uintptr(unsafe.Pointer(pW)), uintptr(FILE_ATTRIBUTE_NORMAL))
 	}
@@ -393,7 +390,6 @@ func Remove(path string, recursive bool) error {
 			return nil
 		}
 	} else {
-		// 先按文件删，失败再按目录删
 		if pW, err := syscall.UTF16PtrFromString(path); err == nil {
 			if rr, _, _ := procDeleteFileW.Call(uintptr(unsafe.Pointer(pW))); rr != 0 {
 				return nil
@@ -414,7 +410,6 @@ func Remove(path string, recursive bool) error {
 		}
 	}
 
-	// 先 del，再 rmdir
 	_ = exec.Command("cmd.exe", "/C", "del", "/F", "/Q", pQ).Run()
 	if err := exec.Command("cmd.exe", "/C", "rmdir", pQ).Run(); err == nil {
 		return nil
@@ -422,7 +417,7 @@ func Remove(path string, recursive bool) error {
 	return fmt.Errorf("Remove: failed (os/winapi/cmd): %s", path)
 }
 
-// 开启当前进程的关机权限SeShutdownPrivilege
+// 开启当前进程的关机权限
 func enableShutdownPrivilege() error {
 	var hToken syscall.Token
 
@@ -573,7 +568,7 @@ func DetectWin(drive string) (string, error) {
 		}
 	}
 
-	// 读取版本信息：HKLM\Offline_SOFTWARE\Microsoft\Windows NT\CurrentVersion
+	// HKLM\Offline_SOFTWARE\Microsoft\Windows NT\CurrentVersion
 	keyPath := `Offline_SOFTWARE\Microsoft\Windows NT\CurrentVersion`
 	h, err := RegOpenKey(HKEY_LOCAL_MACHINE, keyPath)
 	if err != nil {
@@ -606,7 +601,6 @@ func DetectWin(drive string) (string, error) {
 			if b, err := strconv.Atoi(buildStr); err == nil && b >= 22000 {
 				osName = "Windows 11"
 			} else if productName != "" {
-				// Server 或其他版本，直接用完整名字
 				osName = productName
 			} else {
 				osName = "Windows 10"
@@ -614,7 +608,6 @@ func DetectWin(drive string) (string, error) {
 		}
 	default:
 		if productName != "" {
-			// 老系统就直接返回 ProductName
 			osName = productName
 		}
 	}
@@ -626,7 +619,6 @@ func DetectWin(drive string) (string, error) {
 
 // 推测指定盘符的系统架构（32/64）
 func detectArch(root string, hasPFx86, hasSysWOW, systemLoaded bool) string {
-	// 目录特征
 	if hasPFx86 || hasSysWOW {
 		return "x64"
 	}
@@ -646,7 +638,7 @@ func detectArch(root string, hasPFx86, hasSysWOW, systemLoaded bool) string {
 		}
 	}
 
-	// 只有Program Files就按32位算
+	// 只有Program Files就32位
 	if dirExists(filepath.Join(root, "Program Files")) {
 		return "x86"
 	}
@@ -835,7 +827,7 @@ func Findimg() ([]string, error) {
 	)
 
 	patterns := []string{"*.iso", "*.esd", "*.wim"}
-	const maxDepth = 1                            // 搜 2 层目录
+	const maxDepth = 2                            // 搜 2 层目录
 	const minSize = int64(1) * 1024 * 1024 * 1024 //跳过小于1g
 
 	skipNames := map[string]struct{}{
@@ -979,7 +971,6 @@ func FindFileAll(pattern string, maxDepth int) []string {
 		return []string{}
 	}
 
-	// 控制并发
 	limit := runtime.NumCPU()
 	if limit < 2 {
 		limit = 2
@@ -1029,7 +1020,7 @@ func FindFileAll(pattern string, maxDepth int) []string {
 	return dedup
 }
 
-// 写入 restall_win.dat，并在无法获取物理磁盘时写 restall_img.dat。
+// 写入重装文件
 func writeResFile(imagePath string) error {
 	imagePath, _ = filepath.Abs(imagePath)
 	imageRoot := volumeRootFromPath(imagePath)
@@ -1057,7 +1048,7 @@ func writeResFile(imagePath string) error {
 	return nil
 }
 
-// loadRestallData 从所有盘符读取 restall_win.dat。
+// 从所有盘符读取 restall_win.dat。
 // 返回：目标盘符、物理磁盘路径、镜像路径。
 func loadResData() (targetRoot string, diskPath string, imagePath string, err error) {
 	drives, err := ListDrive()
@@ -1089,8 +1080,6 @@ func loadResData() (targetRoot string, diskPath string, imagePath string, err er
 }
 
 // 根据 restall 信息定位镜像：
-// 1) 直接使用 imagePath；2) 在同物理磁盘的分区中查找同名；
-// 3) 查找 restall_img.dat；4) 全盘按同名查找。
 func resolveImagePath(diskPath, imagePath string) (string, error) {
 	if imagePath != "" {
 		if _, err := os.Stat(imagePath); err == nil {
@@ -1177,7 +1166,7 @@ func detectImageInfos(imagePath string) ([]ImageMeta, error) {
 	return ListImageInfos(installPath)
 }
 
-// 按优先级选择镜像索引（中英文关键字）。
+// 按优先级选择镜像索引
 func selectInstallIndex(infos []ImageMeta) int {
 	if len(infos) == 0 {
 		return 1
@@ -1230,12 +1219,6 @@ func Findpart() []string {
 	for i := 0; i < len(D); i++ {
 		root := D[i]
 
-		// 有 Windows 目录的认为已经装系统，跳过
-		//if dirExists(root + "Windows\\") {
-		//	continue
-		//}
-
-		// 剩余空间
 		freeBytes, err := GetFreeSize(root)
 		if err != nil {
 			continue
@@ -1253,7 +1236,6 @@ func Findpart() []string {
 			continue
 		}
 
-		// 类型优先级：SSD > HDD > Removable
 		pri := 0
 		switch kind {
 		case "SSD":
@@ -1277,7 +1259,7 @@ func Findpart() []string {
 		})
 	}
 
-	// 排序（SSD > HDD > Removable），再按剩余空间从大到小
+	// 排序
 	if len(cs) == 0 {
 		return nil
 	}
@@ -1289,7 +1271,6 @@ func Findpart() []string {
 		if cs[i].free != cs[j].free {
 			return cs[i].free > cs[j].free // 同一类型剩余空间大的在前
 		}
-		// 再完全相同就按盘符字母顺序，防止排序不稳定
 		return cs[i].path < cs[j].path
 	})
 
@@ -1302,11 +1283,10 @@ func Findpart() []string {
 }
 
 // 进入PE
+// 可选参数：GoToPE(sdiPath, wimPath)
 func GoToPE(paths ...string) error {
-	// 可选参数：GoToPE() 或 GoToPE(sdiPath, wimPath)
 	var customSdi, customWim string
 	if len(paths) == 0 {
-		// no override
 	} else if len(paths) == 2 {
 		customSdi = strings.TrimSpace(paths[0])
 		customWim = strings.TrimSpace(paths[1])
@@ -1347,18 +1327,17 @@ func GoToPE(paths ...string) error {
 			rest = strings.TrimPrefix(rest, `\`)
 			return `\` + rest
 		}
-		// 兜底：直接去掉盘符
+		// 去掉盘符
 		if len(abs) >= 3 && abs[1] == ':' && (abs[2] == '\\' || abs[2] == '/') {
 			return `\` + strings.TrimPrefix(abs[3:], `\`)
 		}
 		return abs
 	}
 
-	// 通配符匹配（文件名大小写不敏感），返回第一个匹配到的文件绝对路径
+	// 通配符匹配
 	firstMatchInsensitive := func(pattern string) (string, bool) {
 		pattern = strings.ReplaceAll(pattern, "/", `\`)
 
-		// 无通配符：直接 stat
 		if !hasGlob(pattern) {
 			if fi, e := os.Stat(pattern); e == nil && !fi.IsDir() {
 				return pattern, true
@@ -1369,7 +1348,7 @@ func GoToPE(paths ...string) error {
 		dir := filepath.Dir(pattern)
 		base := filepath.Base(pattern)
 
-		// 如果目录也带通配符：退回 Glob（可能大小写敏感，但这种场景少）
+		// 目录带通配符
 		if hasGlob(dir) {
 			ms, _ := filepath.Glob(pattern)
 			for _, m := range ms {
@@ -1382,7 +1361,7 @@ func GoToPE(paths ...string) error {
 
 		entries, e := os.ReadDir(dir)
 		if e != nil {
-			// 读目录失败：退回 Glob
+			// 读目录失败
 			ms, _ := filepath.Glob(pattern)
 			for _, m := range ms {
 				if fi, e2 := os.Stat(m); e2 == nil && !fi.IsDir() {
@@ -1393,7 +1372,7 @@ func GoToPE(paths ...string) error {
 		}
 
 		patLower := strings.ToLower(base)
-		for _, ent := range entries { // ReadDir 默认按文件名排序
+		for _, ent := range entries {
 			if ent.IsDir() {
 				continue
 			}
@@ -1413,7 +1392,7 @@ func GoToPE(paths ...string) error {
 		sPat := strings.ReplaceAll(customSdi, "/", `\`)
 		wPat := strings.ReplaceAll(customWim, "/", `\`)
 
-		// 绝对路径/模式
+		// 绝对路径
 		if hasDrivePrefix(sPat) || hasDrivePrefix(wPat) {
 			var vol string
 			if hasDrivePrefix(sPat) {
@@ -1444,7 +1423,7 @@ func GoToPE(paths ...string) error {
 			wim = toRel(root, wAbs)
 			nm = "CUSTOM"
 		} else {
-			// 相对路径/模式：遍历所有盘
+			// 相对路径
 			found := false
 			for _, d := range dvs {
 				if len(d) < 3 {
@@ -1611,7 +1590,7 @@ func Patwim(wim string) error {
 	}
 	wim = wimAbs
 
-	// 自身程序路径 & 名字
+	// 自身程序
 	selfExe, err := os.Executable()
 	if err != nil {
 		return err
@@ -1619,7 +1598,6 @@ func Patwim(wim string) error {
 	selfExe, _ = filepath.Abs(selfExe)
 	selfName := filepath.Base(selfExe)
 
-	// 程序所在目录
 	dir := filepath.Dir(selfExe)
 
 	resolveTool := func(name, fallback string) string {
@@ -1675,7 +1653,7 @@ func Patwim(wim string) error {
 		return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
 	}
 
-	// 插入启动项，并处理 _ENDFILE（UTF-16/非 UTF-16）
+	// 插入启动项
 	appendExecLine := func(b []byte, line string) ([]byte, error) {
 		pickNLBytes := func(src []byte) []byte {
 			if bytes.Contains(src, []byte("\r\n")) {
@@ -2083,7 +2061,6 @@ func Patwim(wim string) error {
 
 // 从指定的文件中，按偏移区间 [start, end) 抽取数据，写入到指定的文件中。
 // 支持十进制和十六进制的偏移参数
-// 需要绝对路径
 func PeelFile(exePath, start, end, out string) error {
 	if exePath == "" {
 		return errors.New("exePath 不能为空")
@@ -2131,7 +2108,6 @@ func PeelFile(exePath, start, end, out string) error {
 		return fmt.Errorf("out 必须是绝对路径: %s", out)
 	}
 
-	// 确保输出目录存在
 	outDir := filepath.Dir(out)
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return fmt.Errorf("创建输出目录失败: %w", err)
@@ -2164,14 +2140,14 @@ func PeelFile(exePath, start, end, out string) error {
 	return nil
 }
 
-// parseOffsetString 解析偏移字符串：
+// 解析偏移字符串：
 func parseOffsetString(s string) (int64, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return 0, errors.New("偏移字符串为空")
 	}
 
-	// 处理符号：允许 "+123"，不允许负数
+	// 处理符号
 	if strings.HasPrefix(s, "-") {
 		return 0, fmt.Errorf("不允许负数偏移: %s", s)
 	}
@@ -2197,7 +2173,7 @@ func parseOffsetString(s string) (int64, error) {
 		}
 	}
 
-	// 用 uint64 解析，再检查是否能放进 int64
+	// 用 uint64 解析
 	u, err := strconv.ParseUint(ss, base, 64)
 	if err != nil {
 		return 0, fmt.Errorf("无法解析偏移 %q (base=%d): %w", s, base, err)
@@ -2211,7 +2187,7 @@ func parseOffsetString(s string) (int64, error) {
 
 // 加载离线注册表 hive
 // subKey：挂载点名称，如"OFFLINE_SYSTEM"
-// file:注册表 hive 文件的 完整路径,如"C:\Windows\System32\config\SYSTEM"/"X:\Windows\System32\config\SOFTWARE"
+// file:注册表 hive 文件的 完整路径
 // 需要有 SeBackupPrivilege / SeRestorePrivilege 之类的权限
 func RegLoadHive(subKey, file string) error {
 	subKeyPtr, err := syscall.UTF16PtrFromString(subKey)
@@ -2281,7 +2257,6 @@ func RegOpenKey(root syscall.Handle, path string) (syscall.Handle, error) {
 	return h, nil
 }
 
-// 关闭一个已经打开的注册表键句柄，释放资源
 func RegCloseKey(h syscall.Handle) {
 	if h == 0 {
 		return
@@ -2301,7 +2276,6 @@ func RegGetString(h syscall.Handle, name string) (string, error) {
 	var typ uint32
 	var dataLen uint32
 
-	// 第一次调用拿长度
 	r0, _, e1 := procRegQueryValueExW.Call(
 		uintptr(h),
 		uintptr(unsafe.Pointer(namePtr)),
@@ -2336,7 +2310,6 @@ func RegGetString(h syscall.Handle, name string) (string, error) {
 		return "", fmt.Errorf("RegQueryValueExW(%s,data) failed: code=%d", name, r0)
 	}
 
-	// 去掉结尾 0
 	n := 0
 	for ; n < len(buf) && buf[n] != 0; n++ {
 	}
@@ -2344,14 +2317,13 @@ func RegGetString(h syscall.Handle, name string) (string, error) {
 }
 
 // 返回本机物理内存总量
-// 返回值：GiB
+// 返回值GB
 func GetMemory() (float64, error) {
 	var m memoryStatusEx
 	m.dwLength = uint32(unsafe.Sizeof(m))
 
 	r1, _, e1 := procGlobalMemoryStatus.Call(uintptr(unsafe.Pointer(&m)))
 	if r1 == 0 {
-		// 失败时 e1 可能是 syscall.Errno(0)，这里兜底返回一个错误
 		if errno, ok := e1.(syscall.Errno); ok && errno != 0 {
 			return 0, errno
 		}

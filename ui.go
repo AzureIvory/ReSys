@@ -286,8 +286,6 @@ func getHInstance() windows.Handle {
 	return h
 }
 
-// -------------------- UI model --------------------
-
 type Mode int32
 
 const (
@@ -345,8 +343,6 @@ type UI struct {
 
 var ui UI
 
-// -------------------- thread-safe UI APIs (给业务层用) --------------------
-
 func uiSetProgress(pos int32) {
 	if ui.hwnd == 0 {
 		return
@@ -374,8 +370,6 @@ func uiSwitchToProgress() {
 	}
 	procPostMessageW.Call(uintptr(ui.hwnd), WM_APP_SWITCH_MODE, uintptr(ModeProgress), 0)
 }
-
-// -------------------- compat API --------------------
 
 func win2() {
 	uiSwitchToProgress()
@@ -408,8 +402,6 @@ func MessageRetryExit(title, text string) bool {
 	)
 	return ret == IDRETRY
 }
-
-// -------------------- icon loader (.ico bytes -> HICON) --------------------
 
 func icoToHICON(ico []byte, want int32) (windows.Handle, error) {
 	if len(ico) < 6 {
@@ -491,18 +483,31 @@ func decodeGIFFrames(gifBytes []byte) ([]Frame, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	W, H := g.Config.Width, g.Config.Height
+	canvas := image.NewRGBA(image.Rect(0, 0, W, H))
+
 	var frames []Frame
 	for i, pimg := range g.Image {
-		rgba := image.NewRGBA(pimg.Bounds())
-		draw.Draw(rgba, rgba.Bounds(), pimg, pimg.Bounds().Min, draw.Src)
-		hbmp, w, h, err := rgbaToDIB(rgba)
+		draw.Draw(canvas, pimg.Bounds(), pimg, pimg.Bounds().Min, draw.Over)
+
+		// 拷贝出当前完整画面作为一帧
+		out := image.NewRGBA(canvas.Bounds())
+		copy(out.Pix, canvas.Pix)
+
+		hbmp, w, h, err := rgbaToDIB(out)
 		if err != nil {
 			return nil, err
 		}
+
 		delay := uint32(100)
 		if i < len(g.Delay) && g.Delay[i] > 0 {
 			delay = uint32(g.Delay[i]) * 10
 		}
+		if delay < 10 {
+			delay = 10
+		}
+
 		frames = append(frames, Frame{Bmp: hbmp, W: w, H: h, DelayMs: delay})
 	}
 	return frames, nil
@@ -558,15 +563,19 @@ func rgbaToDIB(img *image.RGBA) (windows.Handle, int32, int32, error) {
 	src := img.Pix
 	for i := 0; i < len(src); i += 4 {
 		r, g, b, a := src[i], src[i+1], src[i+2], src[i+3]
-		dst[i+0] = b
-		dst[i+1] = g
-		dst[i+2] = r
-		dst[i+3] = a
+
+		// premultiply: c' = c * a / 255
+		rr := uint16(r) * uint16(a) / 255
+		gg := uint16(g) * uint16(a) / 255
+		bb := uint16(b) * uint16(a) / 255
+
+		dst[i+0] = byte(bb) // B
+		dst[i+1] = byte(gg) // G
+		dst[i+2] = byte(rr) // R
+		dst[i+3] = a        // A
 	}
 	return windows.Handle(hbmp), w, h, nil
 }
-
-// -------------------- helpers --------------------
 
 func mustUTF16(s string) *uint16 {
 	p, _ := windows.UTF16PtrFromString(s)
@@ -604,8 +613,6 @@ func makeFont(height int32, weight int32, face string) windows.Handle {
 func setLayerAlpha(hwnd windows.Handle, alpha byte) {
 	procSetLayeredWindowAttribs.Call(uintptr(hwnd), 0, uintptr(alpha), LWA_ALPHA)
 }
-
-// -------------------- painting --------------------
 
 func paint() {
 	var ps PAINTSTRUCT
@@ -759,7 +766,7 @@ func paintTitle(hdc windows.Handle, w, h int32) {
 	defer procSelectObject.Call(uintptr(hdc), oldF)
 
 	rt := RECT{54, 0, w - 100, 44}
-	titleText := "系统重装工具"
+	titleText := "ReSys重装"
 	procDrawTextW.Call(
 		uintptr(hdc),
 		uintptr(unsafe.Pointer(mustUTF16(titleText))),
@@ -836,31 +843,64 @@ func paintProgress(hdc windows.Handle, w, h int32) {
 		old, _, _ := procSelectObject.Call(srcDC, uintptr(f.Bmp))
 		defer procSelectObject.Call(srcDC, old)
 
-		blend := BLENDFUNCTION{BlendOp: AC_SRC_OVER, SourceConstantAlpha: 255, AlphaFormat: AC_SRC_ALPHA}
+		blend := BLENDFUNCTION{BlendOp: AC_SRC_OVER, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: AC_SRC_ALPHA}
 		blendVal := *(*uint32)(unsafe.Pointer(&blend))
-		procAlphaBlend.Call(uintptr(hdc),
+
+		procAlphaBlend.Call(
+			uintptr(hdc),
 			uintptr(x), uintptr(y), uintptr(f.W), uintptr(f.H),
-			srcDC, 0, 0, uintptr(f.W), uintptr(f.H),
-			*(*uintptr)(unsafe.Pointer(&blend)),
+			srcDC,
+			0, 0, uintptr(f.W), uintptr(f.H),
 			uintptr(blendVal),
 		)
 	}
 
 	pct := ui.progress.Load()
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 100 {
+		pct = 100
+	}
+
 	barW := int32(300)
 	barH := int32(6)
 	barX := (w - barW) / 2
 	barY := int32(280)
 
+	// 背景条
 	bgBr, _, _ := procCreateSolidBrush.Call(0x00333333)
-	procRoundRect.Call(uintptr(hdc), uintptr(barX), uintptr(barY), uintptr(barX+barW), uintptr(barY+barH), 3, 3)
-	procDeleteObject.Call(bgBr)
+	bgPen, _, _ := procCreatePen.Call(PS_SOLID, 1, 0x00333333)
+	oldBr, _, _ := procSelectObject.Call(uintptr(hdc), bgBr)
+	oldPen, _, _ := procSelectObject.Call(uintptr(hdc), bgPen)
 
+	procRoundRect.Call(uintptr(hdc),
+		uintptr(barX), uintptr(barY),
+		uintptr(barX+barW), uintptr(barY+barH),
+		3, 3)
+
+	procSelectObject.Call(uintptr(hdc), oldBr)
+	procSelectObject.Call(uintptr(hdc), oldPen)
+	procDeleteObject.Call(bgBr)
+	procDeleteObject.Call(bgPen)
+
+	// 前景填充
 	fillW := barW * pct / 100
 	if fillW > 0 {
 		fBr, _, _ := procCreateSolidBrush.Call(uintptr(ColorHighlight))
-		procRoundRect.Call(uintptr(hdc), uintptr(barX), uintptr(barY), uintptr(barX+fillW), uintptr(barY+barH), 3, 3)
+		fPen, _, _ := procCreatePen.Call(PS_SOLID, 1, uintptr(ColorHighlight))
+		oldBr2, _, _ := procSelectObject.Call(uintptr(hdc), fBr)
+		oldPen2, _, _ := procSelectObject.Call(uintptr(hdc), fPen)
+
+		procRoundRect.Call(uintptr(hdc),
+			uintptr(barX), uintptr(barY),
+			uintptr(barX+fillW), uintptr(barY+barH),
+			3, 3)
+
+		procSelectObject.Call(uintptr(hdc), oldBr2)
+		procSelectObject.Call(uintptr(hdc), oldPen2)
 		procDeleteObject.Call(fBr)
+		procDeleteObject.Call(fPen)
 	}
 
 	oldF2, _, _ := procSelectObject.Call(uintptr(hdc), uintptr(ui.font16))
@@ -991,8 +1031,6 @@ func lineTo(hdc windows.Handle, x, y int32) {
 	gdi32.NewProc("LineTo").Call(uintptr(hdc), uintptr(x), uintptr(y))
 }
 
-// -------------------- input / hit-test --------------------
-
 func updateHover(x, y int32) bool {
 	changed := false
 	for _, b := range getAllButtons() {
@@ -1028,8 +1066,6 @@ func trackLeave() {
 	procTrackMouseEvent.Call(uintptr(unsafe.Pointer(&t)))
 }
 
-// -------------------- WndProc --------------------
-
 var wndProc = windows.NewCallback(func(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 	switch msg {
 
@@ -1040,7 +1076,14 @@ var wndProc = windows.NewCallback(func(hwnd uintptr, msg uint32, wParam, lParam 
 	case WM_SIZE:
 		var rc RECT
 		procGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&rc)))
-		layoutSelect(rc.Right-rc.Left, rc.Bottom-rc.Top)
+		w := rc.Right - rc.Left
+		h := rc.Bottom - rc.Top
+		layoutTitleBar(w, h)
+		if ui.mode.Load() == int32(ModeSelect) {
+			layoutSelect(w, h)
+		} else {
+			layoutProgress()
+		}
 		return 0
 
 	case WM_MOUSEMOVE:
@@ -1110,6 +1153,13 @@ var wndProc = windows.NewCallback(func(hwnd uintptr, msg uint32, wParam, lParam 
 	case WM_TIMER:
 		if ui.mode.Load() == int32(ModeProgress) && len(ui.frames) > 0 {
 			ui.frameIdx = (ui.frameIdx + 1) % len(ui.frames)
+
+			next := ui.frames[ui.frameIdx].DelayMs
+			if next < 10 {
+				next = 10
+			}
+			procSetTimer.Call(hwnd, 1, uintptr(next), 0)
+
 			procInvalidateRect.Call(hwnd, 0, 0)
 		}
 		return 0
@@ -1163,8 +1213,6 @@ var wndProc = windows.NewCallback(func(hwnd uintptr, msg uint32, wParam, lParam 
 	return ret
 })
 
-// -------------------- entry points --------------------
-
 func Uiinit() {
 	runtime.LockOSThread()
 
@@ -1208,7 +1256,7 @@ func Uiinit() {
 	}
 
 	style := uintptr(WS_POPUP | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS)
-	exStyle := uintptr(WS_EX_APPWINDOW | WS_EX_LAYERED)
+	exStyle := uintptr(WS_EX_APPWINDOW)
 
 	hwnd, _, err3 := procCreateWindowExW.Call(
 		exStyle,
@@ -1222,7 +1270,8 @@ func Uiinit() {
 		panic(err3)
 	}
 	ui.hwnd = windows.Handle(hwnd)
-	setLayerAlpha(ui.hwnd, 240)
+	//去掉透明
+	//setLayerAlpha(ui.hwnd, 240)
 
 	const WM_SETICON = 0x0080
 	const ICON_SMALL = 0
