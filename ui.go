@@ -33,11 +33,11 @@ var waitGIF []byte
 const drawTextAutoLen = uintptr(^uint32(0)) // 0xFFFFFFFF，相当于 int32(-1)
 
 var (
-	user32   = windows.NewLazySystemDLL("user32.dll")
-	gdi32    = windows.NewLazySystemDLL("gdi32.dll")
-	msimg32  = windows.NewLazySystemDLL("msimg32.dll")
-	kernel32 = windows.NewLazySystemDLL("kernel32.dll")
-	shlwapi  = windows.NewLazySystemDLL("shlwapi.dll")
+	user32  = windows.NewLazySystemDLL("user32.dll")
+	gdi32   = windows.NewLazySystemDLL("gdi32.dll")
+	msimg32 = windows.NewLazySystemDLL("msimg32.dll")
+	//kernel32 = windows.NewLazySystemDLL("kernel32.dll")
+	shlwapi = windows.NewLazySystemDLL("shlwapi.dll")
 
 	procRegisterClassExW        = user32.NewProc("RegisterClassExW")
 	procCreateWindowExW         = user32.NewProc("CreateWindowExW")
@@ -92,10 +92,12 @@ var (
 
 	procSetProcessDPIAware = user32.NewProc("SetProcessDPIAware")
 
-	procLocalAlloc         = kernel32.NewProc("LocalAlloc")
-	procLocalFree          = kernel32.NewProc("LocalFree")
-	procGetModuleHandleW   = kernel32.NewProc("GetModuleHandleW")
-	procGetModuleHandleExW = kernel32.NewProc("GetModuleHandleExW")
+	procLocalAlloc         = modKernel32.NewProc("LocalAlloc")
+	procLocalFree          = modKernel32.NewProc("LocalFree")
+	procGetModuleHandleW   = modKernel32.NewProc("GetModuleHandleW")
+	procGetModuleHandleExW = modKernel32.NewProc("GetModuleHandleExW")
+
+	procSystemParametersInfoW = user32.NewProc("SystemParametersInfoW")
 )
 
 const (
@@ -162,7 +164,7 @@ const (
 )
 
 const (
-	ColorBgDark   = 0x00FFFFFF // 主背景
+	ColorBgDark   = 0x00333333 // 主背景
 	ColorTitleBar = 0x00228B22 // 标题栏
 	ColorText     = 0x00333333 // 主要文字
 	ColorTextHint = 0x00888888 // 提示文字
@@ -182,6 +184,28 @@ const (
 	// 按钮尺寸
 	TitleBtnW = 46
 	TitleBtnH = 32
+)
+
+var gFontQuality byte = ANTIALIASED_QUALITY
+
+const (
+	// SystemParametersInfo - Font smoothing / ClearType
+	SPI_GETFONTSMOOTHING     = 0x004A
+	SPI_SETFONTSMOOTHING     = 0x004B
+	SPI_GETFONTSMOOTHINGTYPE = 0x200A
+	SPI_SETFONTSMOOTHINGTYPE = 0x200B
+	//（可选）对比度
+	SPI_SETFONTSMOOTHINGCONTRAST = 0x200D
+
+	FE_FONTSMOOTHINGSTANDARD  = 0x0001
+	FE_FONTSMOOTHINGCLEARTYPE = 0x0002
+
+	SPIF_UPDATEINIFILE = 0x01
+	SPIF_SENDCHANGE    = 0x02
+
+	// LOGFONT.Quality
+	ANTIALIASED_QUALITY = 4
+	CLEARTYPE_QUALITY   = 5
 )
 
 type WNDCLASSEX struct {
@@ -268,6 +292,60 @@ type GRADIENT_RECT struct {
 }
 
 const GRADIENT_FILL_RECT_V = 0x00000001
+
+// 系统层：能开 ClearType 就开；否则至少打开“字体平滑”。
+// 字体层：设置全局 gFontQuality：优先 CLEARTYPE_QUALITY，否则 ANTIALIASED_QUALITY。
+func initFontSmoothing() {
+	// 1) 开启字体平滑（Font Smoothing）
+	procSystemParametersInfoW.Call(
+		SPI_SETFONTSMOOTHING,
+		1,
+		0,
+		SPIF_UPDATEINIFILE|SPIF_SENDCHANGE,
+	)
+
+	// 2) 尝试设置为 ClearType
+	want := uint32(FE_FONTSMOOTHINGCLEARTYPE)
+	rSet, _, _ := procSystemParametersInfoW.Call(
+		SPI_SETFONTSMOOTHINGTYPE,
+		0,
+		uintptr(unsafe.Pointer(&want)),
+		SPIF_UPDATEINIFILE|SPIF_SENDCHANGE,
+	)
+
+	// 3) 读取回系统实际值，确认是否真的启用
+	var cur uint32
+	rGet, _, _ := procSystemParametersInfoW.Call(
+		SPI_GETFONTSMOOTHINGTYPE,
+		0,
+		uintptr(unsafe.Pointer(&cur)),
+		0,
+	)
+
+	if rSet != 0 && rGet != 0 && cur == FE_FONTSMOOTHINGCLEARTYPE {
+		gFontQuality = CLEARTYPE_QUALITY
+
+		//（可选）设置 ClearType 对比度：1000~2200 常用；太高会“黑边重”
+		// contrast := uint32(1600)
+		// procSystemParametersInfoW.Call(
+		// 	SPI_SETFONTSMOOTHINGCONTRAST,
+		// 	0,
+		// 	uintptr(unsafe.Pointer(&contrast)),
+		// 	SPIF_UPDATEINIFILE|SPIF_SENDCHANGE,
+		// )
+		return
+	}
+
+	// 4) ClearType 不可用：退回标准灰阶平滑
+	std := uint32(FE_FONTSMOOTHINGSTANDARD)
+	procSystemParametersInfoW.Call(
+		SPI_SETFONTSMOOTHINGTYPE,
+		0,
+		uintptr(unsafe.Pointer(&std)),
+		SPIF_UPDATEINIFILE|SPIF_SENDCHANGE,
+	)
+	gFontQuality = ANTIALIASED_QUALITY
+}
 
 func getHInstance() windows.Handle {
 	var h windows.Handle
@@ -604,6 +682,10 @@ func makeFont(height int32, weight int32, face string) windows.Handle {
 	var lf LOGFONTW
 	lf.Height = -height
 	lf.Weight = weight
+
+	// 强制字体质量：ClearType 优先，否则灰阶抗锯齿
+	lf.Quality = gFontQuality
+
 	f := windows.StringToUTF16(face)
 	copy(lf.FaceName[:], f)
 	h, _, _ := procCreateFontIndirectW.Call(uintptr(unsafe.Pointer(&lf)))
@@ -1217,6 +1299,8 @@ func Uiinit() {
 	runtime.LockOSThread()
 
 	procSetProcessDPIAware.Call()
+	//先尝试开启 ClearType/字体平滑，并设置 gFontQuality
+	initFontSmoothing()
 
 	var err error
 	ui.iconApp, err = icoToHICON(icoApp, 32)
@@ -1255,15 +1339,25 @@ func Uiinit() {
 		panic(err2)
 	}
 
-	style := uintptr(WS_POPUP | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS)
+	style := uintptr(WS_POPUP | WS_CLIPCHILDREN | WS_CLIPSIBLINGS)
 	exStyle := uintptr(WS_EX_APPWINDOW)
+	// 获取工作区
+	type RECT struct{ Left, Top, Right, Bottom int32 }
+	const SPI_GETWORKAREA = 0x0030
+
+	var wa RECT
+	procSystemParametersInfoW.Call(SPI_GETWORKAREA, 0, uintptr(unsafe.Pointer(&wa)), 0)
+
+	winW, winH := int32(600), int32(400)
+	x := wa.Left + (wa.Right-wa.Left-winW)/2
+	y := wa.Top + (wa.Bottom-wa.Top-winH)/2
 
 	hwnd, _, err3 := procCreateWindowExW.Call(
 		exStyle,
 		uintptr(unsafe.Pointer(cls)),
 		uintptr(unsafe.Pointer(mustUTF16("ReSys"))),
 		style,
-		100, 100, 600, 400,
+		uintptr(x), uintptr(y), uintptr(winW), uintptr(winH),
 		0, 0, uintptr(hInst), 0,
 	)
 	if hwnd == 0 {

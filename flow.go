@@ -1212,7 +1212,7 @@ func RunPEInstall() error {
 				sizeMB = 1024
 			}
 
-			newVol, err := SplitVolume(targetRoot, sizeMB, "ntfs", "TEMP", "")
+			newVol, err := SplitVolume1(targetRoot, sizeMB, "ntfs", "TEMP")
 			if err != nil {
 				return err
 			}

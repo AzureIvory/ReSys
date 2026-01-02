@@ -13,40 +13,63 @@ import (
 	"unsafe"
 )
 
-func GetDiskTool() (string, error) {
-	base := "."
-	if exe, err := os.Executable(); err == nil {
-		base = filepath.Dir(exe)
+// diskpart: 列出卷并解析盘符->volume编号
+func diskpartFindVolumeNumberByLetter(letter string) (int, error) {
+	l, err := normalizeDriveLetter(letter)
+	if err != nil {
+		return -1, err
 	}
-	arch := systemArch()
-	name := "DiskTool_32.exe"
-	if arch == "64" {
-		name = "DiskTool_64.exe"
+
+	out, err := RunDiskpart([]string{"list volume"})
+	if err != nil {
+		return -1, fmt.Errorf("diskpart list volume failed: %w\n输出:\n%s", err, out)
 	}
-	candidates := []string{
-		filepath.Join(base, "tools", name),
-		filepath.Join(base, name),
-		filepath.Join(".", "tools", name),
-		filepath.Join(".", name),
-	}
-	for _, c := range candidates {
-		if st, err := os.Stat(c); err == nil && !st.IsDir() {
-			return c, nil
+
+	lines := strings.Split(out, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(strings.ReplaceAll(line, "\r", ""))
+		if line == "" {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+
+		// 跳过表头
+		if strings.EqualFold(fields[0], "Volume") && (fields[1] == "###" || strings.EqualFold(fields[1], "###")) {
+			continue
+		}
+		if fields[0] == "卷" && fields[1] == "###" {
+			continue
+		}
+
+		// 只处理以 Volume / 卷 开头的行
+		if !(strings.EqualFold(fields[0], "Volume") || fields[0] == "卷") {
+			continue
+		}
+
+		// fields[1] 应该是卷号
+		volNum, convErr := strconv.Atoi(fields[1])
+		if convErr != nil {
+			continue
+		}
+
+		// 盘符一般是某个字段等于 "C"
+		// 注意：某些卷没有盘符，这列会空，所以 fields 里可能根本没有单字母
+		for _, f := range fields[2:] {
+			if len(f) == 1 && f[0] >= 'A' && f[0] <= 'Z' {
+				if f == l {
+					return volNum, nil
+				}
+				// 找到盘符列就可以 break（避免后面 Fs/Label 里碰巧出现单字母）
+				break
+			}
 		}
 	}
-	return "", fmt.Errorf("DiskTool not found: %s (arch=%s)", name, arch)
-}
 
-func runDiskTool(args ...string) (string, error) {
-	path, err := GetDiskTool()
-	if err != nil {
-		return "", err
-	}
-	out, err := runCmd(path, nil, args...)
-	if err != nil {
-		return out, fmt.Errorf("DiskTool failed: %w", err)
-	}
-	return out, nil
+	return -1, fmt.Errorf("未在 diskpart list volume 中找到盘符 %s: 的卷。原始输出如下:\n%s", l, out)
 }
 
 func normalizeDriveLetter(letter string) (string, error) {
@@ -106,68 +129,71 @@ func collectDriveLetters() (map[string]struct{}, error) {
 	return set, nil
 }
 
-// 分割卷，创建新分区并格式化。
-// vol: 源卷盘符
-// sizeMB: 新分区大小，单位 MB。
-// fs: 文件系统，如 "ntfs"。
-// label: 分区标签。
-// letter: 指定盘符，为空则自动分配。
-// 返回新分区盘符
-func SplitVolume(vol string, sizeMB int, fs, label, letter string) (string, error) {
+// 使用 diskpart 将某个卷收缩指定大小(MB)，
+// 然后在释放出的未分配空间上新建分区，并快速格式化为指定文件系统（NTFS/FAT32），设置卷标，自动分配盘符。
+// 返回：新分区盘符（例如 "E:"）和错误。
+func SplitVolume1(vol string, sizeMB int, fs, label string) (string, error) {
 	volLetter, err := normalizeDriveLetter(vol)
 	if err != nil {
+		return "", err
 	}
 	if sizeMB <= 0 {
 		return "", fmt.Errorf("sizeMB 必须大于 0")
 	}
-	fs, err = toDiskToolFS(fs)
+
+	fs, err = toDiskToolFS(fs) // 只允许 NTFS/FAT32
 	if err != nil {
 		return "", err
 	}
+
 	label = strings.TrimSpace(label)
 	if label == "" {
 		label = "NO_LABEL"
 	}
-	newLetter, err := normalizeOptionalLetter(letter)
-	if err != nil {
-		return "", err
-	}
+
+	// 记录执行前盘符集合，用于推断新盘符
 	beforeLetters, err := collectDriveLetters()
 	if err != nil {
 		return "", err
 	}
-	args := []string{"split", volLetter, strconv.Itoa(sizeMB), fs, label}
-	if newLetter != "" {
-		if _, ok := beforeLetters[newLetter]; ok {
-			return "", fmt.Errorf("指定盘符 %s 已被占用", newLetter+":")
-		}
-		args = append(args, newLetter)
-	}
-	out, err := runDiskTool(args...)
-	if err != nil {
-		return "", fmt.Errorf("split failed: %w\n输出:\n%s", err, out)
-	}
-	if newLetter != "" {
-		return newLetter + ":", nil
-	}
-	afterLetters, err := collectDriveLetters()
-	if err != nil {
-		return "", err
-	}
-	newLetters := make([]string, 0, 2)
-	for l := range afterLetters {
-		if _, existed := beforeLetters[l]; !existed {
-			newLetters = append(newLetters, l)
-		}
+
+	cmds := []string{
+		fmt.Sprintf("select volume %s", volLetter),
+		fmt.Sprintf("shrink desired=%d", sizeMB),                // 收缩出 sizeMB
+		fmt.Sprintf("create partition primary size=%d", sizeMB), // 创建同等大小的新分区
+		fmt.Sprintf(`format fs=%s label="%s" quick`, strings.ToLower(fs), label),
+		"assign", // 自动分配盘符
 	}
 
-	if len(newLetters) == 1 {
-		return newLetters[0] + ":", nil
+	out, err := RunDiskpart(cmds)
+	if err != nil {
+		return "", fmt.Errorf("diskpart failed: %w\n输出:\n%s", err, out)
 	}
-	if len(newLetters) == 0 {
-		return "", fmt.Errorf("DiskTool 执行成功但未检测到新盘符（可能未分配盘符或枚举未刷新）")
+
+	// 有时盘符枚举会稍微延迟，做几次短重试
+	var afterLetters map[string]struct{}
+	for i := 0; i < 6; i++ {
+		afterLetters, err = collectDriveLetters()
+		if err != nil {
+			return "", err
+		}
+		newLetters := make([]string, 0, 2)
+		for l := range afterLetters {
+			if _, existed := beforeLetters[l]; !existed {
+				newLetters = append(newLetters, l)
+			}
+		}
+		if len(newLetters) == 1 {
+			return newLetters[0] + ":", nil
+		}
+		if len(newLetters) > 1 {
+			return "", fmt.Errorf("diskpart 执行成功但检测到多个新盘符：%v\n输出:\n%s", newLetters, out)
+		}
+
+		time.Sleep(200 * time.Millisecond)
 	}
-	return "", fmt.Errorf("检测到多个可能的新盘符：%v（无法唯一确定）", newLetters)
+
+	return "", fmt.Errorf("diskpart 执行成功但未检测到新盘符（可能未分配盘符或枚举未刷新）\n输出:\n%s", out)
 }
 
 // 根据物理磁盘号或盘符获取分区数量和盘符列表。
@@ -248,17 +274,25 @@ func GetDiskPartitions(diskID string) (int, []string, error) {
 // vol: 例如 "C" / "C:" / "C:\"
 // sizeMB: 扩展大小（MB），<=0 表示使用全部
 func MergeVolume(vol string, sizeMB int) error {
-	volLetter, err := normalizeDriveLetter(vol)
+	volNum, err := diskpartFindVolumeNumberByLetter(vol)
 	if err != nil {
 		return err
 	}
-	mergeSize := sizeMB
-	if mergeSize < 0 {
-		mergeSize = 0
+
+	cmds := []string{
+		fmt.Sprintf("select volume %d", volNum),
 	}
-	out, err := runDiskTool("merge", volLetter, strconv.Itoa(mergeSize))
+
+	// diskpart extend: size 省略表示吃掉所有紧邻未分配空间
+	if sizeMB <= 0 {
+		cmds = append(cmds, "extend")
+	} else {
+		cmds = append(cmds, fmt.Sprintf("extend size=%d", sizeMB))
+	}
+
+	out, err := RunDiskpart(cmds)
 	if err != nil {
-		return fmt.Errorf("merge failed: %w\n输出:\n%s", err, out)
+		return fmt.Errorf("merge/extend(diskpart) failed: %w\n输出:\n%s", err, out)
 	}
 	return nil
 }
@@ -266,13 +300,19 @@ func MergeVolume(vol string, sizeMB int) error {
 // 删除指定卷（转为未分配空间）。
 // vol: 例如 "C" / "C:" / "C:\\"
 func DeleteVolume(vol string) error {
-	volLetter, err := normalizeDriveLetter(vol)
+	volNum, err := diskpartFindVolumeNumberByLetter(vol)
 	if err != nil {
 		return err
 	}
-	out, err := runDiskTool("delete", volLetter)
+
+	cmds := []string{
+		fmt.Sprintf("select volume %d", volNum),
+		"delete volume", // 一般够用；必要时可改 delete partition override（更激进）
+	}
+
+	out, err := RunDiskpart(cmds)
 	if err != nil {
-		return fmt.Errorf("delete failed: %w\n输出:\n%s", err, out)
+		return fmt.Errorf("delete(diskpart) failed: %w\n输出:\n%s", err, out)
 	}
 	return nil
 }
@@ -703,155 +743,17 @@ func RunDiskpart(lines []string) (string, error) {
 	if err := f.Close(); err != nil {
 		return "", fmt.Errorf("close script failed: %w", err)
 	}
-
-	out, err := runCmd("diskpart.exe", nil, "/s", path)
+	diskpart := "diskpart.exe"
+	if systemArch() == "32" {
+		diskpart = "C:\\Windows\\Sysnative\\diskpart.exe"
+	} else {
+		diskpart = "C:\\Windows\\System32\\diskpart.exe"
+	}
+	out, err := runCmd(diskpart, nil, "/s", path)
 	if err != nil {
 		return out, fmt.Errorf("diskpart failed: %w", err)
 	}
 	return out, nil
-}
-
-// ShrinkAndCreateVolume
-// - srcDrive: 源卷盘符，如 "C" / "C:"
-// - sizeMB: 欲缩/新建大小（MB）
-// - fs: "ntfs" or "fat32"（大小写不敏感）
-// - label: 新分区卷标（会自动做基础清洗）
-// - quick: 是否快速格式化
-// 返回：新分区盘符，如 "R:"
-func ShrinkAndCreateVolume(srcDrive string, sizeMB int, fs, label string, quick bool) (string, error) {
-	src, _ := normalizeDriveLetter(srcDrive)
-	if src == "" {
-		return "", fmt.Errorf("invalid src drive: %q", srcDrive)
-	}
-	if sizeMB <= 0 {
-		return "", fmt.Errorf("invalid sizeMB: %d", sizeMB)
-	}
-
-	fs = strings.ToLower(strings.TrimSpace(fs))
-	switch fs {
-	case "ntfs", "fat32":
-	default:
-		return "", fmt.Errorf("unsupported fs: %q (want ntfs|fat32)", fs)
-	}
-
-	label = sanitizeLabel(label)
-
-	// 1) before letters
-	before, out0, err := listVolumeLetters()
-	if err != nil {
-		return "", fmt.Errorf("list volumes (before) failed: %w; out=%s", err, out0)
-	}
-
-	// 2) do operations
-	formatCmd := fmt.Sprintf(`format fs=%s label="%s"`, fs, label)
-	if quick {
-		formatCmd += " quick"
-	}
-
-	ops := []string{
-		fmt.Sprintf("select volume=%s", src),
-		// minimum=desired：要求必须缩够 sizeMB，否则直接失败（避免 shrink 缩不够导致后面 create size 失败）
-		fmt.Sprintf("shrink desired=%d minimum=%d", sizeMB, sizeMB),
-		fmt.Sprintf("create partition primary size=%d", sizeMB),
-		formatCmd,
-		"assign",
-		"exit",
-	}
-
-	out1, err := RunDiskpart(ops)
-	if err != nil {
-		return "", fmt.Errorf("diskpart ops failed: %w; out=%s", err, out1)
-	}
-
-	// 3) after letters
-	after, out2, err := listVolumeLetters()
-	if err != nil {
-		return "", fmt.Errorf("list volumes (after) failed: %w; out=%s; opsOut=%s", err, out2, out1)
-	}
-
-	// 4) diff
-	diff := make([]string, 0, 2)
-	for l := range after {
-		if !before[l] {
-			diff = append(diff, l)
-		}
-	}
-
-	if len(diff) == 1 {
-		return diff[0] + ":", nil
-	}
-
-	// 兜底：如果没有差集或差集不唯一，尽量从 ops 输出或 after 列表里再猜一次（按 label/fs）
-	if letter := guessLetterByLabelAndFS(out2, label, fs); letter != "" {
-		return letter + ":", nil
-	}
-
-	return "", fmt.Errorf("cannot determine new drive letter (diff=%v); opsOut=%s; listAfter=%s", diff, out1, out2)
-}
-
-func sanitizeLabel(s string) string {
-	s = strings.TrimSpace(s)
-	// diskpart 里我们用 label="..."，所以把双引号去掉/替换，避免脚本注入或语法破坏
-	s = strings.ReplaceAll(s, `"`, `'`)
-	// 防止换行注入
-	s = strings.ReplaceAll(s, "\r", " ")
-	s = strings.ReplaceAll(s, "\n", " ")
-	// label 允许为空，但建议给个默认
-	if s == "" {
-		s = "NEWVOL"
-	}
-	return s
-}
-
-// listVolumeLetters 用 `list volume` 抓盘符集合（对中文/英文输出都尽量兼容）
-// 返回 map["C"]=true 这种
-func listVolumeLetters() (map[string]bool, string, error) {
-	out, err := RunDiskpart([]string{
-		"list volume",
-		"exit",
-	})
-	if err != nil {
-		return nil, out, err
-	}
-
-	// 兼容英文/中文行首："Volume 3  C ..." 或 "卷 3  C ..."
-	// 关键是抓 “行首+编号+盘符” 的那个单字母 token
-	re := regexp.MustCompile(`(?im)^\s*(?:volume|卷)\s+\d+\s+([A-Z])\b`)
-	m := make(map[string]bool)
-	for _, sub := range re.FindAllStringSubmatch(out, -1) {
-		if len(sub) == 2 {
-			m[sub[1]] = true
-		}
-	}
-	return m, out, nil
-}
-
-// 兜底：从 list volume 输出里按 label+fs 猜盘符（label 重名会有歧义）
-// 这里依赖输出行里还包含 label 文本；如果 label 很长被截断，可能匹配不到。
-func guessLetterByLabelAndFS(listOut, label, fs string) string {
-	lo := strings.ToLower(listOut)
-	labelLo := strings.ToLower(label)
-	fsLo := strings.ToLower(fs)
-
-	for _, line := range strings.Split(listOut, "\n") {
-		lineLo := strings.ToLower(line)
-		if !strings.Contains(lineLo, labelLo) {
-			continue
-		}
-		if !strings.Contains(lineLo, fsLo) {
-			continue
-		}
-		fields := strings.Fields(line)
-		// 典型 fields: [Volume 5 R NEWVOL NTFS Partition 20 GB Healthy]
-		if len(fields) >= 3 && len(fields[2]) == 1 {
-			c := fields[2][0]
-			if c >= 'A' && c <= 'Z' {
-				return fields[2]
-			}
-		}
-		_ = lo // keep for readability
-	}
-	return ""
 }
 
 // 使用 diskpart，按盘符格式化卷。
@@ -860,11 +762,12 @@ func guessLetterByLabelAndFS(listOut, label, fs string) string {
 // label: 卷标，允许为空
 // quick: true：快速格式化, false：全格式
 func Format(letter, fs, label string, quick bool) error {
-	volLetter, err := normalizeDriveLetter(letter)
+	volNum, err := diskpartFindVolumeNumberByLetter(letter)
 	if err != nil {
 		return err
 	}
-	fs, err = toDiskToolFS(fs)
+
+	fs2, err := toDiskToolFS(fs) // 你现有逻辑：只允许 NTFS/FAT32
 	if err != nil {
 		return err
 	}
@@ -872,13 +775,22 @@ func Format(letter, fs, label string, quick bool) error {
 	if label == "" {
 		label = "NO_LABEL"
 	}
-	q := "0"
-	if quick {
-		q = "1"
+
+	cmds := []string{
+		fmt.Sprintf("select volume %d", volNum),
 	}
-	out, err := runDiskTool("format", volLetter, fs, label, q)
+
+	fmtCmd := fmt.Sprintf("format fs=%s", strings.ToLower(fs2))
+	fmtCmd += fmt.Sprintf(" label=\"%s\"", label)
+	if quick {
+		fmtCmd += " quick"
+	}
+	fmtCmd += " override"
+	cmds = append(cmds, fmtCmd)
+
+	out, err := RunDiskpart(cmds)
 	if err != nil {
-		return fmt.Errorf("format failed: %w\n输出:\n%s", err, out)
+		return fmt.Errorf("format(diskpart) failed: %w\n输出:\n%s", err, out)
 	}
 	return nil
 }

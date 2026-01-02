@@ -934,9 +934,6 @@ func PE() int {
 }
 
 func main() {
-	test, err := ShrinkAndCreateVolume("K:", 1000, "ntfs", "new", true)
-	logWrite(test, err.Error()+"\n")
-	return
 	logWrite("启动\n")
 	Uiinit()
 	//判断是否在PE
