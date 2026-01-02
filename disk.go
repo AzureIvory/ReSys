@@ -711,6 +711,149 @@ func RunDiskpart(lines []string) (string, error) {
 	return out, nil
 }
 
+// ShrinkAndCreateVolume
+// - srcDrive: 源卷盘符，如 "C" / "C:"
+// - sizeMB: 欲缩/新建大小（MB）
+// - fs: "ntfs" or "fat32"（大小写不敏感）
+// - label: 新分区卷标（会自动做基础清洗）
+// - quick: 是否快速格式化
+// 返回：新分区盘符，如 "R:"
+func ShrinkAndCreateVolume(srcDrive string, sizeMB int, fs, label string, quick bool) (string, error) {
+	src, _ := normalizeDriveLetter(srcDrive)
+	if src == "" {
+		return "", fmt.Errorf("invalid src drive: %q", srcDrive)
+	}
+	if sizeMB <= 0 {
+		return "", fmt.Errorf("invalid sizeMB: %d", sizeMB)
+	}
+
+	fs = strings.ToLower(strings.TrimSpace(fs))
+	switch fs {
+	case "ntfs", "fat32":
+	default:
+		return "", fmt.Errorf("unsupported fs: %q (want ntfs|fat32)", fs)
+	}
+
+	label = sanitizeLabel(label)
+
+	// 1) before letters
+	before, out0, err := listVolumeLetters()
+	if err != nil {
+		return "", fmt.Errorf("list volumes (before) failed: %w; out=%s", err, out0)
+	}
+
+	// 2) do operations
+	formatCmd := fmt.Sprintf(`format fs=%s label="%s"`, fs, label)
+	if quick {
+		formatCmd += " quick"
+	}
+
+	ops := []string{
+		fmt.Sprintf("select volume=%s", src),
+		// minimum=desired：要求必须缩够 sizeMB，否则直接失败（避免 shrink 缩不够导致后面 create size 失败）
+		fmt.Sprintf("shrink desired=%d minimum=%d", sizeMB, sizeMB),
+		fmt.Sprintf("create partition primary size=%d", sizeMB),
+		formatCmd,
+		"assign",
+		"exit",
+	}
+
+	out1, err := RunDiskpart(ops)
+	if err != nil {
+		return "", fmt.Errorf("diskpart ops failed: %w; out=%s", err, out1)
+	}
+
+	// 3) after letters
+	after, out2, err := listVolumeLetters()
+	if err != nil {
+		return "", fmt.Errorf("list volumes (after) failed: %w; out=%s; opsOut=%s", err, out2, out1)
+	}
+
+	// 4) diff
+	diff := make([]string, 0, 2)
+	for l := range after {
+		if !before[l] {
+			diff = append(diff, l)
+		}
+	}
+
+	if len(diff) == 1 {
+		return diff[0] + ":", nil
+	}
+
+	// 兜底：如果没有差集或差集不唯一，尽量从 ops 输出或 after 列表里再猜一次（按 label/fs）
+	if letter := guessLetterByLabelAndFS(out2, label, fs); letter != "" {
+		return letter + ":", nil
+	}
+
+	return "", fmt.Errorf("cannot determine new drive letter (diff=%v); opsOut=%s; listAfter=%s", diff, out1, out2)
+}
+
+func sanitizeLabel(s string) string {
+	s = strings.TrimSpace(s)
+	// diskpart 里我们用 label="..."，所以把双引号去掉/替换，避免脚本注入或语法破坏
+	s = strings.ReplaceAll(s, `"`, `'`)
+	// 防止换行注入
+	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	// label 允许为空，但建议给个默认
+	if s == "" {
+		s = "NEWVOL"
+	}
+	return s
+}
+
+// listVolumeLetters 用 `list volume` 抓盘符集合（对中文/英文输出都尽量兼容）
+// 返回 map["C"]=true 这种
+func listVolumeLetters() (map[string]bool, string, error) {
+	out, err := RunDiskpart([]string{
+		"list volume",
+		"exit",
+	})
+	if err != nil {
+		return nil, out, err
+	}
+
+	// 兼容英文/中文行首："Volume 3  C ..." 或 "卷 3  C ..."
+	// 关键是抓 “行首+编号+盘符” 的那个单字母 token
+	re := regexp.MustCompile(`(?im)^\s*(?:volume|卷)\s+\d+\s+([A-Z])\b`)
+	m := make(map[string]bool)
+	for _, sub := range re.FindAllStringSubmatch(out, -1) {
+		if len(sub) == 2 {
+			m[sub[1]] = true
+		}
+	}
+	return m, out, nil
+}
+
+// 兜底：从 list volume 输出里按 label+fs 猜盘符（label 重名会有歧义）
+// 这里依赖输出行里还包含 label 文本；如果 label 很长被截断，可能匹配不到。
+func guessLetterByLabelAndFS(listOut, label, fs string) string {
+	lo := strings.ToLower(listOut)
+	labelLo := strings.ToLower(label)
+	fsLo := strings.ToLower(fs)
+
+	for _, line := range strings.Split(listOut, "\n") {
+		lineLo := strings.ToLower(line)
+		if !strings.Contains(lineLo, labelLo) {
+			continue
+		}
+		if !strings.Contains(lineLo, fsLo) {
+			continue
+		}
+		fields := strings.Fields(line)
+		// 典型 fields: [Volume 5 R NEWVOL NTFS Partition 20 GB Healthy]
+		if len(fields) >= 3 && len(fields[2]) == 1 {
+			c := fields[2][0]
+			if c >= 'A' && c <= 'Z' {
+				return fields[2]
+			}
+		}
+		_ = lo // keep for readability
+	}
+	return ""
+}
+
 // 使用 diskpart，按盘符格式化卷。
 // letter: 盘符，可以是 "C" / "C:" / "C:\"
 // fs: 文件系统，例如 "ntfs" "fat32" "exfat"
