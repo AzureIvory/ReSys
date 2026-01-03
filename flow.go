@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -1196,6 +1195,7 @@ func RunPEInstall() error {
 	if err != nil {
 		logWrite("读取重装信息失败：%v", err)
 		targetRoot, diskPath, imagePath = "", "", ""
+		os.Exit(0)
 	}
 
 	imagePath = strings.TrimSpace(imagePath)

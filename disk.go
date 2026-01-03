@@ -1,10 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
-	"os"
-	"path/filepath"
+	"io"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -724,34 +725,52 @@ func RunDiskpart(lines []string) (string, error) {
 		return "", fmt.Errorf("empty diskpart script")
 	}
 
+	// 拼脚本，确保最后退出（避免 diskpart 卡住）
 	script := strings.Join(lines, "\r\n") + "\r\n"
-
-	// 在当前运行目录创建临时脚本文件（不使用系统临时目录）
-	name := fmt.Sprintf("dp_fmt_%d.txt", time.Now().UnixNano())
-	path := filepath.Join(".", name)
-
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
-		return "", fmt.Errorf("create script in workdir failed: %w", err)
+	last := strings.TrimSpace(strings.ToLower(lines[len(lines)-1]))
+	if last != "exit" {
+		script += "exit\r\n"
 	}
-	defer Remove(path, false) //用完就删除
 
-	if _, err := f.WriteString(script); err != nil {
-		_ = f.Close()
-		return "", fmt.Errorf("write script failed: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		return "", fmt.Errorf("close script failed: %w", err)
-	}
 	diskpart := "diskpart.exe"
 	if systemArch() == "32" {
 		diskpart = "C:\\Windows\\Sysnative\\diskpart.exe"
 	} else {
 		diskpart = "C:\\Windows\\System32\\diskpart.exe"
 	}
-	out, err := runCmd(diskpart, nil, "/s", path)
+
+	cmd := exec.Command(diskpart)
+
+	// 可选：隐藏窗口（你原来 runCmd 如果做了隐藏，这里也加上）
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+
+	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return out, fmt.Errorf("diskpart failed: %w", err)
+		return "", fmt.Errorf("diskpart stdin pipe failed: %w", err)
+	}
+
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+
+	if err := cmd.Start(); err != nil {
+		_ = stdin.Close()
+		return "", fmt.Errorf("start diskpart failed: %w", err)
+	}
+
+	// 写入脚本并关闭 stdin（告诉 diskpart 输入结束）
+	_, werr := io.WriteString(stdin, script)
+	_ = stdin.Close()
+
+	// 等待退出
+	waitErr := cmd.Wait()
+	out := buf.String()
+
+	if werr != nil {
+		return out, fmt.Errorf("write diskpart script failed: %w", werr)
+	}
+	if waitErr != nil {
+		return out, fmt.Errorf("diskpart failed: %w", waitErr)
 	}
 	return out, nil
 }
