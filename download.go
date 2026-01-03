@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -500,36 +501,45 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 // 判断网络是否连通。
 // 返回：ok=是否连通；err=具体失败原因
 func CheckNetwork(ctx context.Context) (ok bool, err error) {
-	curlPath, err := findCurl()
+	dialer := &net.Dialer{
+		Timeout: 3 * time.Second,
+	}
+
+	transport := &http.Transport{
+		Proxy:       http.ProxyFromEnvironment,
+		DialContext: dialer.DialContext,
+
+		TLSHandshakeTimeout:   3 * time.Second,
+		ResponseHeaderTimeout: 3 * time.Second,
+		ForceAttemptHTTP2:     true,
+	}
+
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   5 * time.Second,
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://www.baidu.com", nil)
 	if err != nil {
 		return false, err
 	}
 
-	cmd := exec.CommandContext(ctx, curlPath,
-		"-L", "--fail", "--silent", "--show-error",
-		"--connect-timeout", "3",
-		"--max-time", "5",
-		"-o", os.DevNull,
-		"https://www.baidu.com",
-	)
-
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err == nil {
-		return true, nil
-	} else {
+	resp, err := client.Do(req)
+	if err != nil {
 		if ctx.Err() != nil {
 			return false, ctx.Err()
 		}
-		msg := strings.TrimSpace(stderr.String())
-		if msg != "" {
-			return false, fmt.Errorf("network check failed: %w: %s", err, msg)
-		}
 		return false, fmt.Errorf("network check failed: %w", err)
 	}
+	defer resp.Body.Close()
+
+	_, _ = io.Copy(io.Discard, resp.Body)
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return false, fmt.Errorf("network check failed: http status %s", resp.Status)
+	}
+
+	return true, nil
 }
 
 // 尽量拿到 Content-Length；拿不到返回 -1（percent 就只能给 0~99.9 的“未知总量”模式）

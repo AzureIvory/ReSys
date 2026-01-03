@@ -1368,10 +1368,8 @@ func postInstallTasks(targetRoot, targetOS string) error {
 	_, _ = CreateShortcut(filepath.Join(targetRoot, "Users", "Public", "Desktop")+`\\`, "百度", "https://www.baidu.com")
 	logWrite("已写入应答文件/激活工具/快捷方式")
 
-	driveExe := filepath.Join(baseDir, "tools", "drive10.exe")
-	if targetOS == targetWin7 {
-		driveExe = filepath.Join(baseDir, "tools", "drive7.exe")
-	}
+	driveExe := filepath.Join(baseDir, "tools", "drive.exe")
+
 	if fileExists(driveExe) {
 		_ = Copy(driveExe, filepath.Join(targetRoot, "drive.exe"), true, true)
 	}

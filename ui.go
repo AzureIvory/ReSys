@@ -164,10 +164,10 @@ const (
 )
 
 const (
-	ColorBgDark   = 0x00333333 // 主背景
+	ColorBgDark   = 0x00FFFFFF // 主背景
 	ColorTitleBar = 0x00228B22 // 标题栏
-	ColorText     = 0x00333333 // 主要文字
-	ColorTextHint = 0x00888888 // 提示文字
+	ColorText     = 0x00000000 // 主要文字
+	ColorTextHint = 0x00000000 // 提示文字
 
 	// 按钮颜色
 	ColorBtnNormal = 0x00F7F7F7 // 按钮背景
@@ -1313,8 +1313,8 @@ func Uiinit() {
 
 	ui.frames, _ = decodeGIFFrames(waitGIF)
 
-	ui.font16 = makeFont(16, 400, "Microsoft YaHei")
-	ui.font20 = makeFont(20, 600, "Segoe UI Semibold")
+	ui.font16 = makeFont(16, 400, "SimSun") //宋体
+	ui.font20 = makeFont(20, 600, "SimSun") //宋体
 
 	cls := mustUTF16("ReSysCanvasWnd")
 	var wc WNDCLASSEX
