@@ -371,6 +371,8 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 		progressCallback = func(float64, int64) {}
 	}
 
+	const stallLimit = 15 * time.Second
+
 	curlPath, err := findCurl()
 	if err != nil {
 		return err
@@ -386,6 +388,9 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 	}
 
 	runCurl := func(withResume bool) error {
+		curlCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
 		args := []string{
 			"-L", "--fail", "--silent", "--show-error",
 			"--connect-timeout", "5",
@@ -401,7 +406,7 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 		}
 		args = append(args, url)
 
-		cmd := exec.CommandContext(ctx, curlPath, args...)
+		cmd := exec.CommandContext(curlCtx, curlPath, args...)
 		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 
 		var stderr bytes.Buffer
@@ -412,12 +417,14 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 		}
 
 		done := make(chan struct{})
+		stallCh := make(chan error, 1)
 		go func() {
 			ticker := time.NewTicker(1 * time.Second)
 			defer ticker.Stop()
 
 			var lastBytes int64
 			var lastTime = time.Now()
+			var zeroDuration time.Duration
 
 			for {
 				select {
@@ -439,6 +446,11 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 					if speed < 0 {
 						speed = 0
 					}
+					if speed == 0 {
+						zeroDuration += now.Sub(lastTime)
+					} else {
+						zeroDuration = 0
+					}
 
 					percent := 0.0
 					if total > 0 {
@@ -454,12 +466,27 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 
 					lastBytes = nowBytes
 					lastTime = now
+
+					if zeroDuration >= stallLimit {
+						select {
+						case stallCh <- fmt.Errorf("下载速度为 0 超过 %s", stallLimit):
+						default:
+						}
+						cancel()
+						return
+					}
 				}
 			}
 		}()
 
 		err := cmd.Wait()
 		close(done)
+
+		select {
+		case stallErr := <-stallCh:
+			return stallErr
+		default:
+		}
 
 		if err == nil {
 			_ = Remove(dstPath, false)
@@ -470,8 +497,8 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 			return nil
 		}
 
-		if ctx.Err() != nil {
-			return ctx.Err()
+		if curlCtx.Err() != nil {
+			return curlCtx.Err()
 		}
 
 		msg := strings.TrimSpace(stderr.String())

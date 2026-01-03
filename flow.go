@@ -318,9 +318,14 @@ func downloadImage(target, arch string) (string, error) {
 			dstPath := filepath.Join(dstDir, name)
 
 			if st, err := os.Stat(dstPath); err == nil && !st.IsDir() && st.Size() > 0 {
-				logWrite("镜像已存在：%s", dstPath)
-				uiSetProgress(60)
-				return dstPath, nil
+				if err := validateImageFile(it, dstPath); err != nil {
+					logWrite("镜像校验失败，删除重下：%s err=%v", dstPath, err)
+					_ = os.Remove(dstPath)
+				} else {
+					logWrite("镜像已存在：%s", dstPath)
+					uiSetProgress(60)
+					return dstPath, nil
+				}
 			}
 
 			_ = os.Remove(dstPath)
@@ -342,6 +347,13 @@ func downloadImage(target, arch string) (string, error) {
 			cancel()
 
 			if err == nil {
+				if vErr := validateImageFile(it, dstPath); vErr != nil {
+					markFailedLink(link)
+					_ = os.Remove(dstPath)
+					logWrite("镜像校验失败，删除重下：%s err=%v", dstPath, vErr)
+					errs = append(errs, fmt.Sprintf("URL校验失败 link=%s err=%v", link, vErr))
+					continue
+				}
 				logWrite("镜像下载完成：%s", dstPath)
 				uiSetProgress(60)
 				return dstPath, nil
@@ -404,6 +416,13 @@ func downloadImage(target, arch string) (string, error) {
 		})
 
 		if err == nil {
+			if vErr := validateImageFile(it, dstPath); vErr != nil {
+				markFailedLink(link)
+				_ = os.Remove(dstPath)
+				logWrite("镜像校验失败，删除重下：%s err=%v", dstPath, vErr)
+				errs = append(errs, fmt.Sprintf("BT校验失败 link=%s err=%v", link, vErr))
+				continue
+			}
 			logWrite("镜像下载完成(BT)：%s", dstPath)
 			uiSetProgress(60)
 			return dstPath, nil
@@ -418,6 +437,27 @@ func downloadImage(target, arch string) (string, error) {
 		return "", fmt.Errorf("全部镜像链接下载失败：%s", strings.Join(errs, " | "))
 	}
 	return "", fmt.Errorf("未找到可用镜像下载链接")
+}
+
+func validateImageFile(it WinImg, imagePath string) error {
+	if strings.TrimSpace(it.SHA1) != "" {
+		ok, got, err := CheckFileSHA1(imagePath, it.SHA1)
+		if err != nil {
+			return fmt.Errorf("SHA1校验失败: %w", err)
+		}
+		if !ok {
+			return fmt.Errorf("SHA1不匹配: %s", got)
+		}
+		return nil
+	}
+
+	switch strings.ToLower(filepath.Ext(imagePath)) {
+	case ".iso", ".wim", ".esd":
+		if _, err := detectImageInfos(imagePath); err != nil {
+			return fmt.Errorf("镜像损坏: %w", err)
+		}
+	}
+	return nil
 }
 
 // 按架构过滤镜像列表。
@@ -498,31 +538,71 @@ func ensurePEAndReboot(arch string) error {
 	if arch == "" {
 		arch = "64"
 	}
-	found, wimPath, _ := hasPEFiles(arch)
-	if !found || strings.TrimSpace(wimPath) == "" {
-		logWrite("未检测到PE文件，开始下载/准备PE")
-		wp, err := downloadPE(arch)
-		if err != nil {
-			logWrite("下载PE失败：%v", err)
-			return err
+	const maxAttempts = 3
+	failedPEImages := map[string]struct{}{}
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		var (
+			wimPath string
+			sdiPath string
+			peID    string
+		)
+
+		if attempt == 1 {
+			found, wim, sdi := hasPEFiles(arch)
+			if found && strings.TrimSpace(wim) != "" {
+				wimPath = wim
+				sdiPath = sdi
+				logWrite("使用已有PE：%s", wimPath)
+			}
 		}
-		wimPath = wp
-		logWrite("PE镜像准备完成：%s", wimPath)
-	}
 
-	uiSetStatus("正在写入自身到PE...")
-	logWrite("准备Patwim：%s", wimPath)
+		if wimPath == "" {
+			logWrite("未检测到PE文件，开始下载/准备PE")
+			wp, id, err := downloadPE(arch, failedPEImages)
+			if err != nil {
+				logWrite("下载PE失败：%v", err)
+				if attempt == maxAttempts {
+					uiShowError("错误", fmt.Sprintf("进入PE失败：%v", err))
+					os.Exit(-1)
+				}
+				continue
+			}
+			wimPath = wp
+			peID = id
+			logWrite("PE镜像准备完成：%s", wimPath)
+		}
 
-	if err := Patwim(wimPath); err != nil {
-		logWrite("ensurePEAndReboot Patwim失败", err)
+		uiSetStatus("正在写入自身到PE...")
+		logWrite("准备Patwim：%s", wimPath)
 
-	} else {
+		if err := Patwim(wimPath); err != nil {
+			logWrite("ensurePEAndReboot Patwim失败：%v", err)
+			markFailedPEImage(failedPEImages, peID)
+			removePEArtifacts(wimPath, sdiPath)
+			if attempt == maxAttempts {
+				uiShowError("错误", fmt.Sprintf("进入PE失败：%v", err))
+				os.Exit(-1)
+			}
+			continue
+		}
 		logWrite("ensurePEAndReboot Patwim成功：%s", wimPath)
-	}
 
-	uiSetStatus("正在设置下次启动进入PE...")
-	logWrite("进入PE")
-	return GoToPE()
+		uiSetStatus("正在设置下次启动进入PE...")
+		logWrite("进入PE")
+		if err := GoToPE(); err != nil {
+			logWrite("进入PE失败：%v", err)
+			markFailedPEImage(failedPEImages, peID)
+			removePEArtifacts(wimPath, sdiPath)
+			if attempt == maxAttempts {
+				uiShowError("错误", fmt.Sprintf("进入PE失败：%v", err))
+				os.Exit(-1)
+			}
+			continue
+		}
+		return nil
+	}
+	return fmt.Errorf("进入PE失败")
 }
 
 // 从多个候选里挑最合适的pe(一般不会用到)
@@ -602,9 +682,6 @@ func hasPEFiles(arch string) (bool, string, string) {
 
 	type pair struct{ sdi, wim string }
 	opts := []pair{
-		{`WEPE\WEPE.SDI`, `WEPE\WEPE64.WIM`},
-		{`WEPE\WEPE.SDI`, `WEPE\WEPE32.WIM`},
-
 		{`FirPE\BOOT.SDI`, `FirPE\11PEX64.WIM`},
 		{`FirPE\BOOT.SDI`, `FirPE\11PEX86.WIM`},
 
@@ -685,31 +762,61 @@ func ensureCleanDir(dir string) error {
 }
 
 // 下载 PE 镜像
-func downloadPE(arch string) (string, error) {
+const peLinksID = "pe_links"
+
+func peImageID(it WinPEImg) string {
+	parts := []string{
+		strings.TrimSpace(it.Grp),
+		strings.TrimSpace(it.Ver),
+		strings.TrimSpace(it.Arch),
+	}
+	links := strings.Join(it.Links, "|")
+	parts = append(parts, strings.TrimSpace(links))
+	return strings.Join(parts, "|")
+}
+
+func markFailedPEImage(failed map[string]struct{}, id string) {
+	if id == "" {
+		return
+	}
+	failed[id] = struct{}{}
+}
+
+func removePEArtifacts(wimPath, sdiPath string) {
+	if strings.TrimSpace(wimPath) != "" {
+		_ = os.Remove(wimPath)
+		if strings.Contains(strings.ToLower(wimPath), `\petemp\`) {
+			_ = Remove(filepath.Dir(wimPath), true)
+		}
+	}
+	if strings.TrimSpace(sdiPath) != "" {
+		_ = os.Remove(sdiPath)
+	}
+}
+
+func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string, error) {
 	arch = strings.TrimSpace(arch)
 	if arch == "" {
 		arch = "64"
+	}
+	if failedPEImages == nil {
+		failedPEImages = map[string]struct{}{}
 	}
 	logWrite("下载PE，目标架构=%s", arch)
 
 	peList, err := GetWinPE()
 	if err != nil {
 		logWrite("获取PE列表失败：%v", err)
-		return "", err
+		return "", "", err
 	}
 
-	var wepe []WinPEImg
 	var other []WinPEImg
 	for _, it := range peList {
 		if strings.EqualFold(strings.TrimSpace(it.Grp), "WEPE") {
-			wepe = append(wepe, it)
-		} else {
-			other = append(other, it)
+			continue
 		}
+		other = append(other, it)
 	}
-	sort.Slice(wepe, func(i, j int) bool {
-		return strings.TrimSpace(wepe[i].Ver) > strings.TrimSpace(wepe[j].Ver)
-	})
 
 	findByArch := func(list []WinPEImg, want string) []WinPEImg {
 		var out []WinPEImg
@@ -721,16 +828,16 @@ func downloadPE(arch string) (string, error) {
 		return out
 	}
 
-	// 优先复用本地 WEPE
-	if wimPath, err := tryLocalWepe(wepe, arch); err == nil && wimPath != "" {
-		logWrite("使用本地WEPE成功：%s", wimPath)
-		return wimPath, nil
-	}
-
 	// 尝试下载一个 PE 镜像
-	tryDownload := func(it WinPEImg) (string, error) {
+	tryDownload := func(it WinPEImg) (string, string, error) {
+		id := peImageID(it)
+		if id != "" {
+			if _, ok := failedPEImages[id]; ok {
+				return "", id, fmt.Errorf("PE已标记失败: %s", id)
+			}
+		}
 		if len(it.Links) == 0 {
-			return "", fmt.Errorf("PE链接为空")
+			return "", id, fmt.Errorf("PE链接为空")
 		}
 
 		for _, link := range it.Links {
@@ -738,19 +845,23 @@ func downloadPE(arch string) (string, error) {
 			if link == "" {
 				continue
 			}
+			if isFailedLink(link) {
+				continue
+			}
 			if !httpStatus(link) {
 				logWrite("PE链接不可用：%s", link)
+				markFailedLink(link)
 				continue
 			}
 
 			needBytes := int64(it.Sz * 1024 * 1024)
 			root, err := choosePETempRoot(needBytes * 2)
 			if err != nil {
-				return "", err
+				return "", id, err
 			}
 			peDir := filepath.Join(root, "PETEMP")
 			if err := ensureCleanDir(peDir); err != nil {
-				return "", err
+				return "", id, err
 			}
 
 			wimPath := filepath.Join(peDir, "boot.wim")
@@ -837,48 +948,37 @@ func downloadPE(arch string) (string, error) {
 			}
 
 			if err := copySDIToPETEMP(peDir); err != nil {
-				return "", err
+				return "", id, err
 			}
-			return wimPath, nil
+			return wimPath, id, nil
 		}
 
-		return "", fmt.Errorf("PE下载失败")
-	}
-
-	for _, it := range findByArch(wepe, arch) {
-		if wim, err := tryDownload(it); err == nil {
-			return wim, nil
-		}
-	}
-	if arch == "32" {
-		for _, it := range findByArch(wepe, "64") {
-			if wim, err := tryDownload(it); err == nil {
-				return wim, nil
-			}
-		}
+		return "", id, fmt.Errorf("PE下载失败")
 	}
 
 	// PEDownload.html
 	if _, _, links, err := PELnk(); err == nil {
-		if wim, err := downloadPEFromLinks(links); err == nil {
-			return wim, nil
-		}
-	}
-
-	for _, it := range findByArch(other, arch) {
-		if wim, err := tryDownload(it); err == nil {
-			return wim, nil
-		}
-	}
-	if arch == "32" {
-		for _, it := range findByArch(other, "64") {
-			if wim, err := tryDownload(it); err == nil {
-				return wim, nil
+		if _, ok := failedPEImages[peLinksID]; !ok {
+			if wim, err := downloadPEFromLinks(links); err == nil {
+				return wim, peLinksID, nil
 			}
 		}
 	}
 
-	return "", fmt.Errorf("未找到可用PE")
+	for _, it := range findByArch(other, arch) {
+		if wim, id, err := tryDownload(it); err == nil {
+			return wim, id, nil
+		}
+	}
+	if arch == "32" {
+		for _, it := range findByArch(other, "64") {
+			if wim, id, err := tryDownload(it); err == nil {
+				return wim, id, nil
+			}
+		}
+	}
+
+	return "", "", fmt.Errorf("未找到可用PE")
 }
 
 // 使用 PEDownload.html 的链接下载 PE。
@@ -1461,28 +1561,36 @@ func (p *ProgressReporter) Update(pct float64, speedBytes int64) {
 
 // 统一重试执行器
 func retryLoop(title string, fn func() error) bool {
-	for {
+	for attempt := 0; ; attempt++ {
 		if err := fn(); err == nil {
 			return true
 		} else {
 			logWrite("%s失败：%v", title, err)
-			if !MessageRetryExit("错误", title+"失败："+err.Error()) {
-				return false
+			if attempt == 0 {
+				logWrite("%s失败，自动重试一次", title)
+				continue
 			}
+			uiShowError("错误", title+"失败："+err.Error())
+			os.Exit(-1)
+			return false
 		}
 	}
 }
 
 func retryLoopWithResult[T any](title string, fn func() (T, error)) (T, bool) {
 	var zero T
-	for {
+	for attempt := 0; ; attempt++ {
 		v, err := fn()
 		if err == nil {
 			return v, true
 		}
 		logWrite("%s失败：%v", title, err)
-		if !MessageRetryExit("错误", title+"失败："+err.Error()) {
-			return zero, false
+		if attempt == 0 {
+			logWrite("%s失败，自动重试一次", title)
+			continue
 		}
+		uiShowError("错误", title+"失败："+err.Error())
+		os.Exit(-1)
+		return zero, false
 	}
 }
