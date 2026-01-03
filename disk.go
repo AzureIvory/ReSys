@@ -1,11 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
-	"io"
-	"os/exec"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -159,7 +158,7 @@ func SplitVolume1(vol string, sizeMB int, fs, label string) (string, error) {
 	}
 
 	cmds := []string{
-		fmt.Sprintf("select volume %s", volLetter),
+		fmt.Sprintf("select volume=%s", volLetter),
 		fmt.Sprintf("shrink desired=%d", sizeMB),                // 收缩出 sizeMB
 		fmt.Sprintf("create partition primary size=%d", sizeMB), // 创建同等大小的新分区
 		fmt.Sprintf(`format fs=%s label="%s" quick`, strings.ToLower(fs), label),
@@ -275,16 +274,13 @@ func GetDiskPartitions(diskID string) (int, []string, error) {
 // vol: 例如 "C" / "C:" / "C:\"
 // sizeMB: 扩展大小（MB），<=0 表示使用全部
 func MergeVolume(vol string, sizeMB int) error {
-	volNum, err := diskpartFindVolumeNumberByLetter(vol)
+	volLetter, err := normalizeDriveLetter(vol)
 	if err != nil {
 		return err
 	}
 
-	cmds := []string{
-		fmt.Sprintf("select volume %d", volNum),
-	}
+	cmds := []string{fmt.Sprintf("select volume=%s", strings.ToLower(volLetter))}
 
-	// diskpart extend: size 省略表示吃掉所有紧邻未分配空间
 	if sizeMB <= 0 {
 		cmds = append(cmds, "extend")
 	} else {
@@ -301,14 +297,14 @@ func MergeVolume(vol string, sizeMB int) error {
 // 删除指定卷（转为未分配空间）。
 // vol: 例如 "C" / "C:" / "C:\\"
 func DeleteVolume(vol string) error {
-	volNum, err := diskpartFindVolumeNumberByLetter(vol)
+	volLetter, err := normalizeDriveLetter(vol)
 	if err != nil {
 		return err
 	}
 
 	cmds := []string{
-		fmt.Sprintf("select volume %d", volNum),
-		"delete volume", // 一般够用；必要时可改 delete partition override（更激进）
+		fmt.Sprintf("select volume=%s", strings.ToLower(volLetter)),
+		"delete volume",
 	}
 
 	out, err := RunDiskpart(cmds)
@@ -725,54 +721,41 @@ func RunDiskpart(lines []string) (string, error) {
 		return "", fmt.Errorf("empty diskpart script")
 	}
 
-	// 拼脚本，确保最后退出（避免 diskpart 卡住）
 	script := strings.Join(lines, "\r\n") + "\r\n"
-	last := strings.TrimSpace(strings.ToLower(lines[len(lines)-1]))
-	if last != "exit" {
-		script += "exit\r\n"
+	name := fmt.Sprintf("dp_fmt_%d.txt", time.Now().UnixNano())
+	baseDir := ""
+	if exe, err := os.Executable(); err == nil {
+		baseDir = filepath.Dir(exe)
 	}
+	if baseDir == "" {
+		baseDir = os.TempDir()
+	}
+	path := filepath.Join(baseDir, name)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return "", fmt.Errorf("create script in workdir failed: %w", err)
+	}
+	defer Remove(path, false) //用完就删除
 
+	if _, err := f.WriteString(script); err != nil {
+		_ = f.Close()
+		return "", fmt.Errorf("write script failed: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return "", fmt.Errorf("close script failed: %w", err)
+	}
 	diskpart := "diskpart.exe"
 	if systemArch() == "32" {
 		diskpart = "C:\\Windows\\Sysnative\\diskpart.exe"
 	} else {
 		diskpart = "C:\\Windows\\System32\\diskpart.exe"
 	}
-
-	cmd := exec.Command(diskpart)
-
-	// 可选：隐藏窗口（你原来 runCmd 如果做了隐藏，这里也加上）
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-
-	stdin, err := cmd.StdinPipe()
+	out, err := runCmd(diskpart, nil, "/s", path)
 	if err != nil {
-		return "", fmt.Errorf("diskpart stdin pipe failed: %w", err)
-	}
-
-	var buf bytes.Buffer
-	cmd.Stdout = &buf
-	cmd.Stderr = &buf
-
-	if err := cmd.Start(); err != nil {
-		_ = stdin.Close()
-		return "", fmt.Errorf("start diskpart failed: %w", err)
-	}
-
-	// 写入脚本并关闭 stdin（告诉 diskpart 输入结束）
-	_, werr := io.WriteString(stdin, script)
-	_ = stdin.Close()
-
-	// 等待退出
-	waitErr := cmd.Wait()
-	out := buf.String()
-
-	if werr != nil {
-		return out, fmt.Errorf("write diskpart script failed: %w", werr)
-	}
-	if waitErr != nil {
-		return out, fmt.Errorf("diskpart failed: %w", waitErr)
+		return out, fmt.Errorf("diskpart failed: %w", err)
 	}
 	return out, nil
+
 }
 
 // 使用 diskpart，按盘符格式化卷。
@@ -781,12 +764,12 @@ func RunDiskpart(lines []string) (string, error) {
 // label: 卷标，允许为空
 // quick: true：快速格式化, false：全格式
 func Format(letter, fs, label string, quick bool) error {
-	volNum, err := diskpartFindVolumeNumberByLetter(letter)
+	volLetter, err := normalizeDriveLetter(letter)
 	if err != nil {
 		return err
 	}
 
-	fs2, err := toDiskToolFS(fs) // 你现有逻辑：只允许 NTFS/FAT32
+	fs2, err := toDiskToolFS(fs)
 	if err != nil {
 		return err
 	}
@@ -795,17 +778,16 @@ func Format(letter, fs, label string, quick bool) error {
 		label = "NO_LABEL"
 	}
 
-	cmds := []string{
-		fmt.Sprintf("select volume %d", volNum),
-	}
-
-	fmtCmd := fmt.Sprintf("format fs=%s", strings.ToLower(fs2))
-	fmtCmd += fmt.Sprintf(" label=\"%s\"", label)
+	fmtCmd := fmt.Sprintf("format fs=%s label=\"%s\"", strings.ToLower(fs2), label)
 	if quick {
 		fmtCmd += " quick"
 	}
 	fmtCmd += " override"
-	cmds = append(cmds, fmtCmd)
+
+	cmds := []string{
+		fmt.Sprintf("select volume=%s", strings.ToLower(volLetter)),
+		fmtCmd,
+	}
 
 	out, err := RunDiskpart(cmds)
 	if err != nil {

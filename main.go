@@ -638,7 +638,14 @@ func FixUEFI(osRoot, sysHint, locale string) error {
 		"/s", sysRoot,
 		"/f", "UEFI",
 	}
-	out, err := runCmd("bcdboot.exe", nil, args...)
+	bcdpath := "bcdboot.exe"
+	if systemArch() == "32" {
+		bcdpath = "C:\\Windows\\System32\\bcdboot.exe"
+	} else {
+		bcdpath = "C:\\Windows\\System32\\diskpart.exe"
+	}
+
+	out, err := runCmd(bcdpath, nil, args...)
 	if err != nil {
 		fmt.Println("[FixUEFI] bcdboot failed")
 		fmt.Println(out)
@@ -686,7 +693,14 @@ func FixBIOS(osRoot, sysHint, locale string) error {
 		"/s", sysRoot,
 		"/f", "BIOS",
 	}
-	out, err := runCmd("bcdboot.exe", nil, args...)
+	bcdpath := "bcdboot.exe"
+	if systemArch() == "32" {
+		bcdpath = "C:\\Windows\\System32\\bcdboot.exe"
+	} else {
+		bcdpath = "C:\\Windows\\System32\\diskpart.exe"
+	}
+
+	out, err := runCmd(bcdpath, nil, args...)
 	if err != nil {
 		fmt.Println("[FixBIOS] bcdboot failed")
 		fmt.Println(out)
