@@ -1,0 +1,1 @@
+copy /b 7zsd_All_x64.sfx + config.txt + payload.7z xx.exe
