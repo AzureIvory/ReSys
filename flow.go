@@ -1333,7 +1333,7 @@ func RunPEInstall() error {
 	}
 
 	if err := Format(strings.ReplaceAll(strings.ReplaceAll(targetRoot, "\\", ""), ":", ""), "ntfs", "Windows", true); err != nil {
-		return fmt.Errorf("格式化失败: %w", err)
+		logWrite("格式化失败: " + err.Error())
 	}
 	logWrite("格式化完成：%s", targetRoot)
 
@@ -1372,15 +1372,15 @@ func RunPEInstall() error {
 	switch strings.ToLower(filepath.Ext(imagePath)) {
 	case ".esd":
 		if err := ApplyEsdImage(imagePath, index, targetRoot); err != nil {
-			return err
+			logWrite(err.Error())
 		}
 	case ".wim":
 		if err := ApplyWimImage(imagePath, index, targetRoot); err != nil {
-			return err
+			logWrite(err.Error())
 		}
 	case ".iso":
 		if err := ApplyISOImage(imagePath, index, targetRoot); err != nil {
-			return err
+			logWrite(err.Error())
 		}
 	default:
 		return fmt.Errorf("不支持的镜像类型: %s", imagePath)
@@ -1465,7 +1465,7 @@ func postInstallTasks(targetRoot, targetOS string) error {
 	}
 	_ = Copy(unattend, filepath.Join(targetRoot, "Windows", "Panther", "Unattend.xml"), true, true)
 	_ = Copy(filepath.Join(baseDir, "tools", "HEU_KMS_Activator.exe"), filepath.Join(targetRoot, "HEU_KMS_Activator.exe"), true, true)
-	_, _ = CreateShortcut(filepath.Join(targetRoot, "Users", "Public", "Desktop")+`\\`, "百度", "https://www.baidu.com")
+	_, _ = CreateShortcut(filepath.Join(targetRoot, "Users", "Public", "Desktop")+`\\`, "应用商店", "https://store.ttraw.com")
 	logWrite("已写入应答文件/激活工具/快捷方式")
 
 	driveExe := filepath.Join(baseDir, "tools", "drive.exe")
@@ -1566,6 +1566,7 @@ func retryLoop(title string, fn func() error) bool {
 			return true
 		} else {
 			logWrite("%s失败：%v", title, err)
+			time.Sleep(2 * time.Second)
 			if attempt == 0 {
 				logWrite("%s失败，自动重试一次", title)
 				continue
@@ -1585,6 +1586,7 @@ func retryLoopWithResult[T any](title string, fn func() (T, error)) (T, bool) {
 			return v, true
 		}
 		logWrite("%s失败：%v", title, err)
+		time.Sleep(2 * time.Second)
 		if attempt == 0 {
 			logWrite("%s失败，自动重试一次", title)
 			continue

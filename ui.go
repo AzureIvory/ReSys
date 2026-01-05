@@ -68,6 +68,7 @@ var (
 	procSetWindowPos            = user32.NewProc("SetWindowPos")
 	procSetWindowTextW          = user32.NewProc("SetWindowTextW")
 	procMessageBoxW             = user32.NewProc("MessageBoxW")
+	procMessageBoxTimeoutW      = user32.NewProc("MessageBoxTimeoutW")
 
 	procCreateSolidBrush    = gdi32.NewProc("CreateSolidBrush")
 	procDeleteObject        = gdi32.NewProc("DeleteObject")
@@ -458,6 +459,21 @@ func Message(title, text string) bool {
 	if ui.hwnd == 0 {
 		return false
 	}
+
+	// 优先尝试 MessageBoxTimeoutW（10秒）
+	if err := procMessageBoxTimeoutW.Find(); err == nil {
+		ret, _, _ := procMessageBoxTimeoutW.Call(
+			uintptr(ui.hwnd),
+			uintptr(unsafe.Pointer(mustUTF16(text))),
+			uintptr(unsafe.Pointer(mustUTF16(title))),
+			MB_OKCANCEL,
+			0,      // wLanguageId
+			10_000, // dwMilliseconds
+		)
+		return ret == IDOK // 超时/Cancel 都会返回 false
+	}
+
+	// 回退到普通 MessageBoxW
 	ret, _, _ := procMessageBoxW.Call(
 		uintptr(ui.hwnd),
 		uintptr(unsafe.Pointer(mustUTF16(text))),

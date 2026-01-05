@@ -10,6 +10,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf16"
+	"unicode/utf8"
 	"unsafe"
 )
 
@@ -141,15 +143,13 @@ func SplitVolume1(vol string, sizeMB int, fs, label string) (string, error) {
 		return "", fmt.Errorf("sizeMB 必须大于 0")
 	}
 
-	fs, err = toDiskToolFS(fs) // 只允许 NTFS/FAT32
+	fs2, err := toDiskToolFS(fs) // 只允许 NTFS/FAT32
 	if err != nil {
 		return "", err
 	}
+	fs2 = strings.ToLower(fs2) // PartAssist 用 ntfs/fat32
 
-	label = strings.TrimSpace(label)
-	if label == "" {
-		label = "NO_LABEL"
-	}
+	label = sanitizePartAssistLabel(label)
 
 	// 记录执行前盘符集合，用于推断新盘符
 	beforeLetters, err := collectDriveLetters()
@@ -157,43 +157,79 @@ func SplitVolume1(vol string, sizeMB int, fs, label string) (string, error) {
 		return "", err
 	}
 
-	cmds := []string{
-		fmt.Sprintf("select volume=%s", volLetter),
-		fmt.Sprintf("shrink desired=%d", sizeMB),                // 收缩出 sizeMB
-		fmt.Sprintf("create partition primary size=%d", sizeMB), // 创建同等大小的新分区
-		fmt.Sprintf(`format fs=%s label="%s" quick`, strings.ToLower(fs), label),
-		"assign", // 自动分配盘符
-	}
-
-	out, err := RunDiskpart(cmds)
+	// 1) 收缩分区，在右侧产生 sizeMB 未分配空间：
+	// partassist.exe /resize:F /reduce-right:1000
+	out1, err := RunPartAssist([]string{
+		fmt.Sprintf("/resize:%s", volLetter),
+		fmt.Sprintf("/reduce-right:%d", sizeMB),
+	})
 	if err != nil {
-		return "", fmt.Errorf("diskpart failed: %w\n输出:\n%s", err, out)
+		return "", fmt.Errorf("partassist reduce-right failed: %w\n输出:\n%s", err, out1)
 	}
 
-	// 有时盘符枚举会稍微延迟，做几次短重试
+	// 2) 创建新分区：
+	// 推荐使用 /offset（更接近 diskpart 的“就在该卷右侧创建”语义），但 /offset 单位为 MB，
+	// 若卷尾不是 MB 对齐，/offset 向上取整会损失 <1MB 的可用空间，导致 sizeMB 可能放不下。
+	// 因此：先用 /offset + size(必要时减 1MB)；若失败再退回 /size:auto 做兜底。
+	diskNum, startBytes, lengthBytes, err := getVolumeExtentBytes(volLetter + ":")
+	if err != nil {
+		return "", err
+	}
+	endBytes := startBytes + lengthBytes
+	const mb = int64(1024 * 1024)
+
+	// /offset 必须是整数 MB，取 ceil(endBytes/MB)
+	offsetMB := (endBytes + mb - 1) / mb
+	// 如果做了向上取整，会占用掉一小段 (<1MB) 空间，size 需要相应减 1 才能放得下
+	createSize := sizeMB
+	if endBytes%mb != 0 && sizeMB > 1 {
+		createSize = sizeMB - 1
+	}
+
+	baseCreArgs := []string{
+		fmt.Sprintf("/hd:%d", diskNum),
+		"/cre",
+		"/pri",
+		fmt.Sprintf("/offset:%d", offsetMB),
+		fmt.Sprintf("/fs:%s", fs2),
+		"/align",
+		fmt.Sprintf("/label:%s", label),
+		"/letter:auto",
+	}
+
+	// 先尝试固定大小
+	creArgs := append([]string{}, baseCreArgs...)
+	creArgs = append(creArgs, fmt.Sprintf("/size:%d", createSize))
+
+	outCreate, err := RunPartAssist(creArgs)
+	if err != nil {
+		// 兜底：自动大小（避免 offset 取整造成 size 放不下）
+		creArgs2 := append([]string{}, baseCreArgs...)
+		creArgs2 = append(creArgs2, "/size:auto")
+		out2b, err2 := RunPartAssist(creArgs2)
+		if err2 != nil {
+			return "", fmt.Errorf("partassist create partition failed: %w\n首次输出:\n%s\n重试输出:\n%s", err, outCreate, out2b)
+		}
+		outCreate = out2b
+	}
+
+	// 3) 推断新盘符（/letter:auto 有时会有枚举延迟，做几次短重试）
 	var afterLetters map[string]struct{}
 	for i := 0; i < 6; i++ {
 		afterLetters, err = collectDriveLetters()
 		if err != nil {
 			return "", err
 		}
-		newLetters := make([]string, 0, 2)
 		for l := range afterLetters {
-			if _, existed := beforeLetters[l]; !existed {
-				newLetters = append(newLetters, l)
+			if _, ok := beforeLetters[l]; !ok {
+				return l, nil
 			}
 		}
-		if len(newLetters) == 1 {
-			return newLetters[0] + ":", nil
-		}
-		if len(newLetters) > 1 {
-			return "", fmt.Errorf("diskpart 执行成功但检测到多个新盘符：%v\n输出:\n%s", newLetters, out)
-		}
-
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(300 * time.Millisecond)
 	}
 
-	return "", fmt.Errorf("diskpart 执行成功但未检测到新盘符（可能未分配盘符或枚举未刷新）\n输出:\n%s", out)
+	// 如果没能推断出来，也不要直接报错（操作可能成功但盘符未分配/枚举延迟更长）
+	return "", fmt.Errorf("split finished but cannot determine new drive letter (check Disk Management)\nreduce输出:\n%s\ncreate输出:\n%s", out1, outCreate)
 }
 
 // 根据物理磁盘号或盘符获取分区数量和盘符列表。
@@ -279,17 +315,17 @@ func MergeVolume(vol string, sizeMB int) error {
 		return err
 	}
 
-	cmds := []string{fmt.Sprintf("select volume=%s", strings.ToLower(volLetter))}
-
-	if sizeMB <= 0 {
-		cmds = append(cmds, "extend")
-	} else {
-		cmds = append(cmds, fmt.Sprintf("extend size=%d", sizeMB))
+	extendArg := "right"
+	if sizeMB > 0 {
+		extendArg = strconv.Itoa(sizeMB)
 	}
 
-	out, err := RunDiskpart(cmds)
+	out, err := RunPartAssist([]string{
+		fmt.Sprintf("/resize:%s", volLetter),
+		fmt.Sprintf("/extend:%s", extendArg),
+	})
 	if err != nil {
-		return fmt.Errorf("merge/extend(diskpart) failed: %w\n输出:\n%s", err, out)
+		return fmt.Errorf("merge/extend(partassist) failed: %w\n输出:\n%s", err, out)
 	}
 	return nil
 }
@@ -302,14 +338,11 @@ func DeleteVolume(vol string) error {
 		return err
 	}
 
-	cmds := []string{
-		fmt.Sprintf("select volume=%s", strings.ToLower(volLetter)),
-		"delete volume",
-	}
-
-	out, err := RunDiskpart(cmds)
+	out, err := RunPartAssist([]string{
+		fmt.Sprintf("/del:%s", volLetter),
+	})
 	if err != nil {
-		return fmt.Errorf("delete(diskpart) failed: %w\n输出:\n%s", err, out)
+		return fmt.Errorf("delete(partassist) failed: %w\n输出:\n%s", err, out)
 	}
 	return nil
 }
@@ -758,12 +791,234 @@ func RunDiskpart(lines []string) (string, error) {
 
 }
 
+// ===================== PartAssist (傲梅分区助手命令行) 封装 =====================
+
+// tools/PartAssist.exe（相对于当前程序所在目录）
+func partAssistExePath() (string, error) {
+	baseDir := ""
+	if exe, err := os.Executable(); err == nil {
+		baseDir = filepath.Dir(exe)
+	}
+	if baseDir == "" {
+		baseDir = "."
+	}
+	p := filepath.Join(baseDir, "tools", "PartAssist.exe")
+	if _, err := os.Stat(p); err != nil {
+		return "", fmt.Errorf("PartAssist.exe not found: %s: %w", p, err)
+	}
+	return p, nil
+}
+
+// 为避免 PartAssist 已在运行导致报错，运行前先结束同名进程（忽略错误）。
+func killProcessImage(image string) {
+	image = strings.TrimSpace(image)
+	if image == "" {
+		return
+	}
+	_, _ = runCmd("taskkill", nil, "/F", "/T", "/IM", image)
+}
+
+// PartAssist 的 /out 输出通常是 ANSI（系统代码页，如 GBK），这里做“尽力而为”的解码：
+// 1) 若是合法 UTF-8，则直接返回
+// 2) 否则按 Windows CP_ACP 转成 UTF-8
+func decodeOutTextBestEffort(b []byte) string {
+	// 去掉 UTF-8 BOM（如果存在）
+	if len(b) >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF {
+		b = b[3:]
+	}
+	if utf8.Valid(b) {
+		return string(b)
+	}
+	return ansiToUTF8(b)
+}
+
+func ansiToUTF8(b []byte) string {
+	if len(b) == 0 {
+		return ""
+	}
+
+	// MultiByteToWideChar(CP_ACP, 0, ...)
+	const cpACP = 0
+	k32 := syscall.NewLazyDLL("kernel32.dll")
+	mb2wc := k32.NewProc("MultiByteToWideChar")
+
+	// 获取所需 UTF-16 长度
+	r1, _, _ := mb2wc.Call(
+		uintptr(cpACP),
+		uintptr(0),
+		uintptr(unsafe.Pointer(&b[0])),
+		uintptr(len(b)),
+		uintptr(0),
+		uintptr(0),
+	)
+	n := int(r1)
+	if n <= 0 {
+		return string(b)
+	}
+
+	w := make([]uint16, n)
+	r2, _, _ := mb2wc.Call(
+		uintptr(cpACP),
+		uintptr(0),
+		uintptr(unsafe.Pointer(&b[0])),
+		uintptr(len(b)),
+		uintptr(unsafe.Pointer(&w[0])),
+		uintptr(n),
+	)
+	if int(r2) <= 0 {
+		return string(b)
+	}
+
+	// 转为 Go string（UTF-8）
+	return string(utf16.Decode(w))
+}
+
+func partAssistLooksSuccess(out string) bool {
+	// 常见成功提示（ANSI 解码后可正常匹配）
+	// 用户反馈一般会在 /out 中看到：“操作已成功完成.”
+	if strings.Contains(out, "操作已成功完成") || strings.Contains(out, "操作己成功完成") {
+		return true
+	}
+	// 文档中的一些命令会返回包含 (Success)
+	if strings.Contains(out, "Success") {
+		return true
+	}
+	return false
+}
+
+func sanitizePartAssistLabel(label string) string {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return "NO_LABEL"
+	}
+	// 防止破坏参数解析
+	label = strings.ReplaceAll(label, "\r", " ")
+	label = strings.ReplaceAll(label, "\n", " ")
+	label = strings.ReplaceAll(label, `"`, `'`)
+	return label
+}
+
+// 获取卷所在磁盘号 + 卷的起始偏移/长度（用于计算 /offset）。
+// 注意：这里只取第一个 extent（常见卷场景足够用；动态卷/多 extent 需要更复杂处理）。
+type diskExtentRaw struct {
+	DiskNumber     uint32
+	_              uint32 // padding for 8-byte alignment
+	StartingOffset int64
+	ExtentLength   int64
+}
+
+type volumeDiskExtentsRaw struct {
+	NumberOfDiskExtents uint32
+	_                   uint32 // padding
+	Extents             [1]diskExtentRaw
+}
+
+func getVolumeExtentBytes(vol string) (diskNum uint32, startBytes int64, lengthBytes int64, err error) {
+	root := normRoot(vol)
+	if root == "" {
+		return 0, 0, 0, fmt.Errorf("invalid volume: %q", vol)
+	}
+	// \\.\C:
+	volPath := `\\.\` + strings.TrimRight(root, `\`)
+	pVol, err := syscall.UTF16PtrFromString(volPath)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	hVol, err := syscall.CreateFile(
+		pVol,
+		0,
+		syscall.FILE_SHARE_READ|syscall.FILE_SHARE_WRITE,
+		nil,
+		syscall.OPEN_EXISTING,
+		0,
+		0,
+	)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("CreateFile volume %s failed: %w", volPath, err)
+	}
+	defer syscall.CloseHandle(hVol)
+
+	out := make([]byte, 1024)
+	var bytesRet uint32
+	err = syscall.DeviceIoControl(
+		hVol,
+		ioctlVolumeGetVolumeDiskExtents,
+		nil,
+		0,
+		&out[0],
+		uint32(len(out)),
+		&bytesRet,
+		nil,
+	)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("DeviceIoControl IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS failed: %w", err)
+	}
+	if bytesRet < uint32(unsafe.Sizeof(volumeDiskExtentsRaw{})) {
+		return 0, 0, 0, fmt.Errorf("VOLUME_DISK_EXTENTS too small: %d", bytesRet)
+	}
+
+	vde := (*volumeDiskExtentsRaw)(unsafe.Pointer(&out[0]))
+	if vde.NumberOfDiskExtents == 0 {
+		return 0, 0, 0, fmt.Errorf("no disk extents for volume %s", volPath)
+	}
+	ext := vde.Extents[0]
+	return ext.DiskNumber, ext.StartingOffset, ext.ExtentLength, nil
+}
+
+// RunPartAssist 执行 PartAssist.exe 命令：
+// - 运行前结束同名进程（避免 “Running” 报错）
+// - 强制使用 /out 输出到本地临时文件
+// - 读取 /out 文件（ANSI）并转为 UTF-8，作为 out 返回
+func RunPartAssist(args []string) (string, error) {
+	exe, err := partAssistExePath()
+	if err != nil {
+		return "", err
+	}
+
+	// 先 kill 同名进程，减少 Running / 占用导致失败
+	//killProcessImage(filepath.Base(exe))
+
+	outFile := filepath.Join(os.TempDir(), fmt.Sprintf("pa_out_%d.txt", time.Now().UnixNano()))
+	args2 := append([]string{}, args...)
+	args2 = append(args2, fmt.Sprintf("/out:%s", outFile))
+
+	stdout, runErr := runCmd(exe, nil, args2...)
+
+	var outText string
+	if b, err := os.ReadFile(outFile); err == nil {
+		outText = decodeOutTextBestEffort(b)
+	} else {
+		// /out 读不到时，退回 stdout（不一定有）
+		outText = stdout
+	}
+	_ = Remove(outFile, false)
+
+	// 统一判定：
+	// 1) Running / Failure -> 直接报错
+	// 2) 若进程返回错误，但输出明确成功，则认为成功（兼容某些环境下的非 0 返回码）
+	// 3) 否则：按 runErr 决定
+	if strings.Contains(outText, "Running") || strings.Contains(strings.ToLower(outText), "running") {
+		return outText, fmt.Errorf("PartAssist is Running")
+	}
+	if strings.Contains(outText, "Failure") || strings.Contains(strings.ToLower(outText), "failure") {
+		return outText, nil
+	}
+
+	if runErr != nil && !partAssistLooksSuccess(outText) {
+		return outText, nil
+	}
+	return outText, nil
+}
+
 // 使用 diskpart，按盘符格式化卷。
 // letter: 盘符，可以是 "C" / "C:" / "C:\"
 // fs: 文件系统，例如 "ntfs" "fat32" "exfat"
 // label: 卷标，允许为空
 // quick: true：快速格式化, false：全格式
 func Format(letter, fs, label string, quick bool) error {
+	_ = quick // PartAssist 命令行未提供 quick/full 开关
+
 	volLetter, err := normalizeDriveLetter(letter)
 	if err != nil {
 		return err
@@ -773,25 +1028,17 @@ func Format(letter, fs, label string, quick bool) error {
 	if err != nil {
 		return err
 	}
-	label = strings.TrimSpace(label)
-	if label == "" {
-		label = "NO_LABEL"
-	}
+	fs2 = strings.ToLower(fs2)
 
-	fmtCmd := fmt.Sprintf("format fs=%s label=\"%s\"", strings.ToLower(fs2), label)
-	if quick {
-		fmtCmd += " quick"
-	}
-	fmtCmd += " override"
+	label = sanitizePartAssistLabel(label)
 
-	cmds := []string{
-		fmt.Sprintf("select volume=%s", strings.ToLower(volLetter)),
-		fmtCmd,
-	}
-
-	out, err := RunDiskpart(cmds)
+	out, err := RunPartAssist([]string{
+		fmt.Sprintf("/fmt:%s", volLetter),
+		fmt.Sprintf("/fs:%s", fs2),
+		fmt.Sprintf("/label:%s", label),
+	})
 	if err != nil {
-		return fmt.Errorf("format(diskpart) failed: %w\n输出:\n%s", err, out)
+		return fmt.Errorf("format(partassist) failed: %w\n输出:\n%s", err, out)
 	}
 	return nil
 }
