@@ -1,2 +1,0 @@
-#define IDR_PAYLOAD 101
-#define IDI_APPICON 1
