@@ -1,3 +1,7 @@
+暂时未完成
+
+xp系列号：MRX3F-47B9T-2487J-KWKMF-RPWBY
+
 set GOOS=windows
 
 set GOARCH=386
