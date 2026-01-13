@@ -15,6 +15,7 @@ import (
 	"unsafe"
 )
 
+// 初始化PartAssist
 func initPartAssist() error {
 	baseDir := ""
 	if exe, err := os.Executable(); err == nil {
@@ -22,8 +23,18 @@ func initPartAssist() error {
 	}
 	if systemArch() == "64" {
 		p := filepath.Join(baseDir, "tools", "PartAssist64patch.exe")
-		_, err := os.Stat(p)
-		return fmt.Errorf("PartAssist64patch.exe not found: %s: %w", p, err)
+		if dirExists(p) != false {
+			_, err := os.Stat(p)
+			if err != nil {
+				_, err := runCmd(p, nil)
+				if err != nil {
+					return fmt.Errorf("PartAssist64patch.exe err: %s: %w", p, err)
+				}
+			}
+		} else {
+			return fmt.Errorf("PartAssist64patch.exe not found: %s", p)
+		}
+
 	}
 	return nil
 
@@ -1057,43 +1068,37 @@ func Format(letter, fs, label string, quick bool) error {
 	return nil
 }
 
-// FormatPartition 使用 diskpart 格式化指定磁盘上的指定分区。
-// diskIdx: diskpart里的磁盘编号（list disk）
-// partIdx: 该磁盘上的分区编号（list partition）
-// fs/label/quick
-func FormatPartition(diskIdx, partIdx int, fs, label string, quick bool) error {
+// FormatPartition 使用 PartAssist 格式化指定磁盘上的指定分区。
+// 注意：PartAssist 命令行未提供 diskpart 的 quick/full 与 override；这里会忽略 quick。
+// fs 仅支持 fat16/fat32/ntfs（你现有 toDiskToolFS 里限制 NTFS/FAT32 也可以继续保持）。
+func FormatPartition(diskIdx, partIdx int, fs, label string) error {
 	if diskIdx < 0 {
 		return fmt.Errorf("invalid disk index: %d", diskIdx)
 	}
-	if partIdx <= 0 {
+	if partIdx < 0 {
 		return fmt.Errorf("invalid partition index: %d", partIdx)
 	}
+
 	if fs == "" {
 		fs = "ntfs"
 	}
-	fs = strings.ToLower(fs)
 
-	cmds := []string{
-		fmt.Sprintf("select disk %d", diskIdx),
-		fmt.Sprintf("select partition %d", partIdx),
-	}
-
-	// 加 OVERRIDE
-	fmtCmd := fmt.Sprintf("format fs=%s", fs)
-	if label != "" {
-		fmtCmd += fmt.Sprintf(" label=\"%s\"", label)
-	}
-	if quick {
-		fmtCmd += " quick"
-	}
-	fmtCmd += " override" // *** 关键：强制格式化 ***
-
-	cmds = append(cmds, fmtCmd)
-
-	out, err := RunDiskpart(cmds)
-	fmt.Println("[FormatPartition] diskpart output:\n", out)
+	fs2, err := toDiskToolFS(fs)
 	if err != nil {
 		return err
+	}
+	fs2 = strings.ToLower(fs2)
+
+	label = sanitizePartAssistLabel(label)
+
+	out, err := RunPartAssist([]string{
+		fmt.Sprintf("/hd:%d", diskIdx),
+		fmt.Sprintf("/fmt:%d", partIdx),
+		fmt.Sprintf("/fs:%s", fs2),
+		fmt.Sprintf("/label:%s", label),
+	})
+	if err != nil {
+		return fmt.Errorf("format(partassist) failed: %w\n输出:\n%s", err, out)
 	}
 	return nil
 }
