@@ -99,6 +99,10 @@ var (
 	procGetModuleHandleExW = modKernel32.NewProc("GetModuleHandleExW")
 
 	procSystemParametersInfoW = user32.NewProc("SystemParametersInfoW")
+
+	shcore                            = windows.NewLazySystemDLL("shcore.dll")          //设置显示 Dpi
+	procSetProcessDpiAwarenessContext = user32.NewProc("SetProcessDpiAwarenessContext") // Win10 1607+
+	procSetProcessDpiAwareness        = shcore.NewProc("SetProcessDpiAwareness")        // Win8.1+
 )
 
 const (
@@ -164,22 +168,28 @@ const (
 	GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS       = 0x00000004
 )
 
-const (
-	ColorBgDark   = 0x00FFFFFF // 主背景
-	ColorTitleBar = 0x00228B22 // 标题栏
-	ColorText     = 0x00000000 // 主要文字
-	ColorTextHint = 0x00000000 // 提示文字
+// 辅助函数：Win32 COLORREF 是 0x00BBGGRR，和通常的 RGB 相反
+func RGB(r, g, b byte) uintptr {
+	return uintptr(r) | (uintptr(g) << 8) | (uintptr(b) << 16)
+}
 
-	// 按钮颜色
-	ColorBtnNormal = 0x00F7F7F7 // 按钮背景
-	ColorBtnHover  = 0x00E0F0E0 // 悬停背景
-	ColorBtnDown   = 0x00D0E0D0 // 按下背景
-	ColorBtnBorder = 0x00CCCCCC // 默认边框
-	ColorHighlight = 0x003CB371 // 高亮色
+var (
+	// 现代简约浅色主题（干净、留白、低对比）
+	ColorBgDark   = RGB(255, 255, 255) // 整体背景（雾白/浅灰）
+	ColorTitleBar = RGB(248, 249, 251) // 标题栏与背景一致（融为一体）
+	ColorText     = RGB(16, 16, 16)    // 主文字（深灰，非纯黑更柔和）
+	ColorTextHint = RGB(16, 16, 16)    // 提示文字（中灰）
 
-	// 标题栏按钮颜色
-	ColorBtnCloseHover = 0xFFADFF2F // 关闭
-	ColorBtnMinHover   = 0x00D0E0D0 // 最小化
+	// 按钮
+	ColorBtnNormal = RGB(255, 255, 255) // 白按钮
+	ColorBtnHover  = RGB(242, 244, 247) // hover 轻微变灰
+	ColorBtnDown   = RGB(0, 120, 215)
+	ColorBtnBorder = RGB(200, 206, 214) // 边框更清晰一点
+	ColorHighlight = RGB(0, 120, 215)   // 高亮
+
+	// 标题栏按钮
+	ColorBtnCloseHover = RGB(232, 17, 35)
+	ColorBtnMinHover   = RGB(230, 233, 238) // 悬停更明显一点
 	ColorBtnDown1      = 0x003E3E3E
 
 	// 按钮尺寸
@@ -346,6 +356,21 @@ func initFontSmoothing() {
 		SPIF_UPDATEINIFILE|SPIF_SENDCHANGE,
 	)
 	gFontQuality = ANTIALIASED_QUALITY
+}
+
+// DPI
+func initDPI() {
+	// 尝试 Win10/11 的 Per-Monitor V2 (最清晰)
+	// DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4
+	r, _, _ := procSetProcessDpiAwarenessContext.Call(uintptr(uint32(0xFFFFFFFC)))
+	if r != 0 {
+		return
+	}
+	// 降级尝试 Win8.1
+	// PROCESS_PER_MONITOR_DPI_AWARE = 2
+	procSetProcessDpiAwareness.Call(2)
+	// 最后尝试老式 API
+	procSetProcessDPIAware.Call()
 }
 
 func getHInstance() windows.Handle {
@@ -694,16 +719,21 @@ func freeUTF16(p uintptr) {
 	}
 }
 
-func makeFont(height int32, weight int32, face string) windows.Handle {
+func makeFont(height int32, weight int32, _ string) windows.Handle {
+	faceName := "Microsoft YaHei UI"
+
 	var lf LOGFONTW
-	lf.Height = -height
+	lf.Height = -height // 负值代表字符高度，正值代表Cell高度
 	lf.Weight = weight
+	lf.CharSet = 1 // DEFAULT_CHARSET, 也可以用 134 (GB2312)
 
-	// 强制字体质量：ClearType 优先，否则灰阶抗锯齿
-	lf.Quality = gFontQuality
+	// 开启 ClearType (5 = CLEARTYPE_QUALITY)
+	lf.Quality = 5
 
-	f := windows.StringToUTF16(face)
+	// 设置字体名称
+	f := windows.StringToUTF16(faceName)
 	copy(lf.FaceName[:], f)
+
 	h, _, _ := procCreateFontIndirectW.Call(uintptr(unsafe.Pointer(&lf)))
 	return windows.Handle(h)
 }
@@ -775,72 +805,88 @@ func drawButton(hdc windows.Handle, b *Button, font windows.Handle) {
 		return
 	}
 
+	// 1. 确定颜色
 	bgColor := ColorBtnNormal
-	borderColor := ColorBtnBorder
+	textColor := ColorText
 
 	if !b.Enabled {
-		bgColor = 0x002A2A2A
-		borderColor = 0x00333333
+		bgColor = RGB(35, 35, 35)
+		textColor = RGB(100, 100, 100)
 	} else if b.Down {
 		bgColor = ColorBtnDown
-		borderColor = ColorHighlight
+		textColor = RGB(255, 255, 255) // 按下时文字纯白
 	} else if b.Hover {
 		bgColor = ColorBtnHover
-		borderColor = ColorHighlight
 	}
 
-	brush, _, _ := procCreateSolidBrush.Call(uintptr(bgColor))
-	pen, _, _ := procCreatePen.Call(PS_SOLID, 1, uintptr(borderColor))
-	if b.Hover && b.Enabled {
-		procDeleteObject.Call(pen)
-		pen, _, _ = procCreatePen.Call(PS_SOLID, 2, uintptr(borderColor))
-	}
+	// 2. 创建 GDI 对象
+	brush, _, _ := procCreateSolidBrush.Call(bgColor)
+	// 扁平化设计通常不需要明显的边框，或者边框颜色与背景一致
+	pen, _, _ := procCreatePen.Call(PS_SOLID, 1, bgColor)
 
 	oldBrush, _, _ := procSelectObject.Call(uintptr(hdc), brush)
 	oldPen, _, _ := procSelectObject.Call(uintptr(hdc), pen)
 
+	// 3. 绘制圆角矩形 (增加圆角半径，更圆润)
 	procRoundRect.Call(uintptr(hdc),
 		uintptr(b.R.X), uintptr(b.R.Y),
 		uintptr(b.R.X+b.R.W), uintptr(b.R.Y+b.R.H),
-		10, 10)
+		8, 8) // 圆角半径改为 8 或 12
 
+	// 清理画笔画刷
 	procSelectObject.Call(uintptr(hdc), oldBrush)
 	procSelectObject.Call(uintptr(hdc), oldPen)
 	procDeleteObject.Call(brush)
 	procDeleteObject.Call(pen)
 
+	// 4. 绘制图标 (如果存在)
+	//iconOffset := int32(0)
 	if b.Icon != 0 {
+		// 图标居中算法优化
 		ix := b.R.X + (b.R.W-48)/2
-		iy := b.R.Y + 16
+		iy := b.R.Y + (b.R.H-48)/2 - 10 // 稍微向上偏移，给文字留空间
+		if b.Text == "" {
+			iy = b.R.Y + (b.R.H-48)/2
+		} // 如果没文字，完全居中
+
 		if b.Down {
 			iy += 1
-		}
+			ix += 1
+		} // 按下时的微动效果
+
 		procDrawIconEx.Call(uintptr(hdc), uintptr(ix), uintptr(iy), uintptr(b.Icon), 48, 48, 0, 0, DI_NORMAL)
 	}
 
-	procSetBkMode.Call(uintptr(hdc), BKMODE_TRANSPARENT)
-	if b.Enabled {
-		procSetTextColor.Call(uintptr(hdc), uintptr(ColorText))
-	} else {
-		procSetTextColor.Call(uintptr(hdc), 0x00666666)
+	// 5. 绘制文字
+	if b.Text != "" {
+		procSetBkMode.Call(uintptr(hdc), BKMODE_TRANSPARENT)
+		procSetTextColor.Call(uintptr(hdc), textColor)
+
+		oldF, _, _ := procSelectObject.Call(uintptr(hdc), uintptr(font))
+
+		// 文字区域计算
+		rectText := RECT{b.R.X, b.R.Y, b.R.X + b.R.W, b.R.Y + b.R.H}
+		if b.Icon != 0 {
+			// 如果有图标，文字放在底部
+			rectText.Top = b.R.Y + b.R.H - 35
+		}
+
+		if b.Down {
+			rectText.Top += 1
+			rectText.Bottom += 1
+			rectText.Left += 1
+			rectText.Right += 1
+		}
+
+		procDrawTextW.Call(
+			uintptr(hdc),
+			uintptr(unsafe.Pointer(mustUTF16(b.Text))),
+			drawTextAutoLen,
+			uintptr(unsafe.Pointer(&rectText)),
+			uintptr(DT_CENTER|DT_VCENTER|DT_SINGLELINE),
+		)
+		procSelectObject.Call(uintptr(hdc), oldF)
 	}
-
-	oldF, _, _ := procSelectObject.Call(uintptr(hdc), uintptr(font))
-	defer procSelectObject.Call(uintptr(hdc), oldF)
-
-	rectText := RECT{b.R.X, b.R.Y + b.R.H - 40, b.R.X + b.R.W, b.R.Y + b.R.H - 5}
-	if b.Down {
-		rectText.Top += 1
-		rectText.Bottom += 1
-	}
-
-	procDrawTextW.Call(
-		uintptr(hdc),
-		uintptr(unsafe.Pointer(mustUTF16(b.Text))),
-		drawTextAutoLen,
-		uintptr(unsafe.Pointer(&rectText)),
-		uintptr(DT_CENTER|DT_VCENTER|DT_SINGLELINE),
-	)
 }
 
 func fillRect(hdc windows.Handle, rc *RECT, hbr windows.Handle) {
@@ -1018,7 +1064,7 @@ func paintProgress(hdc windows.Handle, w, h int32) {
 
 func layoutTitleBar(w, h int32) {
 	ui.btnClose = Button{
-		R:       Rect{X: w - TitleBtnW, Y: 0, W: TitleBtnW, H: 44},
+		R:       Rect{X: w - int32(TitleBtnW), Y: 0, W: int32(TitleBtnW), H: 44},
 		Text:    "✕",
 		Visible: true, Enabled: true,
 		OnClick: func() {
@@ -1027,7 +1073,7 @@ func layoutTitleBar(w, h int32) {
 	}
 
 	ui.btnMin = Button{
-		R:       Rect{X: w - TitleBtnW*2, Y: 0, W: TitleBtnW, H: 44},
+		R:       Rect{X: w - int32(TitleBtnW*2), Y: 0, W: int32(TitleBtnW), H: 44},
 		Text:    "─",
 		Visible: true, Enabled: true,
 		OnClick: func() {
@@ -1313,7 +1359,7 @@ var wndProc = windows.NewCallback(func(hwnd uintptr, msg uint32, wParam, lParam 
 
 func Uiinit() {
 	runtime.LockOSThread()
-
+	initDPI()
 	procSetProcessDPIAware.Call()
 	//先尝试开启 ClearType/字体平滑，并设置 gFontQuality
 	initFontSmoothing()
@@ -1329,8 +1375,8 @@ func Uiinit() {
 
 	ui.frames, _ = decodeGIFFrames(waitGIF)
 
-	ui.font16 = makeFont(16, 400, "SimSun") //宋体
-	ui.font20 = makeFont(20, 600, "SimSun") //宋体
+	ui.font16 = makeFont(0, 0, "Microsoft YaHei UI")
+	ui.font20 = makeFont(0, 0, "Microsoft YaHei UI")
 
 	cls := mustUTF16("ReSysCanvasWnd")
 	var wc WNDCLASSEX

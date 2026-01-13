@@ -15,6 +15,20 @@ import (
 	"unsafe"
 )
 
+func initPartAssist() error {
+	baseDir := ""
+	if exe, err := os.Executable(); err == nil {
+		baseDir = filepath.Dir(exe)
+	}
+	if systemArch() == "64" {
+		p := filepath.Join(baseDir, "tools", "PartAssist64patch.exe")
+		_, err := os.Stat(p)
+		return fmt.Errorf("PartAssist64patch.exe not found: %s: %w", p, err)
+	}
+	return nil
+
+}
+
 // diskpart: 列出卷并解析盘符->volume编号
 func diskpartFindVolumeNumberByLetter(letter string) (int, error) {
 	l, err := normalizeDriveLetter(letter)
