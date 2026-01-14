@@ -35,7 +35,7 @@ static HANDLE gLog = INVALID_HANDLE_VALUE;
 static wchar_t gLogPath[MAX_PATH] = L"";
 static CRITICAL_SECTION gLogCs;
 static int gLogInited = 0;
-
+int silent = 0;
 static void log_close(void);
 
 static void build_log_path_try_exedir(wchar_t* out, size_t cap) {
@@ -321,6 +321,7 @@ static void hide_own_console_if_any(void) {
     if (!h) return;
     DWORD pids[2] = {0};
     DWORD n = GetConsoleProcessList(pids, 2);
+    silent = (n <= 1);   // 双击启动通常 n==1；从 cmd 里跑通常 n==2
     logw(L"console: hwnd=%p processListCount=%lu", (void*)h, (unsigned long)n);
     if (n == 1) {
         ShowWindow(h, SW_HIDE);
@@ -415,7 +416,7 @@ static DWORD run_wait_ex(const wchar_t* app, wchar_t* cmd, const wchar_t* wdir, 
     sa.nLength = sizeof(sa);
     sa.bInheritHandle = TRUE;
 
-    DWORD flags = CREATE_NO_WINDOW;
+    DWORD flags = silent ? CREATE_NO_WINDOW : 0;
     BOOL inherit = FALSE;
 
     if (silent) {
@@ -435,6 +436,12 @@ static DWORD run_wait_ex(const wchar_t* app, wchar_t* cmd, const wchar_t* wdir, 
             logw(L"run_wait_ex: silent stdio redirect failed (inherit will be FALSE)");
             log_winerr(L"CreateFileW(NUL)");
         }
+    } else {
+        si.dwFlags |= STARTF_USESTDHANDLES;
+        si.hStdInput  = GetStdHandle(STD_INPUT_HANDLE);
+        si.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+        si.hStdError  = GetStdHandle(STD_ERROR_HANDLE);
+        inherit = TRUE;
     }
 
     if (!CreateProcessW(app, cmd, NULL, NULL, inherit, flags, NULL, wdir, &si, &pi)) {
@@ -1540,12 +1547,34 @@ static int real_main(int argc, wchar_t** argv) {
 
             logw(L"RunProgram[%d] final cmd=%s", i, final);
 
+            /* 如果 RunProgram 是单纯文件名/相对路径（不带参数），先解析到 run_wdir 下的绝对路径 */
+            if (!wcschr(final, L' ') && !wcschr(final, L'\t')) {
+                wchar_t exepath[MAX_PATH];
+                resolve_path_under(run_wdir, final, exepath, _countof(exepath));
+                if (!fexist(exepath)) {
+                    logw(L"FATAL: RunProgram[%d] not found: %s", i, exepath);
+                }else{
+                    swprintf_s(final, MAX_LINE, L"\"%s\"", exepath);
+                }
+            }
             wchar_t* cmdline = _wcsdup(final);
             if (!cmdline) { lastCode = 2; break; }
 
             logw(L"RunProgram[%d] cmdline=%s", i, cmdline);
 
-            DWORD rc = run_wait_ex(NULL, cmdline, run_wdir, 1);
+            wchar_t exepath[MAX_PATH];
+            resolve_path_under(run_wdir, cfg.RunProgram[i], exepath, _countof(exepath)); // 你已有/自己实现：run_wdir + 文件名 => 绝对路径
+
+            wchar_t full[MAX_LINE];
+            if (cfg.Forward >= 0 && cfg.Forward == i && tail && *tail)
+                swprintf_s(full, MAX_LINE, L"\"%s\" %s", exepath, tail);
+            else
+                swprintf_s(full, MAX_LINE, L"\"%s\"", exepath);
+
+            free(cmdline);
+            cmdline = _wcsdup(full);
+
+            DWORD rc = run_wait_ex(exepath, cmdline, run_wdir, silent);
             free(cmdline);
 
             if (rc == (DWORD)-1) { lastCode = 1; break; }
