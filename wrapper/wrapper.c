@@ -21,11 +21,203 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <wctype.h>
+#include <stdarg.h>
 
 #pragma comment(lib, "Shlwapi.lib")
 #pragma comment(lib, "Shell32.lib")
 #pragma comment(lib, "Ole32.lib")
 #pragma comment(lib, "User32.lib")
+
+// ===================== logging =====================
+// Log priority: exe_dir\\<exe>.log  ->  %TEMP%\\<exe>_<pid>.log
+// (UTF-16LE with BOM)
+static HANDLE gLog = INVALID_HANDLE_VALUE;
+static wchar_t gLogPath[MAX_PATH] = L"";
+static CRITICAL_SECTION gLogCs;
+static int gLogInited = 0;
+
+static void log_close(void);
+
+static void build_log_path_try_exedir(wchar_t* out, size_t cap) {
+    wchar_t self[MAX_PATH];
+    self[0] = 0;
+    GetModuleFileNameW(NULL, self, MAX_PATH);
+
+    wchar_t dir[MAX_PATH];
+    lstrcpynW(dir, self, _countof(dir));
+    PathRemoveFileSpecW(dir);
+
+    wchar_t base[MAX_PATH];
+    lstrcpynW(base, PathFindFileNameW(self), _countof(base));
+    PathRemoveExtensionW(base);
+
+    swprintf_s(out, cap, L"%s\\%s.log", dir, base);
+}
+
+static void build_log_path_temp(wchar_t* out, size_t cap) {
+    wchar_t self[MAX_PATH];
+    self[0] = 0;
+    GetModuleFileNameW(NULL, self, MAX_PATH);
+    wchar_t base[MAX_PATH];
+    lstrcpynW(base, PathFindFileNameW(self), _countof(base));
+    PathRemoveExtensionW(base);
+
+    wchar_t tmp[MAX_PATH];
+    DWORD n = GetTempPathW(_countof(tmp), tmp);
+    if (!n || n >= _countof(tmp)) lstrcpynW(tmp, L".", _countof(tmp));
+    // temp path usually ends with \\; keep it.
+    swprintf_s(out, cap, L"%s%s_%lu.log", tmp, base, (unsigned long)GetCurrentProcessId());
+}
+
+static void log_open(void) {
+    if (gLogInited) return;
+    InitializeCriticalSection(&gLogCs);
+    gLogInited = 1;
+
+    wchar_t path1[MAX_PATH];
+    wchar_t path2[MAX_PATH];
+    build_log_path_try_exedir(path1, _countof(path1));
+    build_log_path_temp(path2, _countof(path2));
+
+    HANDLE h = CreateFileW(path1,
+                           FILE_APPEND_DATA | GENERIC_READ,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                           NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) {
+        h = CreateFileW(path2,
+                        FILE_APPEND_DATA | GENERIC_READ,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                        NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (h != INVALID_HANDLE_VALUE) lstrcpynW(gLogPath, path2, _countof(gLogPath));
+    } else {
+        lstrcpynW(gLogPath, path1, _countof(gLogPath));
+    }
+
+    gLog = h;
+    if (gLog == INVALID_HANDLE_VALUE) return;
+
+    LARGE_INTEGER sz;
+    sz.QuadPart = 0;
+    if (GetFileSizeEx(gLog, &sz) && sz.QuadPart == 0) {
+        // UTF-16LE BOM
+        const WORD bom = 0xFEFF;
+        DWORD wr = 0;
+        WriteFile(gLog, &bom, sizeof(bom), &wr, NULL);
+    }
+}
+
+static void log_write_wstr(const wchar_t* s) {
+    if (!s) return;
+    if (gLog == INVALID_HANDLE_VALUE) return;
+    DWORD wr = 0;
+    size_t bytes = wcslen(s) * sizeof(wchar_t);
+    if (bytes > 0xFFFFFFFFu) bytes = 0xFFFFFFFFu;
+    WriteFile(gLog, s, (DWORD)bytes, &wr, NULL);
+}
+
+static void log_v(const wchar_t* fmt, va_list ap) {
+    if (!fmt) return;
+    log_open();
+    if (gLog == INVALID_HANDLE_VALUE) return;
+
+    EnterCriticalSection(&gLogCs);
+
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+
+    wchar_t head[256];
+    swprintf_s(head, _countof(head),
+               L"%04u-%02u-%02u %02u:%02u:%02u.%03u [pid=%lu tid=%lu] ",
+               (unsigned)st.wYear, (unsigned)st.wMonth, (unsigned)st.wDay,
+               (unsigned)st.wHour, (unsigned)st.wMinute, (unsigned)st.wSecond, (unsigned)st.wMilliseconds,
+               (unsigned long)GetCurrentProcessId(), (unsigned long)GetCurrentThreadId());
+    log_write_wstr(head);
+
+    wchar_t buf[4096];
+    buf[0] = 0;
+    StringCchVPrintfW(buf, _countof(buf), fmt, ap);
+    log_write_wstr(buf);
+    log_write_wstr(L"\r\n");
+
+    // Helpful when running under debugger.
+    OutputDebugStringW(head);
+    OutputDebugStringW(buf);
+    OutputDebugStringW(L"\r\n");
+
+    LeaveCriticalSection(&gLogCs);
+}
+
+static void logw(const wchar_t* fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    log_v(fmt, ap);
+    va_end(ap);
+}
+
+static void log_last_errorW(const wchar_t* where, DWORD err) {
+    wchar_t msg[1024];
+    msg[0] = 0;
+    FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                   NULL, err,
+                   MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                   msg, (DWORD)_countof(msg), NULL);
+    // strip CRLF
+    for (size_t i = 0; msg[i]; i++) {
+        if (msg[i] == L'\r' || msg[i] == L'\n') { msg[i] = 0; break; }
+    }
+    logw(L"ERROR at %s: GetLastError=%lu (%s)", where ? where : L"(null)", (unsigned long)err, msg);
+}
+
+static void log_winerr(const wchar_t* where) {
+    DWORD err = GetLastError();
+    log_last_errorW(where, err);
+}
+
+static void log_close(void) {
+    if (gLog != INVALID_HANDLE_VALUE) {
+        CloseHandle(gLog);
+        gLog = INVALID_HANDLE_VALUE;
+    }
+    if (gLogInited) {
+        DeleteCriticalSection(&gLogCs);
+        gLogInited = 0;
+    }
+}
+
+// ---------- crash handling (best-effort) ----------
+// Logs exception code/address + a simple stack backtrace (addresses).
+typedef USHORT (WINAPI *RtlCaptureStackBackTrace_t)(ULONG, ULONG, PVOID*, PULONG);
+static void log_stack_backtrace(void) {
+    HMODULE hk = GetModuleHandleW(L"kernel32.dll");
+    if (!hk) return;
+    RtlCaptureStackBackTrace_t p = (RtlCaptureStackBackTrace_t)GetProcAddress(hk, "RtlCaptureStackBackTrace");
+    if (!p) return;
+
+    PVOID frames[48];
+    USHORT n = p(0, (ULONG)_countof(frames), frames, NULL);
+    for (USHORT i = 0; i < n; i++) {
+        logw(L"  bt[%02u] %p", (unsigned)i, frames[i]);
+    }
+}
+
+static void log_exception(EXCEPTION_POINTERS* ep) {
+    if (!ep || !ep->ExceptionRecord) return;
+    DWORD code = ep->ExceptionRecord->ExceptionCode;
+    PVOID addr = ep->ExceptionRecord->ExceptionAddress;
+    logw(L"*** CRASH: exception=0x%08lX addr=%p flags=0x%08lX", (unsigned long)code, addr, (unsigned long)ep->ExceptionRecord->ExceptionFlags);
+    log_stack_backtrace();
+}
+
+static LONG WINAPI wrapper_unhandled_filter(EXCEPTION_POINTERS* ep) {
+    log_exception(ep);
+    logw(L"Log file: %s", gLogPath[0] ? gLogPath : L"(not created)");
+    log_close();
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
+static void install_crash_handlers(void) {
+    SetUnhandledExceptionFilter(wrapper_unhandled_filter);
+}
 
 // -------- LZMA SDK (7z decode) --------
 #include "7z/7z.h"
@@ -49,7 +241,11 @@ static const char* CFG_END   = ";!@InstallEnd@!";
 #define MAX_LINE  4096
 
 static void die(const wchar_t* msg) {
-    fwprintf(stderr, L"%s\n", msg);
+    DWORD err = GetLastError();
+    log_last_errorW(msg ? msg : L"(die)", err);
+    logw(L"FATAL: %s", msg ? msg : L"(null)");
+    if (gLogPath[0]) logw(L"Log file: %s", gLogPath);
+    fwprintf(stderr, L"%s (Error Code: %lu)\n", msg ? msg : L"(null)", (unsigned long)err);
     ExitProcess(2);
 }
 
@@ -64,14 +260,17 @@ static int dexist(const wchar_t* p) {
 }
 
 static void mk_dir_tree(const wchar_t* p) {
+    logw(L"mk_dir_tree: %s", p ? p : L"(null)");
     int rc = SHCreateDirectoryExW(NULL, p, NULL);
     if (rc == ERROR_SUCCESS || rc == ERROR_ALREADY_EXISTS) return;
+    SetLastError((DWORD)rc);
     die(L"mk_dir_tree fail");
 }
 
 static void mk_mark(const wchar_t* dir) {
     wchar_t path[MAX_PATH];
     StringCchPrintfW(path, MAX_PATH, L"%s\\%s", dir, MKRFILE);
+    logw(L"mk_mark: %s", path);
     HANDLE h = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (h == INVALID_HANDLE_VALUE) die(L"mk_mark fail");
     DWORD w = 0;
@@ -86,7 +285,12 @@ static int has_mark(const wchar_t* dir) {
 }
 
 static void rm_dir_best_effort(const wchar_t* dir) {
-    if (!has_mark(dir)) return;
+    if (!dir || !*dir) return;
+    if (!has_mark(dir)) {
+        logw(L"rm_dir_best_effort: skip (no marker) dir=%s", dir);
+        return;
+    }
+    logw(L"rm_dir_best_effort: deleting dir=%s", dir);
     wchar_t from[MAX_PATH + 2];
     StringCchCopyW(from, MAX_PATH + 1, dir);
     int n = lstrlenW(from);
@@ -103,11 +307,13 @@ static void exe_dir(wchar_t* out, size_t cap) {
     if (!GetModuleFileNameW(NULL, out, (DWORD)cap)) die(L"exe_dir fail");
     out[cap - 1] = 0;
     PathRemoveFileSpecW(out);
+    logw(L"exe_dir: %s", out);
 }
 
 static void exe_path(wchar_t* out, size_t cap) {
     if (!GetModuleFileNameW(NULL, out, (DWORD)cap)) die(L"exe_path fail");
     out[cap - 1] = 0;
+    logw(L"exe_path: %s", out);
 }
 
 static void hide_own_console_if_any(void) {
@@ -115,7 +321,11 @@ static void hide_own_console_if_any(void) {
     if (!h) return;
     DWORD pids[2] = {0};
     DWORD n = GetConsoleProcessList(pids, 2);
-    if (n == 1) ShowWindow(h, SW_HIDE);
+    logw(L"console: hwnd=%p processListCount=%lu", (void*)h, (unsigned long)n);
+    if (n == 1) {
+        ShowWindow(h, SW_HIDE);
+        logw(L"console: hidden");
+    }
 }
 
 // -------- CRC32 --------
@@ -194,6 +404,8 @@ static int has_exok(const wchar_t* dir) {
 
 // -------- run process --------
 static DWORD run_wait_ex(const wchar_t* app, wchar_t* cmd, const wchar_t* wdir, int silent) {
+    logw(L"run_wait_ex: app=%s | cmd=%s | wdir=%s | silent=%d",
+         app ? app : L"(null)", cmd ? cmd : L"(null)", wdir ? wdir : L"(null)", silent);
     STARTUPINFOW si = {0};
     si.cb = sizeof(si);
     PROCESS_INFORMATION pi = {0};
@@ -219,19 +431,26 @@ static DWORD run_wait_ex(const wchar_t* app, wchar_t* cmd, const wchar_t* wdir, 
             si.hStdOutput = hNullOut;
             si.hStdError  = hNullErr;
             inherit = TRUE;
+        } else {
+            logw(L"run_wait_ex: silent stdio redirect failed (inherit will be FALSE)");
+            log_winerr(L"CreateFileW(NUL)");
         }
     }
 
     if (!CreateProcessW(app, cmd, NULL, NULL, inherit, flags, NULL, wdir, &si, &pi)) {
+        log_winerr(L"CreateProcessW");
         if (hNullIn  && hNullIn  != INVALID_HANDLE_VALUE) CloseHandle(hNullIn);
         if (hNullOut && hNullOut != INVALID_HANDLE_VALUE) CloseHandle(hNullOut);
         if (hNullErr && hNullErr != INVALID_HANDLE_VALUE) CloseHandle(hNullErr);
         return (DWORD)-1;
     }
 
+    logw(L"run_wait_ex: started pid=%lu", (unsigned long)pi.dwProcessId);
+
     WaitForSingleObject(pi.hProcess, INFINITE);
     DWORD code = 1;
     GetExitCodeProcess(pi.hProcess, &code);
+    logw(L"run_wait_ex: exit code=%lu", (unsigned long)code);
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
 
@@ -292,6 +511,8 @@ static void spawn_cleanup_self(const wchar_t* exepath, const wchar_t* exedir,
     StringCchPrintfW(cmd, 4096, L"\"%s\" --cleanup \"%s\" \"%s\" %u",
                      exepath, outdir, token, (unsigned)delay_ms);
 
+    logw(L"spawn_cleanup_self: %s", cmd);
+
     STARTUPINFOW si = {0};
     si.cb = sizeof(si);
     PROCESS_INFORMATION pi = {0};
@@ -301,22 +522,36 @@ static void spawn_cleanup_self(const wchar_t* exepath, const wchar_t* exedir,
     if (!cmdline) return;
 
     if (CreateProcessW(exepath, cmdline, NULL, NULL, FALSE, flags, NULL, exedir, &si, &pi)) {
+        logw(L"cleanup child started pid=%lu", (unsigned long)pi.dwProcessId);
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
+    } else {
+        log_winerr(L"CreateProcessW(cleanup)");
     }
     free(cmdline);
 }
 
 static int cleanup_main(int argc, wchar_t** argv) {
-    if (argc < 5) return 0;
+    if (argc < 5) {
+        logw(L"cleanup_main: argc too small=%d", argc);
+        return 0;
+    }
     const wchar_t* dir   = argv[2];
     const wchar_t* token = argv[3];
     DWORD delay = (DWORD)wcstoul(argv[4], NULL, 10);
+
+    logw(L"cleanup_main: dir=%s token=%s delay_ms=%lu", dir ? dir : L"(null)", token ? token : L"(null)", (unsigned long)delay);
     Sleep(delay);
 
     wchar_t cur[64];
-    if (!read_cleanup_token(dir, cur, 64)) return 0;
-    if (lstrcmpW(cur, token) != 0) return 0;
+    if (!read_cleanup_token(dir, cur, 64)) {
+        logw(L"cleanup_main: missing token file");
+        return 0;
+    }
+    if (lstrcmpW(cur, token) != 0) {
+        logw(L"cleanup_main: token mismatch cur=%s", cur);
+        return 0;
+    }
 
     rm_dir_best_effort(dir);
     return 0;
@@ -333,6 +568,20 @@ static size_t find_bytes(const uint8_t* hay, size_t haylen, const char* needle, 
     return (size_t)-1;
 }
 
+//反方向找
+static size_t rfind_bytes(const uint8_t* hay, size_t haylen, const char* needle, size_t nlen) {
+    if (!hay || !needle || nlen == 0 || haylen < nlen) return (size_t)-1;
+    const uint8_t first = (uint8_t)needle[0];
+    size_t i = haylen - nlen;
+    for (;;) {
+        if (hay[i] == first && memcmp(hay + i, needle, nlen) == 0) return i;
+        if (i == 0) break;
+        i--;
+    }
+    return (size_t)-1;
+}
+
+
 typedef struct {
     const uint8_t* base;
     size_t size;
@@ -347,34 +596,71 @@ typedef struct {
 static int open_self_overlay(const wchar_t* selfpath, SELF_OVERLAY* ov) {
     ZeroMemory(ov, sizeof(*ov));
 
-    HANDLE hf = CreateFileW(selfpath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (hf == INVALID_HANDLE_VALUE) return 0;
+    logw(L"open_self_overlay: %s", selfpath ? selfpath : L"(null)");
+
+    HANDLE hf = CreateFileW(selfpath, GENERIC_READ,
+                            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                            NULL, OPEN_EXISTING,
+                            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, NULL);
+    if (hf == INVALID_HANDLE_VALUE) {
+        log_winerr(L"CreateFileW(self)");
+        return 0;
+    }
 
     LARGE_INTEGER li;
-    if (!GetFileSizeEx(hf, &li) || li.QuadPart <= 0) { CloseHandle(hf); return 0; }
-    if (li.QuadPart > (LONGLONG)(SIZE_T)-1) { CloseHandle(hf); return 0; }
+    if (!GetFileSizeEx(hf, &li) || li.QuadPart <= 0) {
+        DWORD e = GetLastError();
+        CloseHandle(hf);
+        SetLastError(e);
+        return 0;
+    }
+
+    logw(L"self size: %I64d bytes", li.QuadPart);
 
     HANDLE hm = CreateFileMappingW(hf, NULL, PAGE_READONLY, 0, 0, NULL);
-    if (!hm) { CloseHandle(hf); return 0; }
+    if (!hm) {
+        DWORD e = GetLastError();
+        CloseHandle(hf);
+        SetLastError(e);
+        return 0;
+    }
 
     void* view = MapViewOfFile(hm, FILE_MAP_READ, 0, 0, 0);
-    if (!view) { CloseHandle(hm); CloseHandle(hf); return 0; }
+    if (!view) {
+        DWORD e = GetLastError();
+        CloseHandle(hm);
+        CloseHandle(hf);
+        SetLastError(e);
+        return 0;
+    }
 
-    ov->base = (const uint8_t*)view;
-    ov->size = (size_t)li.QuadPart;
+    logw(L"mapped self image ok");
+
+    ov->base  = (const uint8_t*)view;
+    ov->size  = (size_t)li.QuadPart;
     ov->hFile = hf;
-    ov->hMap = hm;
+    ov->hMap  = hm;
 
-    size_t bpos = find_bytes(ov->base, ov->size, CFG_BEGIN, strlen(CFG_BEGIN));
-    if (bpos == (size_t)-1) return 1;
+    ov->cfg_off = ov->cfg_len = ov->pay_off = ov->pay_len = 0;
+
+    // 从文件尾部反向查找最后一段 config（避免命中 exe 内部常量字符串）
+    size_t epos = rfind_bytes(ov->base, ov->size, CFG_END, strlen(CFG_END));
+    if (epos == (size_t)-1) {
+        logw(L"CFG_END not found (will treat as no config/payload)");
+        return 1;
+    }
+
+    size_t bpos = rfind_bytes(ov->base, epos, CFG_BEGIN, strlen(CFG_BEGIN));
+    if (bpos == (size_t)-1) {
+        logw(L"CFG_BEGIN not found (will treat as no config/payload)");
+        return 1;
+    }
 
     size_t after_begin = bpos;
     while (after_begin < ov->size && ov->base[after_begin] != '\n') after_begin++;
     if (after_begin < ov->size && ov->base[after_begin] == '\n') after_begin++;
 
-    size_t epos = find_bytes(ov->base + after_begin, ov->size - after_begin, CFG_END, strlen(CFG_END));
-    if (epos == (size_t)-1) return 1;
-    epos += after_begin;
+    if (after_begin > epos) return 1;
 
     ov->cfg_off = after_begin;
     ov->cfg_len = (epos > after_begin) ? (epos - after_begin) : 0;
@@ -388,8 +674,11 @@ static int open_self_overlay(const wchar_t* selfpath, SELF_OVERLAY* ov) {
     ov->pay_off = pay;
     ov->pay_len = (pay <= ov->size) ? (ov->size - pay) : 0;
 
+    logw(L"overlay parsed: cfg_off=%Iu cfg_len=%Iu pay_off=%Iu pay_len=%Iu", (size_t)ov->cfg_off, (size_t)ov->cfg_len, (size_t)ov->pay_off, (size_t)ov->pay_len);
+
     return 1;
 }
+
 
 static void close_self_overlay(SELF_OVERLAY* ov) {
     if (ov->base) UnmapViewOfFile(ov->base);
@@ -946,6 +1235,7 @@ static void ensure_parent_dir(const wchar_t* filepath) {
 
 // cover: 0=覆盖；非0=跳过
 static int extract_7z_from_memory(const Byte* pay, size_t pay_len, const wchar_t* outdir, int cover) {
+    logw(L"extract_7z_from_memory: pay_len=%Iu outdir=%s cover=%d", (size_t)pay_len, outdir ? outdir : L"(null)", cover);
     // 7z header CRC 表
     CrcGenerateTable();
 
@@ -960,9 +1250,12 @@ static int extract_7z_from_memory(const Byte* pay, size_t pay_len, const wchar_t
 
     SRes res = SzArEx_Open(&db, &mem.vt, &allocImp, &allocTempImp);
     if (res != SZ_OK) {
+        logw(L"SzArEx_Open failed: res=%d", (int)res);
         SzArEx_Free(&db, &allocImp);
         return 0;
     }
+
+    logw(L"7z opened: NumFiles=%u", (unsigned)db.NumFiles);
 
     UInt32 blockIndex = 0xFFFFFFFF;
     Byte* outBuffer = NULL;
@@ -979,13 +1272,18 @@ static int extract_7z_from_memory(const Byte* pay, size_t pay_len, const wchar_t
         SzArEx_GetFileNameUtf16(&db, i, (UInt16*)name);
         name[nameLen] = 0;
 
+        // best-effort per-file trace (helpful for pinpointing crashes)
+        if (i < 32 || (i % 50) == 0) {
+            logw(L"extract item[%u]: %s (isDir=%d)", (unsigned)i, name, (int)db.IsDirs[i]);
+        }
+
         normalize_slashes(name);
         if (is_bad_extract_path(name)) { HeapFree(GetProcessHeap(), 0, name); continue; }
 
         wchar_t full[MAX_PATH];
         swprintf_s(full, MAX_PATH, L"%s\\%s", outdir, name);
 
-        if (db.IsDirs[i]) {
+        if (SzArEx_IsDir(&db, i)) {
             mk_dir_tree(full);
             HeapFree(GetProcessHeap(), 0, name);
             continue;
@@ -993,6 +1291,7 @@ static int extract_7z_from_memory(const Byte* pay, size_t pay_len, const wchar_t
 
         // cover!=0 且目标已存在 => 跳过（不解码该文件）
         if (cover != 0 && fexist(full)) {
+            if (i < 32 || (i % 50) == 0) logw(L"extract skip (exists & cover!=0): %s", full);
             HeapFree(GetProcessHeap(), 0, name);
             continue;
         }
@@ -1005,12 +1304,15 @@ static int extract_7z_from_memory(const Byte* pay, size_t pay_len, const wchar_t
                             &offset, &outSizeProcessed,
                             &allocImp, &allocTempImp);
         if (res != SZ_OK) {
+            logw(L"SzArEx_Extract failed: i=%u res=%d", (unsigned)i, (int)res);
             HeapFree(GetProcessHeap(), 0, name);
             break;
         }
 
         HANDLE h = CreateFileW(full, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
         if (h == INVALID_HANDLE_VALUE) {
+            log_winerr(L"CreateFileW(extracted file)");
+            logw(L"CreateFileW failed for: %s", full);
             HeapFree(GetProcessHeap(), 0, name);
             res = SZ_ERROR_FAIL;
             break;
@@ -1019,6 +1321,8 @@ static int extract_7z_from_memory(const Byte* pay, size_t pay_len, const wchar_t
         DWORD wr = 0;
         if (outSizeProcessed > 0) {
             if (!WriteFile(h, outBuffer + offset, (DWORD)outSizeProcessed, &wr, NULL) || wr != (DWORD)outSizeProcessed) {
+                log_winerr(L"WriteFile(extracted file)");
+                logw(L"WriteFile failed for: %s", full);
                 CloseHandle(h);
                 HeapFree(GetProcessHeap(), 0, name);
                 res = SZ_ERROR_FAIL;
@@ -1037,10 +1341,20 @@ static int extract_7z_from_memory(const Byte* pay, size_t pay_len, const wchar_t
 
 // ---------------- 主逻辑 ----------------
 static int real_main(int argc, wchar_t** argv) {
+    logw(L"==== wrapper start ====");
+    logw(L"cmdline: %s", GetCommandLineW());
+    logw(L"argc=%d", argc);
+    for (int i = 0; i < argc && i < 32; i++) {
+        logw(L"argv[%d]=%s", i, argv[i] ? argv[i] : L"(null)");
+    }
+
     hide_own_console_if_any();
 
     if (argc >= 2 && lstrcmpW(argv[1], L"--cleanup") == 0) {
-        return cleanup_main(argc, argv);
+        logw(L"mode: cleanup");
+        int rc = cleanup_main(argc, argv);
+        logw(L"cleanup done rc=%d", rc);
+        return rc;
     }
 
     wchar_t exedir[MAX_PATH];
@@ -1052,9 +1366,21 @@ static int real_main(int argc, wchar_t** argv) {
     SELF_OVERLAY ov;
     if (!open_self_overlay(selfpath, &ov)) die(L"open self fail");
 
-    CFG cfg;
+    static CFG cfg;                // 放到全局/静态区，不占用栈
+    ZeroMemory(&cfg, sizeof(cfg)); // 每次启动清空一次
     cfg_defaults(&cfg);
     if (ov.cfg_len > 0) cfg_parse_utf8_block(&cfg, ov.base + ov.cfg_off, ov.cfg_len);
+
+    logw(L"overlay info: cfg_len=%Iu pay_len=%Iu", (size_t)ov.cfg_len, (size_t)ov.pay_len);
+    logw(L"cfg: Title=\"%s\"", cfg.Title[0] ? cfg.Title : L"(empty)");
+    logw(L"cfg: Path=\"%s\" PathName=\"%s\"", cfg.Path, cfg.PathName);
+    logw(L"cfg: Directory=\"%s\"", cfg.Directory);
+    logw(L"cfg: ExecuteFile=\"%s\" ExecuteParameters=\"%s\"", cfg.ExecuteFile, cfg.ExecuteParameters);
+    logw(L"cfg: Forward=%d TimeOut=%d Cover=%d RunCount=%d LnkCount=%d MapCount=%d",
+         cfg.Forward, cfg.TimeOut, cfg.Cover, cfg.RunCount, cfg.LnkCount, cfg.MapCount);
+    for (int i = 0; i < cfg.RunCount && i < 16; i++) logw(L"cfg.RunProgram[%d]=%s", i, cfg.RunProgram[i]);
+    for (int i = 0; i < cfg.LnkCount && i < 16; i++) logw(L"cfg.LnkSpec[%d]=%s", i, cfg.LnkSpec[i]);
+    for (int i = 0; i < cfg.MapCount && i < 16; i++) logw(L"cfg.PlatformMap[%d]: %s => %s", i, cfg.MapKey[i], cfg.MapDir[i]);
 
     if (ov.pay_len == 0) {
         close_self_overlay(&ov);
@@ -1076,11 +1402,17 @@ static int real_main(int argc, wchar_t** argv) {
     wchar_t basepath[MAX_PATH];
     expand_path_vars(cfg.Path, located, working, basepath, MAX_PATH);
 
+    logw(L"path vars: located=%s", located);
+    logw(L"path vars: working=%s", working);
+    logw(L"path vars: basepath(expanded)=%s", basepath);
+
     size_t bl = wcslen(basepath);
     while (bl && (basepath[bl-1] == L'\\' || basepath[bl-1] == L'/')) { basepath[bl-1] = 0; bl--; }
 
     wchar_t outdir[MAX_PATH];
     swprintf_s(outdir, MAX_PATH, L"%s\\%s", basepath, cfg.PathName);
+
+    logw(L"outdir=%s", outdir);
 
     mk_dir_tree(outdir);
     mk_mark(outdir);
@@ -1090,6 +1422,7 @@ static int real_main(int argc, wchar_t** argv) {
     size_t pay_len = ov.pay_len;
     uint32_t cur_sz  = (uint32_t)((pay_len > 0xFFFFFFFFu) ? 0xFFFFFFFFu : pay_len);
     uint32_t cur_crc = crc32_calc(pay, pay_len);
+    logw(L"payload id: len=%Iu cur_sz=%u cur_crc=%08X", (size_t)pay_len, (unsigned)cur_sz, (unsigned)cur_crc);
 
     // 是否可跳过解压（payload 未变且已解压完成）
     int can_skip_extract = 0;
@@ -1100,15 +1433,21 @@ static int real_main(int argc, wchar_t** argv) {
         }
     }
 
+    logw(L"can_skip_extract=%d (Cover=%d)", can_skip_extract, cfg.Cover);
+
     // cover: 0 覆盖；非0 跳过
     if (!can_skip_extract) {
+        logw(L"extract start: outdir=%s", outdir);
         if (!extract_7z_from_memory(pay, pay_len, outdir, cfg.Cover)) {
             rm_dir_best_effort(outdir);
             close_self_overlay(&ov);
             die(L"extract fail");
         }
+        logw(L"extract ok");
         write_exok(outdir);
         write_payload_idfile(outdir, cur_crc, cur_sz);
+    } else {
+        logw(L"extract skipped (already extracted and payload id matches)");
     }
 
     close_self_overlay(&ov);
@@ -1126,6 +1465,8 @@ static int real_main(int argc, wchar_t** argv) {
     wchar_t platform[128];
     get_platform_label(platform, _countof(platform));
     const wchar_t* mappedDir = find_platform_dir(&cfg, platform);
+    logw(L"platform_label=%s", platform);
+    logw(L"mappedDir=%s", (mappedDir && *mappedDir) ? mappedDir : L"(null)");
 
     wchar_t runroot[MAX_PATH];
     lstrcpynW(runroot, outdir, MAX_PATH);
@@ -1136,9 +1477,14 @@ static int real_main(int argc, wchar_t** argv) {
         // 如果目录不存在：自动回退 outdir
     }
 
+    logw(L"runroot=%s", runroot);
+
     // 执行逻辑：ExecuteFile 优先，否则 RunProgram
     const wchar_t* raw  = GetCommandLineW();
     const wchar_t* tail = tail1(raw);
+
+    logw(L"cmdline tail(forward)='%s'", tail ? tail : L"(null)");
+    logw(L"forward tail='%s'", (tail && *tail) ? tail : L"(empty)");
 
     DWORD lastCode = 0;
 
@@ -1146,6 +1492,7 @@ static int real_main(int argc, wchar_t** argv) {
         // ExecuteFile：如果是相对路径，按 runroot 解析
         wchar_t exefile[MAX_PATH];
         resolve_path_under(runroot, cfg.ExecuteFile, exefile, _countof(exefile));
+        logw(L"resolved ExecuteFile=%s", exefile);
         // ShellExecute 更适合打开文档/msiexec；这里为了保持静默一致，用 CreateProcess 跑
         wchar_t cmdline[MAX_LINE];
         if (cfg.ExecuteParameters[0]) swprintf_s(cmdline, MAX_LINE, L"\"%s\" %s", exefile, cfg.ExecuteParameters);
@@ -1153,11 +1500,15 @@ static int real_main(int argc, wchar_t** argv) {
 
         wchar_t* cl = _wcsdup(cmdline);
         if (!cl) die(L"oom");
+        logw(L"ExecuteFile cmdline=%s", cl);
         lastCode = run_wait_ex(NULL, cl, runroot, 1);
         free(cl);
         if (lastCode == (DWORD)-1) lastCode = 1;
     } else {
-        if (cfg.RunCount == 0) cfg_add_run(&cfg, L"setup.exe");
+        if (cfg.RunCount == 0) {
+            cfg_add_run(&cfg, L"setup.exe");
+            logw(L"RunCount==0, default to setup.exe");
+        }
 
         // 运行目录：runroot + Directory
         wchar_t run_wdir[MAX_PATH];
@@ -1172,19 +1523,27 @@ static int real_main(int argc, wchar_t** argv) {
             else lstrcpynW(run_wdir, dir_exp, MAX_PATH);
         }
         mk_dir_tree(run_wdir);
+        logw(L"run_wdir=%s", run_wdir);
 
         for (int i = 0; i < cfg.RunCount; i++) {
             wchar_t final[MAX_LINE];
             lstrcpynW(final, cfg.RunProgram[i], MAX_LINE);
 
+            logw(L"RunProgram[%d] raw=%s", i, final);
+
             if (cfg.Forward >= 0 && cfg.Forward == i && tail && *tail) {
                 wchar_t tmp[MAX_LINE];
                 swprintf_s(tmp, MAX_LINE, L"%s %s", final, tail);
                 lstrcpynW(final, tmp, MAX_LINE);
+                logw(L"RunProgram[%d] forward args => %s", i, final);
             }
+
+            logw(L"RunProgram[%d] final cmd=%s", i, final);
 
             wchar_t* cmdline = _wcsdup(final);
             if (!cmdline) { lastCode = 2; break; }
+
+            logw(L"RunProgram[%d] cmdline=%s", i, cmdline);
 
             DWORD rc = run_wait_ex(NULL, cmdline, run_wdir, 1);
             free(cmdline);
@@ -1209,15 +1568,34 @@ static int real_main(int argc, wchar_t** argv) {
     return (int)lastCode;
 }
 
+static int entry_main(int argc, wchar_t** argv) {
+    // ensure log is ready as early as possible
+    log_open();
+    install_crash_handlers();
+    if (gLogPath[0]) logw(L"Log file: %s", gLogPath);
+    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+
+    int rc = 0;
+    __try {
+        rc = real_main(argc, argv);
+    } __except (wrapper_unhandled_filter(GetExceptionInformation())) {
+        rc = 2;
+    }
+
+    logw(L"==== wrapper exit rc=%d ====", rc);
+    log_close();
+    return rc;
+}
+
 int wmain(int argc, wchar_t** argv) {
-    return real_main(argc, argv);
+    return entry_main(argc, argv);
 }
 
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR lpCmdLine, int nShowCmd) {
     (void)hInst; (void)hPrev; (void)lpCmdLine; (void)nShowCmd;
     int argc = 0;
     wchar_t** argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    int rc = real_main(argc, argv);
+    int rc = entry_main(argc, argv);
     if (argv) LocalFree(argv);
     return rc;
 }

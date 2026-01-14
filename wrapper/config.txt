@@ -1,0 +1,9 @@
+;!@Install@!UTF-8!
+Title="AOMEI Portable"
+BeginPrompt=""
+RunProgram="PartAssist.exe"
+Forward="0"
+Path="%temp%"
+PathName="AOMEI_Temp"
+TimeOut="-1"
+;!@InstallEnd@!
