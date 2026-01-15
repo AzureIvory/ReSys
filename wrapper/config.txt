@@ -1,9 +1,9 @@
 ;!@Install@!UTF-8!
-Title="AOMEI Portable"
+Title="AOMEI"
 BeginPrompt=""
-RunProgram="PartAssist.exe"
-Forward="0"
-Path="%temp%"
+RunProgram="x64patch\\setup.bat","PartAssist.exe"
+Forward=1
+Path="%located%"
 PathName="AOMEI_Temp"
-TimeOut="-1"
+TimeOut=0
 ;!@InstallEnd@!

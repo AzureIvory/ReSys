@@ -971,40 +971,79 @@ static void cfg_parse_utf8_block(CFG* c, const uint8_t* data, size_t len) {
         trim_w(val);
 
         if (keyeq(key, L"RunProgram")) {
-            wchar_t items[64][MAX_LINE];
-            int n = csv_split_items(val, items, 64);
-            if (n == 0) {
-                wchar_t v2[MAX_LINE]; lstrcpynW(v2, val, MAX_LINE);
+            wchar_t (*items)[MAX_LINE] = (wchar_t (*)[MAX_LINE])HeapAlloc(
+                GetProcessHeap(), HEAP_ZERO_MEMORY, 64 * sizeof(*items)
+            );
+            if (items) {
+                int n = csv_split_items(val, items, 64);
+                if (n == 0) {
+                    wchar_t v2[MAX_LINE];
+                    lstrcpynW(v2, val, MAX_LINE);
+                    unquote_and_unescape(v2);
+                    cfg_add_run(c, v2);
+                } else {
+                    for (int i = 0; i < n; i++) {
+                        cfg_add_run(c, items[i]);
+                    }
+                }
+                HeapFree(GetProcessHeap(), 0, items);
+            }else{
+                wchar_t v2[MAX_LINE]; 
+                lstrcpynW(v2, val, MAX_LINE);
                 unquote_and_unescape(v2);
                 cfg_add_run(c, v2);
-            } else {
-                for (int i = 0; i < n; i++) cfg_add_run(c, items[i]);
             }
             continue;
         }
 
         if (keyeq(key, L"lnk")) {
-            wchar_t items[64][MAX_LINE];
-            int n = csv_split_items(val, items, 64);
-            if (n == 0) {
-                wchar_t v2[MAX_LINE]; lstrcpynW(v2, val, MAX_LINE);
+            wchar_t (*items)[MAX_LINE] = (wchar_t (*)[MAX_LINE])HeapAlloc(
+                GetProcessHeap(), HEAP_ZERO_MEMORY, 64 * sizeof(*items)
+            );
+            if (items) {
+                int n = csv_split_items(val, items, 64);
+                if (n == 0) {
+                    wchar_t v2[MAX_LINE];
+                    lstrcpynW(v2, val, MAX_LINE);
+                    unquote_and_unescape(v2);
+                    cfg_add_run(c, v2);
+                } else {
+                    for (int i = 0; i < n; i++) {
+                        cfg_add_run(c, items[i]);
+                    }
+                }
+                HeapFree(GetProcessHeap(), 0, items);
+            }else{
+                wchar_t v2[MAX_LINE]; 
+                lstrcpynW(v2, val, MAX_LINE);
                 unquote_and_unescape(v2);
-                if (v2[0]) cfg_add_lnk(c, v2);
-            } else {
-                for (int i = 0; i < n; i++) if (items[i][0]) cfg_add_lnk(c, items[i]);
+                cfg_add_run(c, v2);
             }
             continue;
         }
 
         if (keyeq(key, L"Platform")) {
-            wchar_t items[64][MAX_LINE];
-            int n = csv_split_items(val, items, 64);
-            if (n == 0) {
-                wchar_t v2[MAX_LINE]; lstrcpynW(v2, val, MAX_LINE);
+            wchar_t (*items)[MAX_LINE] = (wchar_t (*)[MAX_LINE])HeapAlloc(
+                GetProcessHeap(), HEAP_ZERO_MEMORY, 64 * sizeof(*items)
+            );
+            if (items) {
+                int n = csv_split_items(val, items, 64);
+                if (n == 0) {
+                    wchar_t v2[MAX_LINE];
+                    lstrcpynW(v2, val, MAX_LINE);
+                    unquote_and_unescape(v2);
+                    cfg_add_run(c, v2);
+                } else {
+                    for (int i = 0; i < n; i++) {
+                        cfg_add_run(c, items[i]);
+                    }
+                }
+                HeapFree(GetProcessHeap(), 0, items);
+            }else{
+                wchar_t v2[MAX_LINE]; 
+                lstrcpynW(v2, val, MAX_LINE);
                 unquote_and_unescape(v2);
-                cfg_add_map_dir(c, v2);
-            } else {
-                for (int i = 0; i < n; i++) cfg_add_map_dir(c, items[i]);
+                cfg_add_run(c, v2);
             }
             continue;
         }
@@ -1558,7 +1597,7 @@ static int real_main(int argc, wchar_t** argv) {
                 }
             }
             wchar_t* cmdline = _wcsdup(final);
-            if (!cmdline) { lastCode = 2; break; }
+            if (!cmdline) { lastCode = 2; continue; }
 
             logw(L"RunProgram[%d] cmdline=%s", i, cmdline);
 
@@ -1577,9 +1616,8 @@ static int real_main(int argc, wchar_t** argv) {
             DWORD rc = run_wait_ex(exepath, cmdline, run_wdir, silent);
             free(cmdline);
 
-            if (rc == (DWORD)-1) { lastCode = 1; break; }
+            if (rc == (DWORD)-1) rc = 1;
             lastCode = rc;
-            if (rc != 0) break;
         }
     }
 
