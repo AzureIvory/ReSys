@@ -37,6 +37,7 @@ static CRITICAL_SECTION gLogCs;
 static int gLogInited = 0;
 int silent = 0;
 static void log_close(void);
+static int gLogDisabled = 0; // 日志0=输出+记录；1=不输出也不记录
 
 static void build_log_path_try_exedir(wchar_t* out, size_t cap) {
     wchar_t self[MAX_PATH];
@@ -70,6 +71,7 @@ static void build_log_path_temp(wchar_t* out, size_t cap) {
 }
 
 static void log_open(void) {
+    if (gLogDisabled) return;
     if (gLogInited) return;
     InitializeCriticalSection(&gLogCs);
     gLogInited = 1;
@@ -148,6 +150,7 @@ static void log_v(const wchar_t* fmt, va_list ap) {
 }
 
 static void logw(const wchar_t* fmt, ...) {
+    if (gLogDisabled) return;
     va_list ap;
     va_start(ap, fmt);
     log_v(fmt, ap);
@@ -758,10 +761,12 @@ typedef struct {
     wchar_t BeginPrompt[2048];
 
     wchar_t Directory[MAX_PATH];          // 默认 ".\\"
-    wchar_t ExecuteFile[1024];            // ✅ 这里必须存在
+    wchar_t ExecuteFile[1024];
     wchar_t ExecuteParameters[2048];
 
     int Forward;
+    int Log;      // log=0 输出+记录；log=1 不输出也不记录
+    int Async;    // async=0 同步等待；async=1 异步不等待（禁用Forward转发参数）
     int TimeOut;                          // 秒，<0 不删
     wchar_t Path[MAX_PATH];
     wchar_t PathName[256];
@@ -785,6 +790,8 @@ static void cfg_defaults(CFG* c) {
     c->Forward = 0;
     c->TimeOut = 0;
     c->Cover   = 0;
+    c->Log     = 0;   //默认输出+记录
+    c->Async   = 0;   //默认同步等待
     lstrcpyW(c->Directory, L".\\");
     lstrcpyW(c->Path, L"%temp%");
     lstrcpyW(c->PathName, L"WrapperTemp");
@@ -1060,6 +1067,8 @@ static void cfg_parse_utf8_block(CFG* c, const uint8_t* data, size_t len) {
         else if (keyeq(key, L"Path")) lstrcpynW(c->Path, val, _countof(c->Path));
         else if (keyeq(key, L"PathName")) lstrcpynW(c->PathName, val, _countof(c->PathName));
         else if (keyeq(key, L"cover")) c->Cover = (int)wcstol(val, NULL, 10);
+        else if (keyeq(key, L"log"))   c->Log   = (int)wcstol(val, NULL, 10);
+        else if (keyeq(key, L"async")) c->Async = (int)wcstol(val, NULL, 10);
     }
 
     HeapFree(GetProcessHeap(), 0, w);
@@ -1385,21 +1394,75 @@ static int extract_7z_from_memory(const Byte* pay, size_t pay_len, const wchar_t
     return (res == SZ_OK);
 }
 
-// ---------------- 主逻辑 ----------------
-static int real_main(int argc, wchar_t** argv) {
-    logw(L"==== wrapper start ====");
-    logw(L"cmdline: %s", GetCommandLineW());
-    logw(L"argc=%d", argc);
-    for (int i = 0; i < argc && i < 32; i++) {
-        logw(L"argv[%d]=%s", i, argv[i] ? argv[i] : L"(null)");
+// --- 异步启动，不等待进程结束 ---
+static int run_spawn_ex(const wchar_t* app, wchar_t* cmd, const wchar_t* wdir, int silent, DWORD* pid_out) {
+    logw(L"run_spawn_ex: app=%s | cmd=%s | wdir=%s | silent=%d",
+         app ? app : L"(null)", cmd ? cmd : L"(null)", wdir ? wdir : L"(null)", silent);
+
+    STARTUPINFOW si = {0};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi = {0};
+
+    HANDLE hNullIn = NULL, hNullOut = NULL, hNullErr = NULL;
+    SECURITY_ATTRIBUTES sa = {0};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+
+    DWORD flags = silent ? CREATE_NO_WINDOW : 0;
+    BOOL inherit = FALSE;
+
+    if (silent) {
+        hNullIn  = CreateFileW(L"NUL", GENERIC_READ,  FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+        hNullOut = CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+        hNullErr = CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
+        if (hNullIn && hNullIn != INVALID_HANDLE_VALUE &&
+            hNullOut && hNullOut != INVALID_HANDLE_VALUE &&
+            hNullErr && hNullErr != INVALID_HANDLE_VALUE) {
+            si.dwFlags |= STARTF_USESTDHANDLES;
+            si.hStdInput  = hNullIn;
+            si.hStdOutput = hNullOut;
+            si.hStdError  = hNullErr;
+            inherit = TRUE;
+        } else {
+            logw(L"run_spawn_ex: silent stdio redirect failed (inherit will be FALSE)");
+            log_winerr(L"CreateFileW(NUL)");
+        }
+    } else {
+        si.dwFlags |= STARTF_USESTDHANDLES;
+        si.hStdInput  = GetStdHandle(STD_INPUT_HANDLE);
+        si.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+        si.hStdError  = GetStdHandle(STD_ERROR_HANDLE);
+        inherit = TRUE;
     }
 
+    if (!CreateProcessW(app, cmd, NULL, NULL, inherit, flags, NULL, wdir, &si, &pi)) {
+        log_winerr(L"CreateProcessW(async)");
+        if (hNullIn  && hNullIn  != INVALID_HANDLE_VALUE) CloseHandle(hNullIn);
+        if (hNullOut && hNullOut != INVALID_HANDLE_VALUE) CloseHandle(hNullOut);
+        if (hNullErr && hNullErr != INVALID_HANDLE_VALUE) CloseHandle(hNullErr);
+        return 0;
+    }
+
+    if (pid_out) *pid_out = pi.dwProcessId;
+    logw(L"run_spawn_ex: started pid=%lu", (unsigned long)pi.dwProcessId);
+
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+
+    if (hNullIn  && hNullIn  != INVALID_HANDLE_VALUE) CloseHandle(hNullIn);
+    if (hNullOut && hNullOut != INVALID_HANDLE_VALUE) CloseHandle(hNullOut);
+    if (hNullErr && hNullErr != INVALID_HANDLE_VALUE) CloseHandle(hNullErr);
+
+    return 1;
+}
+
+// ---------------- 主逻辑 ----------------
+static int real_main(int argc, wchar_t** argv) {
     hide_own_console_if_any();
 
     if (argc >= 2 && lstrcmpW(argv[1], L"--cleanup") == 0) {
-        logw(L"mode: cleanup");
         int rc = cleanup_main(argc, argv);
-        logw(L"cleanup done rc=%d", rc);
         return rc;
     }
 
@@ -1416,6 +1479,11 @@ static int real_main(int argc, wchar_t** argv) {
     ZeroMemory(&cfg, sizeof(cfg)); // 每次启动清空一次
     cfg_defaults(&cfg);
     if (ov.cfg_len > 0) cfg_parse_utf8_block(&cfg, ov.base + ov.cfg_off, ov.cfg_len);
+    gLogDisabled = (cfg.Log != 0);
+    if (!gLogDisabled) {
+        log_open();
+        if (gLogPath[0]) logw(L"Log file: %s", gLogPath);
+    }
 
     logw(L"overlay info: cfg_len=%Iu pay_len=%Iu", (size_t)ov.cfg_len, (size_t)ov.pay_len);
     logw(L"cfg: Title=\"%s\"", cfg.Title[0] ? cfg.Title : L"(empty)");
@@ -1571,13 +1639,16 @@ static int real_main(int argc, wchar_t** argv) {
         mk_dir_tree(run_wdir);
         logw(L"run_wdir=%s", run_wdir);
 
+         int forward_index = (cfg.Forward > 0) ? (cfg.Forward - 1) : -1;
+         if (cfg.Async != 0) forward_index = -1;// async 模式强制不转发参数
+
         for (int i = 0; i < cfg.RunCount; i++) {
             wchar_t final[MAX_LINE];
             lstrcpynW(final, cfg.RunProgram[i], MAX_LINE);
 
             logw(L"RunProgram[%d] raw=%s", i, final);
 
-            if (cfg.Forward >= 0 && cfg.Forward == i && tail && *tail) {
+            if (forward_index == i && tail && *tail) {
                 wchar_t tmp[MAX_LINE];
                 swprintf_s(tmp, MAX_LINE, L"%s %s", final, tail);
                 lstrcpynW(final, tmp, MAX_LINE);
@@ -1605,7 +1676,7 @@ static int real_main(int argc, wchar_t** argv) {
             resolve_path_under(run_wdir, cfg.RunProgram[i], exepath, _countof(exepath)); // 你已有/自己实现：run_wdir + 文件名 => 绝对路径
 
             wchar_t full[MAX_LINE];
-            if (cfg.Forward >= 0 && cfg.Forward == i && tail && *tail)
+            if (forward_index == i && tail && *tail)
                 swprintf_s(full, MAX_LINE, L"\"%s\" %s", exepath, tail);
             else
                 swprintf_s(full, MAX_LINE, L"\"%s\"", exepath);
@@ -1613,11 +1684,26 @@ static int real_main(int argc, wchar_t** argv) {
             free(cmdline);
             cmdline = _wcsdup(full);
 
-            DWORD rc = run_wait_ex(exepath, cmdline, run_wdir, silent);
-            free(cmdline);
+            wchar_t per_wdir[MAX_PATH];
+            lstrcpynW(per_wdir, exepath, MAX_PATH);
+            if (!PathRemoveFileSpecW(per_wdir) || per_wdir[0] == 0) {
+                lstrcpynW(per_wdir, run_wdir, MAX_PATH);
+            }
+            logw(L"RunProgram[%d] wdir=%s", i, per_wdir);
+            if (cfg.Async != 0) {
+                DWORD pid = 0;
+                int ok = run_spawn_ex(exepath, cmdline, per_wdir, silent, &pid);
+                free(cmdline);
 
-            if (rc == (DWORD)-1) rc = 1;
-            lastCode = rc;
+                // 异步模式没有退出码
+                if (!ok) lastCode = 1;
+            } else {
+                DWORD rc = run_wait_ex(exepath, cmdline, per_wdir, silent);
+                free(cmdline);
+
+                if (rc == (DWORD)-1) rc = 1;
+                lastCode = rc;
+            }
         }
     }
 
@@ -1636,8 +1722,7 @@ static int real_main(int argc, wchar_t** argv) {
 }
 
 static int entry_main(int argc, wchar_t** argv) {
-    // ensure log is ready as early as possible
-    log_open();
+    //log_open();
     install_crash_handlers();
     if (gLogPath[0]) logw(L"Log file: %s", gLogPath);
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
