@@ -171,20 +171,15 @@ func ImgName(it WinImg, ln string) string {
 	return "windows_image" + ext
 }
 
-// ---------------- WinPE ----------------
+// WinPE
 
 type WinPEImg struct {
-	// 兼容原有字段
 	Name  string
 	Arch  string
 	Links []string
-
-	// 新增：便于优先级筛选/展示（不影响原功能）
 	Grp string
 	Ver string
-	Sz  float64 // 可选：WinPE.json 里可能有 size
-
-	// 可选：WEPE 之类会提供 md5/offset（用于从 exe 中截取 wim）
+	Sz  float64
 	MD5         string
 	OffsetStart int64
 	OffsetEnd   int64
@@ -195,36 +190,6 @@ type peEnt struct {
 	Size   float64 `json:"size,omitempty"`
 	MD5    string  `json:"md5,omitempty"`
 	Offset string  `json:"offset,omitempty"`
-}
-
-// UnmarshalJSON：兼容旧格式（"64": "url1|url2"）与新格式（"64": {"url": "...", "size": 123, ...}）
-func (p *peEnt) UnmarshalJSON(b []byte) error {
-	b = bytes.TrimSpace(b)
-	if len(b) == 0 || string(b) == "null" {
-		return nil
-	}
-	if b[0] == '"' {
-		var s string
-		if err := json.Unmarshal(b, &s); err != nil {
-			return err
-		}
-		p.URL = s
-		return nil
-	}
-	var x struct {
-		URL    string  `json:"url"`
-		Size   float64 `json:"size,omitempty"`
-		MD5    string  `json:"md5,omitempty"`
-		Offset string  `json:"offset,omitempty"`
-	}
-	if err := json.Unmarshal(b, &x); err != nil {
-		return err
-	}
-	p.URL = x.URL
-	p.Size = x.Size
-	p.MD5 = x.MD5
-	p.Offset = x.Offset
-	return nil
 }
 
 type peVer struct {

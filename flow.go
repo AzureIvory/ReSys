@@ -810,12 +810,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 	}
 
 	var other []WinPEImg
-	for _, it := range peList {
-		if strings.EqualFold(strings.TrimSpace(it.Grp), "WEPE") {
-			continue
-		}
-		other = append(other, it)
-	}
+	other = peList
 
 	findByArch := func(list []WinPEImg, want string) []WinPEImg {
 		var out []WinPEImg
@@ -954,16 +949,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 
 		return "", id, fmt.Errorf("PE下载失败")
 	}
-
-	// PEDownload.html
-	if _, _, links, err := PELnk(); err == nil {
-		if _, ok := failedPEImages[peLinksID]; !ok {
-			if wim, err := downloadPEFromLinks(links); err == nil {
-				return wim, peLinksID, nil
-			}
-		}
-	}
-
+	//WinPE.json
 	for _, it := range findByArch(other, arch) {
 		if wim, id, err := tryDownload(it); err == nil {
 			return wim, id, nil
@@ -973,6 +959,14 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 		for _, it := range findByArch(other, "64") {
 			if wim, id, err := tryDownload(it); err == nil {
 				return wim, id, nil
+			}
+		}
+	}
+	// PEDownload.html
+	if _, _, links, err := PELnk(); err == nil {
+		if _, ok := failedPEImages[peLinksID]; !ok {
+			if wim, err := downloadPEFromLinks(links); err == nil {
+				return wim, peLinksID, nil
 			}
 		}
 	}
@@ -1020,6 +1014,7 @@ func downloadPEFromLinks(links []string) (string, error) {
 			logWrite("PE链接不可用：%s", link)
 			continue
 		}
+		logWrite("PE链接：%s\n", link)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 		err := DownloadFile(ctx, link, wimPath, func(pct float64, speed int64) {
@@ -1029,7 +1024,7 @@ func downloadPEFromLinks(links []string) (string, error) {
 
 		if err != nil {
 			markFailedLink(link)
-			logWrite("PE下载失败：%v", err)
+			logWrite("PE下载失败：%v,url:"+link, err)
 			_ = os.Remove(wimPath)
 			continue
 		}

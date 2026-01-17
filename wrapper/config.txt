@@ -6,4 +6,5 @@ Forward=2
 Path="%located%"
 PathName="AOMEI_Temp"
 TimeOut=0
+log=-1
 ;!@InstallEnd@!
