@@ -1305,7 +1305,7 @@ func GoToPE(paths ...string) error {
 	opts := []struct {
 		n, s, w string
 	}{
-		//{"WEPE", `\WEPE\WEPE.SDI`, `\WEPE\WEPE64.WIM`},    //64位微PE
+		{"WEPE", `\WEPE\WEPE.SDI`, `\WEPE\WEPE64.WIM`},    //64位微PE
 		{"FIR", `\FirPE\BOOT.SDI`, `\FirPE\11PEX64.WIM`},  //64位win11的FirPE
 		{"HOT", `\HotPE\boot.sdi`, `\HotPE\Boot.wim`},     //64位HOTPE
 		{"FirPE1", `\boot\boot.sdi`, `\boot\11pex64.wim`}, //64位FirPE1
