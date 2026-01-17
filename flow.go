@@ -683,7 +683,8 @@ func hasPEFiles(arch string) (bool, string, string) {
 	opts := []pair{
 		{`FirPE\BOOT.SDI`, `FirPE\11PEX64.WIM`},
 		{`FirPE\BOOT.SDI`, `FirPE\11PEX86.WIM`},
-
+		{`WEPE\WEPE.SDI`, `WEPE\WEPE64.WIM`},
+		{`WEPE\WEPE.SDI`, `WEPE\WEPE32.WIM`},
 		{`HotPE\boot.sdi`, `HotPE\Boot.wim`},
 		{`boot\boot.sdi`, `boot\11pex64.wim`},
 		{`boot\boot.sdi`, `boot\11pex86.wim`},
