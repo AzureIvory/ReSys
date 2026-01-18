@@ -1,19 +1,481 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unicode/utf16"
 	"unicode/utf8"
 	"unsafe"
 )
+
+var rePercentBytes = regexp.MustCompile(`(\d{1,3})%`)
+
+type PartAssistProgressResult struct {
+	Output      string
+	MaxProgress int
+	SawPercent  bool
+	ExitErr     error
+}
+
+type progressState struct {
+	mu   sync.Mutex
+	last int
+	max  int
+	saw  bool
+}
+
+func (s *progressState) update(p int, onProgress func(int)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if p < 0 || p > 100 {
+		return
+	}
+	s.saw = true
+	if p > s.max {
+		s.max = p
+	}
+	if p != s.last {
+		s.last = p
+		if onProgress != nil {
+			onProgress(p) // ✅ 只在变化时回调
+		}
+	}
+}
+
+func (s *progressState) snapshot() (max int, saw bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.max, s.saw
+}
+func mapProgress(on func(int), base, span int) func(int) {
+	if on == nil {
+		return nil
+	}
+	last := -1
+	return func(p int) {
+		if p < 0 {
+			return
+		}
+		if p > 100 {
+			p = 100
+		}
+		v := base + (p*span)/100
+		if v != last { // 再做一层“变化才回调”，避免映射后重复
+			last = v
+			on(v)
+		}
+	}
+}
+// split by \r / \n / \r\n（PartAssist 常用 \r 刷新进度）
+func splitCRLFBytes(data []byte) (tokens [][]byte) {
+	start := 0
+	for i := 0; i < len(data); i++ {
+		if data[i] == '\r' || data[i] == '\n' {
+			if i > start {
+				t := bytes.TrimSpace(data[start:i])
+				if len(t) > 0 {
+					tokens = append(tokens, t)
+				}
+			}
+			// eat \r\n
+			if data[i] == '\r' && i+1 < len(data) && data[i+1] == '\n' {
+				i++
+			}
+			start = i + 1
+		}
+	}
+	// remaining (no line break)
+	if start < len(data) {
+		t := bytes.TrimSpace(data[start:])
+		if len(t) > 0 {
+			tokens = append(tokens, t)
+		}
+	}
+	return tokens
+}
+
+func parsePercentFromLine(b []byte) (int, bool) {
+	ms := rePercentBytes.FindAllSubmatch(b, -1)
+	if len(ms) == 0 {
+		return -1, false
+	}
+	lineMax := -1
+	for _, m := range ms {
+		p, err := strconv.Atoi(string(m[1]))
+		if err != nil || p < 0 || p > 100 {
+			continue
+		}
+		if p > lineMax {
+			lineMax = p
+		}
+	}
+	return lineMax, lineMax >= 0
+}
+
+// 实时 tail /out 文件：发现新内容就解析，进度变化就回调
+func tailOutFileProgress(path string, done <-chan struct{}, st *progressState, onProgress func(int), collect *bytes.Buffer) {
+	var f *os.File
+	var err error
+
+	// 等文件出现
+	for {
+		select {
+		case <-done:
+			return
+		default:
+		}
+		f, err = os.Open(path)
+		if err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	defer f.Close()
+
+	buf := make([]byte, 8192)
+	var pending []byte
+
+	for {
+		select {
+		case <-done:
+			// 尽力把剩余读完（防止最后一点没解析到）
+		default:
+		}
+
+		n, rerr := f.Read(buf)
+		if n > 0 {
+			chunk := buf[:n]
+			if collect != nil {
+				collect.Write(chunk)
+			}
+
+			// 处理分隔：\r/\n
+			combined := append(pending, chunk...)
+			tokens := splitCRLFBytes(combined)
+
+			// 如果最后一个 token 可能是不完整行：我们保留在 pending
+			// 简化策略：如果 combined 末尾不是 \r/\n，则最后一个 token 可能未完结
+			endIsBreak := len(combined) > 0 && (combined[len(combined)-1] == '\r' || combined[len(combined)-1] == '\n')
+			if !endIsBreak && len(tokens) > 0 {
+				// 把最后一个 token 作为 pending（原样，不 trim 也行，这里简化）
+				last := tokens[len(tokens)-1]
+				tokens = tokens[:len(tokens)-1]
+				pending = append([]byte(nil), last...)
+			} else {
+				pending = pending[:0]
+			}
+
+			for _, line := range tokens {
+				if p, ok := parsePercentFromLine(line); ok {
+					st.update(p, onProgress)
+				}
+			}
+		}
+
+		if rerr == io.EOF {
+			// 没新内容：小睡一下（内部轮询），但不会“固定时间打印”，只在变化时回调
+			select {
+			case <-done:
+				// done 后再读一次看看有没有尾巴
+			default:
+				time.Sleep(30 * time.Millisecond)
+			}
+			if isClosed(done) {
+				// 读到 EOF 且 done：退出
+				return
+			}
+			continue
+		}
+		if rerr != nil {
+			return
+		}
+	}
+}
+
+func isClosed(ch <-chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
+func RunPartAssistWithProgress(args []string, onProgress func(p int)) (PartAssistProgressResult, error) {
+	exe, err := partAssistExePath()
+	if err != nil {
+		return PartAssistProgressResult{}, err
+	}
+
+	killProcessImage(filepath.Base(exe))
+
+	outFile := filepath.Join(os.TempDir(), fmt.Sprintf("pa_out_%d.txt", time.Now().UnixNano()))
+	args2 := append(append([]string{}, args...), fmt.Sprintf("/out:%s", outFile))
+
+	cmd := exec.Command(exe, args2...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+
+	// PartAssist 有时 stdout/stderr 不可靠，这里可选收集，但进度以 /out 为准
+	var pipeOut bytes.Buffer
+	cmd.Stdout = &pipeOut
+	cmd.Stderr = &pipeOut
+
+	if err := cmd.Start(); err != nil {
+		return PartAssistProgressResult{}, fmt.Errorf("start %s: %w", exe, err)
+	}
+
+	st := &progressState{last: -1, max: -1}
+	done := make(chan struct{})
+	var collected bytes.Buffer
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		tailOutFileProgress(outFile, done, st, onProgress, &collected)
+	}()
+
+	exitErr := cmd.Wait()
+	close(done)
+	wg.Wait()
+
+	// 最终输出：优先读 /out（里面有完整内容）
+	var outText string
+	if b, err := os.ReadFile(outFile); err == nil {
+		outText = decodeOutTextBestEffort(b)
+	} else {
+		// 退回 collected + 管道输出
+		all := append(collected.Bytes(), pipeOut.Bytes()...)
+		outText = decodeOutTextBestEffort(all)
+	}
+	_ = Remove(outFile, false)
+
+	// 若实时阶段没抓到（极少数），最后再从 outText 补一次
+	maxSeen, saw := st.snapshot()
+	if !saw {
+		if m := rePercentBytes.FindAllStringSubmatch(outText, -1); len(m) > 0 {
+			saw = true
+			for _, mm := range m {
+				p, _ := strconv.Atoi(mm[1])
+				if p > maxSeen {
+					maxSeen = p
+				}
+			}
+		}
+	}
+
+	res := PartAssistProgressResult{
+		Output:      outText,
+		MaxProgress: maxSeen,
+		SawPercent:  saw,
+		ExitErr:     exitErr,
+	}
+
+	low := strings.ToLower(outText)
+	if strings.Contains(low, "running") {
+		return res, fmt.Errorf("PartAssist is Running")
+	}
+	if strings.Contains(low, "failure") {
+		return res, fmt.Errorf("PartAssist reported failure")
+	}
+
+	// ✅ 你的规则：没百分比=失败；到100%=成功
+	if !saw {
+		return res, fmt.Errorf("PartAssist output has no percentage -> treat as failure")
+	}
+	if maxSeen < 100 {
+		return res, fmt.Errorf("PartAssist did not reach 100%% (max=%d%%)", maxSeen)
+	}
+
+	// 到 100%：算成功（忽略 exit code）
+	return res, nil
+}
+
+func SplitVolume1WithProgress(vol string, sizeMB int, fs, label string, onProgress func(int)) (string, error) {
+	volLetter, err := normalizeDriveLetter(vol)
+	if err != nil {
+		return "", err
+	}
+	if sizeMB <= 0 {
+		return "", fmt.Errorf("sizeMB 必须大于 0")
+	}
+	fs2, err := toDiskToolFS(fs)
+	if err != nil {
+		return "", err
+	}
+	fs2 = strings.ToLower(fs2)
+	label = sanitizePartAssistLabel(label)
+
+	beforeLetters, err := collectDriveLetters()
+	if err != nil {
+		return "", err
+	}
+
+	// 1) 收缩（整体 0-50）
+	{
+		cb := mapProgress(onProgress, 0, 50)
+		res, err := RunPartAssistWithProgress([]string{
+			fmt.Sprintf("/resize:%s", volLetter),
+			fmt.Sprintf("/reduce-right:%d", sizeMB),
+		}, cb)
+		if err != nil {
+			return "", fmt.Errorf("partassist reduce-right failed: %w\n输出:\n%s", err, res.Output)
+		}
+	}
+
+	// 计算 offset/size
+	diskNum, startBytes, lengthBytes, err := getVolumeExtentBytes(volLetter + ":")
+	if err != nil {
+		return "", err
+	}
+	endBytes := startBytes + lengthBytes
+	const mb = int64(1024 * 1024)
+	offsetMB := (endBytes + mb - 1) / mb
+
+	createSize := sizeMB
+	if endBytes%mb != 0 && sizeMB > 1 {
+		createSize = sizeMB - 1
+	}
+
+	baseCreArgs := []string{
+		fmt.Sprintf("/hd:%d", diskNum),
+		"/cre",
+		"/pri",
+		fmt.Sprintf("/offset:%d", offsetMB),
+		fmt.Sprintf("/fs:%s", fs2),
+		"/align",
+		fmt.Sprintf("/label:%s", label),
+		"/letter:auto",
+	}
+
+	// 2) 创建分区（整体 50-100）
+	{
+		cb := mapProgress(onProgress, 50, 50)
+
+		creArgs := append([]string{}, baseCreArgs...)
+		creArgs = append(creArgs, fmt.Sprintf("/size:%d", createSize))
+		res, err := RunPartAssistWithProgress(creArgs, cb)
+		if err != nil {
+			// 重试 /size:auto
+			creArgs2 := append([]string{}, baseCreArgs...)
+			creArgs2 = append(creArgs2, "/size:auto")
+			res2, err2 := RunPartAssistWithProgress(creArgs2, cb)
+			if err2 != nil {
+				return "", fmt.Errorf("partassist create partition failed: %w\n首次输出:\n%s\n重试输出:\n%s",
+					err, res.Output, res2.Output)
+			}
+		}
+	}
+
+	// 推断新盘符
+	for i := 0; i < 6; i++ {
+		afterLetters, err := collectDriveLetters()
+		if err != nil {
+			return "", err
+		}
+		for l := range afterLetters {
+			if _, ok := beforeLetters[l]; !ok {
+				// 这里返回 "E" 还是 "E:" 你原来是返回 l（不带冒号）
+				return l, nil
+			}
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+
+	return "", fmt.Errorf("split finished but cannot determine new drive letter (check Disk Management)")
+}
+
+func FormatWithProgress(letter, fs, label string, quick bool, onProgress func(int)) (int, string, error) {
+	_ = quick
+
+	volLetter, err := normalizeDriveLetter(letter)
+	if err != nil {
+		return 0, "", err
+	}
+	fs2, err := toDiskToolFS(fs)
+	if err != nil {
+		return 0, "", err
+	}
+	fs2 = strings.ToLower(fs2)
+	label = sanitizePartAssistLabel(label)
+
+	res, err := RunPartAssistWithProgress([]string{
+		fmt.Sprintf("/fmt:%s", volLetter),
+		fmt.Sprintf("/fs:%s", fs2),
+		fmt.Sprintf("/label:%s", label),
+	}, onProgress)
+
+	return res.MaxProgress, res.Output, err
+}
+
+func MergeVolumeWithProgress(vol string, sizeMB int, onProgress func(int)) error {
+	volLetter, err := normalizeDriveLetter(vol)
+	if err != nil {
+		return err
+	}
+
+	extendArg := "right"
+	if sizeMB > 0 {
+		extendArg = strconv.Itoa(sizeMB)
+	}
+
+	res, err := RunPartAssistWithProgress([]string{
+		fmt.Sprintf("/resize:%s", volLetter),
+		fmt.Sprintf("/extend:%s", extendArg),
+	}, onProgress)
+	if err != nil {
+		return fmt.Errorf("merge/extend(partassist) failed: %w\n输出:\n%s", err, res.Output)
+	}
+	return nil
+}
+
+func DeleteVolumeWithProgress(vol string, onProgress func(int)) error {
+	volLetter, err := normalizeDriveLetter(vol)
+	if err != nil {
+		return err
+	}
+
+	res, err := RunPartAssistWithProgress([]string{
+		fmt.Sprintf("/del:%s", volLetter),
+	}, onProgress)
+	if err != nil {
+		return fmt.Errorf("delete(partassist) failed: %w\n输出:\n%s", err, res.Output)
+	}
+	return nil
+}
+
+// splitCRLF：把 \n / \r / \r\n 都当分隔符，适配那种“回车刷新进度”的输出
+func splitCRLF(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	if atEOF && len(data) == 0 {
+		return 0, nil, nil
+	}
+	for i := 0; i < len(data); i++ {
+		if data[i] == '\n' || data[i] == '\r' {
+			// 吃掉 \r\n 组合
+			j := i + 1
+			if data[i] == '\r' && j < len(data) && data[j] == '\n' {
+				j++
+			}
+			return j, bytes.TrimSpace(data[:i]), nil
+		}
+	}
+	if atEOF {
+		return len(data), bytes.TrimSpace(data), nil
+	}
+	return 0, nil, nil
+}
 
 func normalizeDriveLetter(letter string) (string, error) {
 	l := strings.TrimSpace(letter)
@@ -917,6 +1379,7 @@ func RunPartAssist(args []string) (string, error) {
 	args2 = append(args2, fmt.Sprintf("/out:%s", outFile))
 
 	stdout, runErr := runCmd(exe, nil, args2...)
+	fmt.Println(stdout, runErr)
 
 	var outText string
 	if b, err := os.ReadFile(outFile); err == nil {
@@ -925,7 +1388,7 @@ func RunPartAssist(args []string) (string, error) {
 		// /out 读不到时，退回 stdout（不一定有）
 		outText = stdout
 	}
-	_ = Remove(outFile, false)
+	//_ = Remove(outFile, false)
 
 	// 统一判定：
 	// 1) Running / Failure -> 直接报错
@@ -970,6 +1433,7 @@ func Format(letter, fs, label string, quick bool) error {
 		fmt.Sprintf("/fs:%s", fs2),
 		fmt.Sprintf("/label:%s", label),
 	})
+	fmt.Println(out)
 	if err != nil {
 		return fmt.Errorf("format(partassist) failed: %w\n输出:\n%s", err, out)
 	}
