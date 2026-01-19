@@ -1186,6 +1186,30 @@ func RunPEInstall() error {
 	uiSetProgress(0)
 	uiSetStatus("正在读取重装信息...")
 	logWrite("进入PE安装流程")
+	//进度回调
+	progressHandler := func(base, span int32, statusFmt, logFmt string) func(int) {
+		var lastUI time.Time
+		var lastLog time.Time
+		return func(v int) {
+			if v < 0 {
+				return
+			}
+			now := time.Now()
+			if statusFmt != "" {
+				if lastUI.IsZero() || now.Sub(lastUI) >= 500*time.Millisecond || v >= 100 {
+					uiSetStatus(fmt.Sprintf(statusFmt, v))
+					uiSetProgress(mapPct(base, span, float64(v)))
+					lastUI = now
+				}
+			}
+			if logFmt != "" {
+				if lastLog.IsZero() || now.Sub(lastLog) >= 1*time.Second || v >= 100 {
+					logWrite(logFmt, v)
+					lastLog = now
+				}
+			}
+		}
+	}
 
 	targetRoot, diskPath, imagePath, err := loadResData()
 	if err != nil {
@@ -1308,10 +1332,12 @@ func RunPEInstall() error {
 				sizeMB = 1024
 			}
 
-			newVol, err := SplitVolume1(targetRoot, sizeMB, "ntfs", "TEMP")
+			splitCb := progressHandler(10, 5, "正在拆分分区... %d%%", "拆分分区进度：%d%%")
+			newVol, err := SplitVolume1EX(targetRoot, sizeMB, "ntfs", "TEMP", splitCb)
 			if err != nil {
 				return err
 			}
+			uiSetProgress(15)
 			tempVol = normalizeRootPath(newVol)
 
 			newPath := filepath.Join(tempVol, filepath.Base(imagePath))
@@ -1328,8 +1354,18 @@ func RunPEInstall() error {
 		}
 	}
 
-	if err := Format(strings.ReplaceAll(strings.ReplaceAll(targetRoot, "\\", ""), ":", ""), "ntfs", "Windows", true); err != nil {
-		logWrite("格式化失败: " + err.Error())
+	formatBase := int32(10)
+	formatSpan := int32(10)
+	if tempVol != "" {
+		formatBase = 15
+		formatSpan = 5
+	}
+	formatCb := progressHandler(formatBase, formatSpan, "正在格式化分区... %d%%", "格式化进度：%d%%")
+	formatMax, formatOut, err := FormatEX(strings.ReplaceAll(strings.ReplaceAll(targetRoot, "\\", ""), ":", ""), "ntfs", "Windows", true, formatCb)
+	if err != nil {
+		logWrite("格式化失败: %v\n输出:\n%s", err, formatOut)
+	} else {
+		logWrite("格式化最终进度：%d%%", formatMax)
 	}
 	logWrite("格式化完成：%s", targetRoot)
 
@@ -1399,9 +1435,16 @@ func RunPEInstall() error {
 	logWrite("安装后处理完成")
 
 	if tempVol != "" {
-		_ = DeleteVolume(tempVol)
-		_ = MergeVolume(targetRoot, 0)
-		logWrite("已合并临时分区回系统分区：%s", targetRoot)
+		deleteCb := progressHandler(85, 5, "正在删除临时分区... %d%%", "删除临时分区进度：%d%%")
+		if err := DeleteVolumeEX(tempVol, deleteCb); err != nil {
+			logWrite("删除临时分区失败：%v", err)
+		}
+		mergeCb := progressHandler(90, 5, "正在合并临时分区... %d%%", "合并临时分区进度：%d%%")
+		if err := MergeVolumeEX(targetRoot, 0, mergeCb); err != nil {
+			logWrite("合并临时分区失败：%v", err)
+		} else {
+			logWrite("已合并临时分区回系统分区：%s", targetRoot)
+		}
 	}
 
 	uiSetStatus("安装完成，正在重启...")

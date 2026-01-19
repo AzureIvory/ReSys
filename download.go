@@ -415,6 +415,12 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 		if err := cmd.Start(); err != nil {
 			return fmt.Errorf("start curl (%s): %w", curlPath, err)
 		}
+		go func() {
+			<-curlCtx.Done()
+			if cmd.Process != nil {
+				_, _ = runCmd("taskkill", nil, "/F", "/T", "/PID", strconv.Itoa(cmd.Process.Pid))
+			}
+		}()
 
 		done := make(chan struct{})
 		stallCh := make(chan error, 1)

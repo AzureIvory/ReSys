@@ -640,9 +640,9 @@ func FixUEFI(osRoot, sysHint, locale string) error {
 	}
 	bcdpath := "bcdboot.exe"
 	if systemArch() == "32" {
-		bcdpath = "C:\\Windows\\Sysnative\\bcdboot.exe"
+		bcdpath = "X:\\Windows\\Sysnative\\bcdboot.exe"
 	} else {
-		bcdpath = "C:\\Windows\\System32\\bcdboot.exe"
+		bcdpath = "X:\\Windows\\System32\\bcdboot.exe"
 	}
 
 	out, err := runCmd(bcdpath, nil, args...)
@@ -695,9 +695,9 @@ func FixBIOS(osRoot, sysHint, locale string) error {
 	}
 	bcdpath := "bcdboot.exe"
 	if systemArch() == "32" {
-		bcdpath = "C:\\Windows\\Sysnative\\bcdboot.exe"
+		bcdpath = "X:\\Windows\\Sysnative\\bcdboot.exe"
 	} else {
-		bcdpath = "C:\\Windows\\System32\\bcdboot.exe"
+		bcdpath = "X:\\Windows\\System32\\bcdboot.exe"
 	}
 
 	out, err := runCmd(bcdpath, nil, args...)
