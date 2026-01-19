@@ -111,12 +111,44 @@ func UnpackISO(isoPath, dstDir string) error {
 
 // 执行外部命令，返回stdout+stderr
 // onLine：不为 nil 时，每输出一行就回调一次。
-func runCmd(bin string, onLine func(string), args ...string) (string, error) {
+// dir：工作目录，为空则用 程序目录\tools 。
+func runCmd(bin string, onLine func(string), dir string, args ...string) (string, error) {
 	cmd := exec.Command(bin, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	exe, err := os.Executable()
-	if err == nil {
-		cmd.Dir = filepath.Dir(exe)
+
+	// 目录：优先用传入的 dir；为空则用 程序目录\tools
+	toolDir := strings.TrimSpace(dir)
+	if toolDir == "" {
+		if exe, err := os.Executable(); err == nil {
+			toolDir = filepath.Join(filepath.Dir(exe), "tools")
+		}
+	}
+
+	// 设置工作目录 + 把该目录加到 PATH 前面
+	if toolDir != "" {
+		cmd.Dir = toolDir
+
+		env := os.Environ()
+		oldPath := os.Getenv("PATH")
+		sep := string(os.PathListSeparator)
+
+		newPath := toolDir
+		if oldPath != "" {
+			newPath = toolDir + sep + oldPath
+		}
+
+		replaced := false
+		for i := range env {
+			if strings.HasPrefix(strings.ToUpper(env[i]), "PATH=") {
+				env[i] = "PATH=" + newPath
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			env = append(env, "PATH="+newPath)
+		}
+		cmd.Env = env
 	}
 
 	var buf bytes.Buffer
@@ -164,7 +196,7 @@ func runCmd(bin string, onLine func(string), args ...string) (string, error) {
 	})
 	cmd.Stderr = cmd.Stdout
 
-	err = cmd.Run()
+	err := cmd.Run()
 
 	if len(lw.part) > 0 {
 		writeLine(string(lw.part))
