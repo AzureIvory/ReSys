@@ -213,7 +213,7 @@ func isClosed(ch <-chan struct{}) bool {
 	}
 }
 
-func RunPartAssistWithProgress(args []string, onProgress func(p int)) (PartAssistProgressResult, error) {
+func RunPartAssistEX(args []string, onProgress func(p int)) (PartAssistProgressResult, error) {
 	exe, err := partAssistExePath()
 	if err != nil {
 		return PartAssistProgressResult{}, err
@@ -303,7 +303,7 @@ func RunPartAssistWithProgress(args []string, onProgress func(p int)) (PartAssis
 	return res, nil
 }
 
-func SplitVolume1WithProgress(vol string, sizeMB int, fs, label string, onProgress func(int)) (string, error) {
+func SplitVolume1EX(vol string, sizeMB int, fs, label string, onProgress func(int)) (string, error) {
 	volLetter, err := normalizeDriveLetter(vol)
 	if err != nil {
 		return "", err
@@ -326,7 +326,7 @@ func SplitVolume1WithProgress(vol string, sizeMB int, fs, label string, onProgre
 	// 1) 收缩（整体 0-50）
 	{
 		cb := mapProgress(onProgress, 0, 50)
-		res, err := RunPartAssistWithProgress([]string{
+		res, err := RunPartAssistEX([]string{
 			fmt.Sprintf("/resize:%s", volLetter),
 			fmt.Sprintf("/reduce-right:%d", sizeMB),
 		}, cb)
@@ -366,12 +366,12 @@ func SplitVolume1WithProgress(vol string, sizeMB int, fs, label string, onProgre
 
 		creArgs := append([]string{}, baseCreArgs...)
 		creArgs = append(creArgs, fmt.Sprintf("/size:%d", createSize))
-		res, err := RunPartAssistWithProgress(creArgs, cb)
+		res, err := RunPartAssistEX(creArgs, cb)
 		if err != nil {
 			// 重试 /size:auto
 			creArgs2 := append([]string{}, baseCreArgs...)
 			creArgs2 = append(creArgs2, "/size:auto")
-			res2, err2 := RunPartAssistWithProgress(creArgs2, cb)
+			res2, err2 := RunPartAssistEX(creArgs2, cb)
 			if err2 != nil {
 				return "", fmt.Errorf("partassist create partition failed: %w\n首次输出:\n%s\n重试输出:\n%s",
 					err, res.Output, res2.Output)
@@ -397,7 +397,7 @@ func SplitVolume1WithProgress(vol string, sizeMB int, fs, label string, onProgre
 	return "", fmt.Errorf("split finished but cannot determine new drive letter (check Disk Management)")
 }
 
-func FormatWithProgress(letter, fs, label string, quick bool, onProgress func(int)) (int, string, error) {
+func FormatEX(letter, fs, label string, quick bool, onProgress func(int)) (int, string, error) {
 	_ = quick
 
 	volLetter, err := normalizeDriveLetter(letter)
@@ -411,7 +411,7 @@ func FormatWithProgress(letter, fs, label string, quick bool, onProgress func(in
 	fs2 = strings.ToLower(fs2)
 	label = sanitizePartAssistLabel(label)
 
-	res, err := RunPartAssistWithProgress([]string{
+	res, err := RunPartAssistEX([]string{
 		fmt.Sprintf("/fmt:%s", volLetter),
 		fmt.Sprintf("/fs:%s", fs2),
 		fmt.Sprintf("/label:%s", label),
@@ -420,7 +420,7 @@ func FormatWithProgress(letter, fs, label string, quick bool, onProgress func(in
 	return res.MaxProgress, res.Output, err
 }
 
-func MergeVolumeWithProgress(vol string, sizeMB int, onProgress func(int)) error {
+func MergeVolumeEX(vol string, sizeMB int, onProgress func(int)) error {
 	volLetter, err := normalizeDriveLetter(vol)
 	if err != nil {
 		return err
@@ -431,7 +431,7 @@ func MergeVolumeWithProgress(vol string, sizeMB int, onProgress func(int)) error
 		extendArg = strconv.Itoa(sizeMB)
 	}
 
-	res, err := RunPartAssistWithProgress([]string{
+	res, err := RunPartAssistEX([]string{
 		fmt.Sprintf("/resize:%s", volLetter),
 		fmt.Sprintf("/extend:%s", extendArg),
 	}, onProgress)
@@ -441,13 +441,13 @@ func MergeVolumeWithProgress(vol string, sizeMB int, onProgress func(int)) error
 	return nil
 }
 
-func DeleteVolumeWithProgress(vol string, onProgress func(int)) error {
+func DeleteVolumeEX(vol string, onProgress func(int)) error {
 	volLetter, err := normalizeDriveLetter(vol)
 	if err != nil {
 		return err
 	}
 
-	res, err := RunPartAssistWithProgress([]string{
+	res, err := RunPartAssistEX([]string{
 		fmt.Sprintf("/del:%s", volLetter),
 	}, onProgress)
 	if err != nil {
