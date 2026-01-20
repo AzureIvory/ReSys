@@ -1326,6 +1326,7 @@ func Findpart() []string {
 }
 
 
+
 // 进入PE
 // 可选参数：GoToPE(sdiPath, wimPath)
 func GoToPE(paths ...string) error {

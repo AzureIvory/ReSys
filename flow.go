@@ -726,6 +726,78 @@ func fileExists(path string) bool {
 	return false
 }
 
+func systemDriveRoot() string {
+	drive := strings.TrimSpace(os.Getenv("SystemDrive"))
+	if drive == "" {
+		windir := os.Getenv("SystemRoot")
+		if windir == "" {
+			windir = os.Getenv("WINDIR")
+		}
+		if windir != "" {
+			drive = filepath.VolumeName(windir)
+		}
+	}
+	drive = strings.TrimSpace(drive)
+	if drive == "" {
+		return ""
+	}
+	drive = strings.TrimRight(drive, `\`)
+	if strings.HasSuffix(drive, ":") {
+		return drive + `\`
+	}
+	if len(drive) == 1 {
+		return strings.ToUpper(drive) + `:\`
+	}
+	if vol := filepath.VolumeName(drive); vol != "" {
+		return vol + `\`
+	}
+	return ""
+}
+
+// IsWePE 检测当前运行环境是否为微PE。
+// 规则：系统盘的 Program Files 下存在 WepeGuide 目录则视为微PE。
+func IsWePE() bool {
+	root := systemDriveRoot()
+	if root == "" {
+		return false
+	}
+	wepeDir := filepath.Join(root, "Program Files", "WepeGuide")
+	if st, err := os.Stat(wepeDir); err == nil && st.IsDir() {
+		return true
+	}
+	return false
+}
+
+func runApproxProgress(onProgress func(int), fn func() error) error {
+	if onProgress == nil {
+		return fn()
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- fn()
+	}()
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	progress := 0
+
+	for {
+		select {
+		case err := <-done:
+			onProgress(100)
+			return err
+		case <-ticker.C:
+			if progress < 95 {
+				progress += 5
+				if progress > 95 {
+					progress = 95
+				}
+				onProgress(progress)
+			}
+		}
+	}
+}
+
 // 选择 PETEMP 所在盘符。
 func choosePETempRoot(needBytes int64) (string, error) {
 	systemDrive := strings.ToUpper(os.Getenv("SystemDrive"))
@@ -1186,6 +1258,11 @@ func RunPEInstall() error {
 	uiSetProgress(0)
 	uiSetStatus("正在读取重装信息...")
 	logWrite("进入PE安装流程")
+	isWePE := IsWePE()
+	if isWePE {
+		logWrite("检测到微PE环境，使用非EX的分区工具调用")
+	}
+	//进度回调
 	//进度回调
 	progressHandler := func(base, span int32, statusFmt, logFmt string) func(int) {
 		var lastUI time.Time
@@ -1333,7 +1410,16 @@ func RunPEInstall() error {
 			}
 
 			splitCb := progressHandler(10, 5, "正在拆分分区... %d%%", "拆分分区进度：%d%%")
-			newVol, err := SplitVolume1EX(targetRoot, sizeMB, "ntfs", "TEMP", splitCb)
+			var newVol string
+			if isWePE {
+				err = runApproxProgress(splitCb, func() error {
+					var splitErr error
+					newVol, splitErr = SplitVolume1(targetRoot, sizeMB, "ntfs", "TEMP")
+					return splitErr
+				})
+			} else {
+				newVol, err = SplitVolume1EX(targetRoot, sizeMB, "ntfs", "TEMP", splitCb)
+			}
 			if err != nil {
 				return err
 			}
@@ -1361,11 +1447,21 @@ func RunPEInstall() error {
 		formatSpan = 5
 	}
 	formatCb := progressHandler(formatBase, formatSpan, "正在格式化分区... %d%%", "格式化进度：%d%%")
-	formatMax, formatOut, err := FormatEX(strings.ReplaceAll(strings.ReplaceAll(targetRoot, "\\", ""), ":", ""), "ntfs", "Windows", true, formatCb)
-	if err != nil {
-		logWrite("格式化失败: %v\n输出:\n%s", err, formatOut)
+
+	if isWePE {
+		err = runApproxProgress(formatCb, func() error {
+			return Format(strings.ReplaceAll(strings.ReplaceAll(targetRoot, "\\", ""), ":", ""), "ntfs", "Windows", true)
+		})
+		if err != nil {
+			logWrite("格式化失败: %v", err)
+		}
 	} else {
-		logWrite("格式化最终进度：%d%%", formatMax)
+		formatMax, formatOut, err := FormatEX(strings.ReplaceAll(strings.ReplaceAll(targetRoot, "\\", ""), ":", ""), "ntfs", "Windows", true, formatCb)
+		if err != nil {
+			logWrite("格式化失败: %v\n输出:\n%s", err, formatOut)
+		} else {
+			logWrite("格式化最终进度：%d%%", formatMax)
+		}
 	}
 	logWrite("格式化完成：%s", targetRoot)
 
@@ -1436,14 +1532,32 @@ func RunPEInstall() error {
 
 	if tempVol != "" {
 		deleteCb := progressHandler(85, 5, "正在删除临时分区... %d%%", "删除临时分区进度：%d%%")
-		if err := DeleteVolumeEX(tempVol, deleteCb); err != nil {
-			logWrite("删除临时分区失败：%v", err)
+		if isWePE {
+			if err := runApproxProgress(deleteCb, func() error {
+				return DeleteVolume(tempVol)
+			}); err != nil {
+				logWrite("删除临时分区失败：%v", err)
+			}
+		} else {
+			if err := DeleteVolumeEX(tempVol, deleteCb); err != nil {
+				logWrite("删除临时分区失败：%v", err)
+			}
 		}
 		mergeCb := progressHandler(90, 5, "正在合并临时分区... %d%%", "合并临时分区进度：%d%%")
-		if err := MergeVolumeEX(targetRoot, 0, mergeCb); err != nil {
-			logWrite("合并临时分区失败：%v", err)
+		if isWePE {
+			if err := runApproxProgress(mergeCb, func() error {
+				return MergeVolume(targetRoot, 0)
+			}); err != nil {
+				logWrite("合并临时分区失败：%v", err)
+			} else {
+				logWrite("已合并临时分区回系统分区：%s", targetRoot)
+			}
 		} else {
-			logWrite("已合并临时分区回系统分区：%s", targetRoot)
+			if err := MergeVolumeEX(targetRoot, 0, mergeCb); err != nil {
+				logWrite("合并临时分区失败：%v", err)
+			} else {
+				logWrite("已合并临时分区回系统分区：%s", targetRoot)
+			}
 		}
 	}
 
