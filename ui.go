@@ -36,7 +36,6 @@ var (
 	user32  = windows.NewLazySystemDLL("user32.dll")
 	gdi32   = windows.NewLazySystemDLL("gdi32.dll")
 	msimg32 = windows.NewLazySystemDLL("msimg32.dll")
-	//kernel32 = windows.NewLazySystemDLL("kernel32.dll")
 	shlwapi = windows.NewLazySystemDLL("shlwapi.dll")
 
 	procRegisterClassExW        = user32.NewProc("RegisterClassExW")
@@ -69,6 +68,7 @@ var (
 	procSetWindowTextW          = user32.NewProc("SetWindowTextW")
 	procMessageBoxW             = user32.NewProc("MessageBoxW")
 	procMessageBoxTimeoutW      = user32.NewProc("MessageBoxTimeoutW")
+	procAdjustWindowRectEx      = user32.NewProc("AdjustWindowRectEx")
 
 	procCreateSolidBrush    = gdi32.NewProc("CreateSolidBrush")
 	procDeleteObject        = gdi32.NewProc("DeleteObject")
@@ -100,16 +100,22 @@ var (
 
 	procSystemParametersInfoW = user32.NewProc("SystemParametersInfoW")
 
-	shcore                            = windows.NewLazySystemDLL("shcore.dll")          //设置显示 Dpi
+	shcore                            = windows.NewLazySystemDLL("shcore.dll")          // 设置显示 Dpi
 	procSetProcessDpiAwarenessContext = user32.NewProc("SetProcessDpiAwarenessContext") // Win10 1607+
 	procSetProcessDpiAwareness        = shcore.NewProc("SetProcessDpiAwareness")        // Win8.1+
 )
 
 const (
-	WS_POPUP        = 0x80000000
 	WS_VISIBLE      = 0x10000000
 	WS_CLIPSIBLINGS = 0x04000000
 	WS_CLIPCHILDREN = 0x02000000
+
+	// 原生标题栏相关
+	WS_CAPTION     = 0x00C00000
+	WS_SYSMENU     = 0x00080000
+	WS_MINIMIZEBOX = 0x00020000
+	WS_THICKFRAME  = 0x00040000
+	WS_MAXIMIZEBOX = 0x00010000
 
 	WS_EX_APPWINDOW = 0x00040000
 	WS_EX_LAYERED   = 0x00080000
@@ -124,11 +130,6 @@ const (
 	WM_MOUSELEAVE  = 0x02A3
 	WM_LBUTTONDOWN = 0x0201
 	WM_LBUTTONUP   = 0x0202
-	WM_NCHITTEST   = 0x0084
-	WM_SETCURSOR   = 0x0020
-
-	HTCAPTION = 2
-	HTCLIENT  = 1
 
 	WM_APP = 0x8000
 
@@ -168,6 +169,11 @@ const (
 	GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS       = 0x00000004
 )
 
+// 原自绘标题栏高度（现在由系统标题栏负责了），用于把旧布局整体上移保持观感一致
+const oldTitleBarH int32 = 44
+
+func yFromOld(oldY int32) int32 { return oldY - oldTitleBarH }
+
 // 辅助函数：Win32 COLORREF 是 0x00BBGGRR，和通常的 RGB 相反
 func RGB(r, g, b byte) uintptr {
 	return uintptr(r) | (uintptr(g) << 8) | (uintptr(b) << 16)
@@ -176,7 +182,7 @@ func RGB(r, g, b byte) uintptr {
 var (
 	// 现代简约浅色主题（干净、留白、低对比）
 	ColorBgDark   = RGB(255, 255, 255) // 整体背景（雾白/浅灰）
-	ColorTitleBar = RGB(248, 249, 251) // 标题栏与背景一致（融为一体）
+	ColorTitleBar = RGB(248, 249, 251) // 现在不会再用于自绘标题栏（保留不影响）
 	ColorText     = RGB(16, 16, 16)    // 主文字（深灰，非纯黑更柔和）
 	ColorTextHint = RGB(16, 16, 16)    // 提示文字（中灰）
 
@@ -186,15 +192,6 @@ var (
 	ColorBtnDown   = RGB(0, 120, 215)
 	ColorBtnBorder = RGB(200, 206, 214) // 边框更清晰一点
 	ColorHighlight = RGB(0, 120, 215)   // 高亮
-
-	// 标题栏按钮
-	ColorBtnCloseHover = RGB(232, 17, 35)
-	ColorBtnMinHover   = RGB(230, 233, 238) // 悬停更明显一点
-	ColorBtnDown1      = 0x003E3E3E
-
-	// 按钮尺寸
-	TitleBtnW = 46
-	TitleBtnH = 32
 )
 
 var gFontQuality byte = ANTIALIASED_QUALITY
@@ -335,15 +332,6 @@ func initFontSmoothing() {
 
 	if rSet != 0 && rGet != 0 && cur == FE_FONTSMOOTHINGCLEARTYPE {
 		gFontQuality = CLEARTYPE_QUALITY
-
-		//（可选）设置 ClearType 对比度：1000~2200 常用；太高会“黑边重”
-		// contrast := uint32(1600)
-		// procSystemParametersInfoW.Call(
-		// 	SPI_SETFONTSMOOTHINGCONTRAST,
-		// 	0,
-		// 	uintptr(unsafe.Pointer(&contrast)),
-		// 	SPIF_UPDATEINIFILE|SPIF_SENDCHANGE,
-		// )
 		return
 	}
 
@@ -440,9 +428,6 @@ type UI struct {
 	icon7   windows.Handle
 	icon10  windows.Handle
 	icon11  windows.Handle
-
-	btnMin   Button
-	btnClose Button
 }
 
 var ui UI
@@ -597,6 +582,7 @@ func icoToHICON(ico []byte, want int32) (windows.Handle, error) {
 	}
 	return windows.Handle(h), nil
 }
+
 func decodeGIFFrames(gifBytes []byte) ([]Frame, error) {
 	g, err := gif.DecodeAll(bytes.NewReader(gifBytes))
 	if err != nil {
@@ -723,14 +709,13 @@ func makeFont(height int32, weight int32, _ string) windows.Handle {
 	faceName := "Microsoft YaHei UI"
 
 	var lf LOGFONTW
-	lf.Height = -height // 负值代表字符高度，正值代表Cell高度
+	lf.Height = -height
 	lf.Weight = weight
-	lf.CharSet = 1 // DEFAULT_CHARSET, 也可以用 134 (GB2312)
+	lf.CharSet = 1 // DEFAULT_CHARSET
 
-	// 开启 ClearType (5 = CLEARTYPE_QUALITY)
+	// 这里保持原逻辑（强制 5），不改动你的风格
 	lf.Quality = 5
 
-	// 设置字体名称
 	f := windows.StringToUTF16(faceName)
 	copy(lf.FaceName[:], f)
 
@@ -756,8 +741,12 @@ func paint() {
 	defer procDeleteDC.Call(memDC)
 
 	bmi := BITMAPINFOHEADER{
-		Size:  uint32(unsafe.Sizeof(BITMAPINFOHEADER{})),
-		Width: w, Height: -h, Planes: 1, BitCount: 32, Compression: 0,
+		Size:        uint32(unsafe.Sizeof(BITMAPINFOHEADER{})),
+		Width:       w,
+		Height:      -h,
+		Planes:      1,
+		BitCount:    32,
+		Compression: 0,
 	}
 	var bits unsafe.Pointer
 	hbmp, _, _ := procCreateDIBSection.Call(memDC, uintptr(unsafe.Pointer(&bmi)), 0, uintptr(unsafe.Pointer(&bits)), 0, 0)
@@ -805,7 +794,6 @@ func drawButton(hdc windows.Handle, b *Button, font windows.Handle) {
 		return
 	}
 
-	// 1. 确定颜色
 	bgColor := ColorBtnNormal
 	textColor := ColorText
 
@@ -814,60 +802,50 @@ func drawButton(hdc windows.Handle, b *Button, font windows.Handle) {
 		textColor = RGB(100, 100, 100)
 	} else if b.Down {
 		bgColor = ColorBtnDown
-		textColor = RGB(255, 255, 255) // 按下时文字纯白
+		textColor = RGB(255, 255, 255)
 	} else if b.Hover {
 		bgColor = ColorBtnHover
 	}
 
-	// 2. 创建 GDI 对象
 	brush, _, _ := procCreateSolidBrush.Call(bgColor)
-	// 扁平化设计通常不需要明显的边框，或者边框颜色与背景一致
 	pen, _, _ := procCreatePen.Call(PS_SOLID, 1, bgColor)
 
 	oldBrush, _, _ := procSelectObject.Call(uintptr(hdc), brush)
 	oldPen, _, _ := procSelectObject.Call(uintptr(hdc), pen)
 
-	// 3. 绘制圆角矩形 (增加圆角半径，更圆润)
 	procRoundRect.Call(uintptr(hdc),
 		uintptr(b.R.X), uintptr(b.R.Y),
 		uintptr(b.R.X+b.R.W), uintptr(b.R.Y+b.R.H),
-		8, 8) // 圆角半径改为 8 或 12
+		8, 8)
 
-	// 清理画笔画刷
 	procSelectObject.Call(uintptr(hdc), oldBrush)
 	procSelectObject.Call(uintptr(hdc), oldPen)
 	procDeleteObject.Call(brush)
 	procDeleteObject.Call(pen)
 
-	// 4. 绘制图标 (如果存在)
-	//iconOffset := int32(0)
 	if b.Icon != 0 {
-		// 图标居中算法优化
 		ix := b.R.X + (b.R.W-48)/2
-		iy := b.R.Y + (b.R.H-48)/2 - 10 // 稍微向上偏移，给文字留空间
+		iy := b.R.Y + (b.R.H-48)/2 - 10
 		if b.Text == "" {
 			iy = b.R.Y + (b.R.H-48)/2
-		} // 如果没文字，完全居中
+		}
 
 		if b.Down {
 			iy += 1
 			ix += 1
-		} // 按下时的微动效果
+		}
 
 		procDrawIconEx.Call(uintptr(hdc), uintptr(ix), uintptr(iy), uintptr(b.Icon), 48, 48, 0, 0, DI_NORMAL)
 	}
 
-	// 5. 绘制文字
 	if b.Text != "" {
 		procSetBkMode.Call(uintptr(hdc), BKMODE_TRANSPARENT)
 		procSetTextColor.Call(uintptr(hdc), textColor)
 
 		oldF, _, _ := procSelectObject.Call(uintptr(hdc), uintptr(font))
 
-		// 文字区域计算
 		rectText := RECT{b.R.X, b.R.Y, b.R.X + b.R.W, b.R.Y + b.R.H}
 		if b.Icon != 0 {
-			// 如果有图标，文字放在底部
 			rectText.Top = b.R.Y + b.R.H - 35
 		}
 
@@ -894,52 +872,20 @@ func fillRect(hdc windows.Handle, rc *RECT, hbr windows.Handle) {
 	fill.Call(uintptr(hdc), uintptr(unsafe.Pointer(rc)), uintptr(hbr))
 }
 
-func paintTitle(hdc windows.Handle, w, h int32) {
-	var r RECT = RECT{0, 0, w, 44}
-	br, _, _ := procCreateSolidBrush.Call(uintptr(ColorTitleBar))
-	fillRect(hdc, &r, windows.Handle(br))
-	procDeleteObject.Call(br)
-
-	if ui.iconApp != 0 {
-		procDrawIconEx.Call(uintptr(hdc), 12, 6, uintptr(ui.iconApp), 32, 32, 0, 0, DI_NORMAL)
-	}
-
-	procSetBkMode.Call(uintptr(hdc), BKMODE_TRANSPARENT)
-	procSetTextColor.Call(uintptr(hdc), uintptr(ColorText))
-	oldF, _, _ := procSelectObject.Call(uintptr(hdc), uintptr(ui.font20))
-	defer procSelectObject.Call(uintptr(hdc), oldF)
-
-	rt := RECT{54, 0, w - 100, 44}
-	titleText := "ReSys重装"
-	procDrawTextW.Call(
-		uintptr(hdc),
-		uintptr(unsafe.Pointer(mustUTF16(titleText))),
-		drawTextAutoLen,
-		uintptr(unsafe.Pointer(&rt)),
-		uintptr(DT_VCENTER|DT_SINGLELINE),
-	)
-	drawTitleBtn(hdc, &ui.btnMin, false)
-	drawTitleBtn(hdc, &ui.btnClose, true)
-}
-
 func getAllButtons() []*Button {
-	base := []*Button{&ui.btnMin, &ui.btnClose}
-
 	if ui.mode.Load() == int32(ModeSelect) {
-		return append(base, &ui.btn7, &ui.btn10, &ui.btn11, &ui.btnAdv)
+		return []*Button{&ui.btn7, &ui.btn10, &ui.btn11, &ui.btnAdv}
 	}
-	return base
+	return nil
 }
 
 func paintSelect(hdc windows.Handle, w, h int32) {
-	paintTitle(hdc, w, h)
-
 	procSetBkMode.Call(uintptr(hdc), BKMODE_TRANSPARENT)
 	procSetTextColor.Call(uintptr(hdc), uintptr(ColorTextHint))
 	oldF, _, _ := procSelectObject.Call(uintptr(hdc), uintptr(ui.font20))
 	defer procSelectObject.Call(uintptr(hdc), oldF)
 
-	rt := RECT{0, 60, w, 100}
+	rt := RECT{0, yFromOld(60), w, yFromOld(100)}
 	text := "请选择要安装的操作系统"
 	procDrawTextW.Call(
 		uintptr(hdc),
@@ -956,8 +902,6 @@ func paintSelect(hdc windows.Handle, w, h int32) {
 }
 
 func paintProgress(hdc windows.Handle, w, h int32) {
-	paintTitle(hdc, w, h)
-
 	p := ui.statusPtr.Load()
 	status := "正在准备..."
 	if p != 0 {
@@ -968,7 +912,7 @@ func paintProgress(hdc windows.Handle, w, h int32) {
 	oldF, _, _ := procSelectObject.Call(uintptr(hdc), uintptr(ui.font20))
 	defer procSelectObject.Call(uintptr(hdc), oldF)
 
-	rt := RECT{20, 60, w - 20, 96}
+	rt := RECT{20, yFromOld(60), w - 20, yFromOld(96)}
 	procDrawTextW.Call(
 		uintptr(hdc),
 		uintptr(unsafe.Pointer(mustUTF16(status))),
@@ -980,7 +924,7 @@ func paintProgress(hdc windows.Handle, w, h int32) {
 	if len(ui.frames) > 0 {
 		f := ui.frames[ui.frameIdx%len(ui.frames)]
 		x := (w - f.W) / 2
-		y := int32(110)
+		y := yFromOld(110)
 
 		srcDC, _, _ := procCreateCompatibleDC.Call(uintptr(hdc))
 		defer procDeleteDC.Call(srcDC)
@@ -1010,7 +954,7 @@ func paintProgress(hdc windows.Handle, w, h int32) {
 	barW := int32(300)
 	barH := int32(6)
 	barX := (w - barW) / 2
-	barY := int32(280)
+	barY := yFromOld(280)
 
 	// 背景条
 	bgBr, _, _ := procCreateSolidBrush.Call(0x00333333)
@@ -1062,31 +1006,9 @@ func paintProgress(hdc windows.Handle, w, h int32) {
 
 // -------------------- layout --------------------
 
-func layoutTitleBar(w, h int32) {
-	ui.btnClose = Button{
-		R:       Rect{X: w - int32(TitleBtnW), Y: 0, W: int32(TitleBtnW), H: 44},
-		Text:    "✕",
-		Visible: true, Enabled: true,
-		OnClick: func() {
-			procPostQuitMessage.Call(0)
-		},
-	}
-
-	ui.btnMin = Button{
-		R:       Rect{X: w - int32(TitleBtnW*2), Y: 0, W: int32(TitleBtnW), H: 44},
-		Text:    "─",
-		Visible: true, Enabled: true,
-		OnClick: func() {
-			procShowWindow.Call(uintptr(ui.hwnd), 6)
-		},
-	}
-}
-
 func layoutSelect(w, h int32) {
-	layoutTitleBar(w, h)
-
 	ui.btn7 = Button{
-		R:    Rect{X: 50, Y: 200, W: 120, H: 120},
+		R:    Rect{X: 50, Y: yFromOld(200), W: 120, H: 120},
 		Text: "重装 win7", Icon: ui.icon7, Visible: true, Enabled: true,
 		OnClick: func() {
 			if Message("提示", "重装系统将会清除C盘数据,是否继续?") {
@@ -1096,7 +1018,7 @@ func layoutSelect(w, h int32) {
 		},
 	}
 	ui.btn10 = Button{
-		R:    Rect{X: 240, Y: 200, W: 120, H: 120},
+		R:    Rect{X: 240, Y: yFromOld(200), W: 120, H: 120},
 		Text: "重装 win10", Icon: ui.icon10, Visible: true, Enabled: true,
 		OnClick: func() {
 			if Message("提示", "重装系统将会清除C盘数据,是否继续?") {
@@ -1106,7 +1028,7 @@ func layoutSelect(w, h int32) {
 		},
 	}
 	ui.btn11 = Button{
-		R:    Rect{X: 430, Y: 200, W: 120, H: 120},
+		R:    Rect{X: 430, Y: yFromOld(200), W: 120, H: 120},
 		Text: "重装 win11", Icon: ui.icon11, Visible: true, Enabled: true,
 		OnClick: func() {
 			if Message("提示", "重装系统将会清除C盘数据,是否继续?") {
@@ -1116,7 +1038,7 @@ func layoutSelect(w, h int32) {
 		},
 	}
 	ui.btnAdv = Button{
-		R:    Rect{X: 10, Y: 50, W: 90, H: 34},
+		R:    Rect{X: 10, Y: yFromOld(50), W: 90, H: 34},
 		Text: "高级模式", Icon: 0, Visible: true, Enabled: true,
 		OnClick: func() { uiSetStatus("高级模式：TODO") },
 	}
@@ -1124,55 +1046,6 @@ func layoutSelect(w, h int32) {
 
 func layoutProgress() {
 	ui.btn7.Visible, ui.btn10.Visible, ui.btn11.Visible, ui.btnAdv.Visible = false, false, false, false
-}
-
-func drawTitleBtn(hdc windows.Handle, b *Button, isClose bool) {
-	var bgHex uintptr = ColorTitleBar
-
-	if b.Down {
-		if isClose {
-			bgHex = 0x001A0B99
-		} else {
-			bgHex = 0x00333333
-		}
-	} else if b.Hover {
-		if isClose {
-			bgHex = ColorBtnCloseHover
-		} else {
-			bgHex = ColorBtnMinHover
-		}
-	}
-	if bgHex != ColorTitleBar {
-		brush, _, _ := procCreateSolidBrush.Call(bgHex)
-		r := RECT{b.R.X, b.R.Y, b.R.X + b.R.W, b.R.Y + b.R.H}
-		fillRect(hdc, &r, windows.Handle(brush))
-		procDeleteObject.Call(brush)
-	}
-
-	pen, _, _ := procCreatePen.Call(PS_SOLID, 1, 0x00FFFFFF)
-	oldPen, _, _ := procSelectObject.Call(uintptr(hdc), pen)
-
-	cx := b.R.X + b.R.W/2
-	cy := b.R.Y + b.R.H/2
-
-	if isClose {
-		moveToEx(hdc, cx-5, cy-5)
-		lineTo(hdc, cx+5, cy+5)
-		moveToEx(hdc, cx+5, cy-5)
-		lineTo(hdc, cx-5, cy+5)
-	} else {
-		moveToEx(hdc, cx-5, cy)
-		lineTo(hdc, cx+5, cy)
-	}
-	procSelectObject.Call(uintptr(hdc), oldPen)
-	procDeleteObject.Call(pen)
-}
-func moveToEx(hdc windows.Handle, x, y int32) {
-	gdi32.NewProc("MoveToEx").Call(uintptr(hdc), uintptr(x), uintptr(y), 0)
-}
-
-func lineTo(hdc windows.Handle, x, y int32) {
-	gdi32.NewProc("LineTo").Call(uintptr(hdc), uintptr(x), uintptr(y))
 }
 
 func updateHover(x, y int32) bool {
@@ -1222,7 +1095,6 @@ var wndProc = windows.NewCallback(func(hwnd uintptr, msg uint32, wParam, lParam 
 		procGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&rc)))
 		w := rc.Right - rc.Left
 		h := rc.Bottom - rc.Top
-		layoutTitleBar(w, h)
 		if ui.mode.Load() == int32(ModeSelect) {
 			layoutSelect(w, h)
 		} else {
@@ -1276,23 +1148,6 @@ var wndProc = windows.NewCallback(func(hwnd uintptr, msg uint32, wParam, lParam 
 		}
 		procInvalidateRect.Call(hwnd, 0, 0)
 		return 0
-
-	case WM_NCHITTEST:
-		x := int32(int16(uint16(lParam & 0xFFFF)))
-		y := int32(int16(uint16((lParam >> 16) & 0xFFFF)))
-
-		pt := POINT{X: x, Y: y}
-		user32.NewProc("ScreenToClient").Call(hwnd, uintptr(unsafe.Pointer(&pt)))
-
-		if hitButton(pt.X, pt.Y) != nil {
-			return HTCLIENT
-		}
-
-		if pt.Y < 44 {
-			return HTCAPTION
-		}
-
-		return HTCLIENT
 
 	case WM_TIMER:
 		if ui.mode.Load() == int32(ModeProgress) && len(ui.frames) > 0 {
@@ -1361,7 +1216,6 @@ func Uiinit() {
 	runtime.LockOSThread()
 	initDPI()
 	procSetProcessDPIAware.Call()
-	//先尝试开启 ClearType/字体平滑，并设置 gFontQuality
 	initFontSmoothing()
 
 	var err error
@@ -1401,16 +1255,25 @@ func Uiinit() {
 		panic(err2)
 	}
 
-	style := uintptr(WS_POPUP | WS_CLIPCHILDREN | WS_CLIPSIBLINGS)
+	// ✅ 改成系统原生标题栏样式（关闭/最小化由系统提供）
+	// - 不加 WS_THICKFRAME/WS_MAXIMIZEBOX：窗口不可拖拽改变大小（更接近原来的固定窗口）
+	style := uintptr(WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN | WS_CLIPSIBLINGS)
 	exStyle := uintptr(WS_EX_APPWINDOW)
-	// 获取工作区
-	type RECT struct{ Left, Top, Right, Bottom int32 }
-	const SPI_GETWORKAREA = 0x0030
 
+	// 获取工作区
+	const SPI_GETWORKAREA = 0x0030
 	var wa RECT
 	procSystemParametersInfoW.Call(SPI_GETWORKAREA, 0, uintptr(unsafe.Pointer(&wa)), 0)
 
-	winW, winH := int32(600), int32(400)
+	// 目标客户区大小仍然是 600x400
+	clientW, clientH := int32(600), int32(400)
+
+	// 把客户区尺寸换算成窗口外框尺寸（包含标题栏/边框）
+	rc := RECT{Left: 0, Top: 0, Right: clientW, Bottom: clientH}
+	procAdjustWindowRectEx.Call(uintptr(unsafe.Pointer(&rc)), style, 0, exStyle)
+	winW := rc.Right - rc.Left
+	winH := rc.Bottom - rc.Top
+
 	x := wa.Left + (wa.Right-wa.Left-winW)/2
 	y := wa.Top + (wa.Bottom-wa.Top-winH)/2
 
@@ -1426,8 +1289,9 @@ func Uiinit() {
 		panic(err3)
 	}
 	ui.hwnd = windows.Handle(hwnd)
-	//去掉透明
-	//setLayerAlpha(ui.hwnd, 240)
+
+	// 你原来“去掉透明”的逻辑保留
+	// setLayerAlpha(ui.hwnd, 240)
 
 	const WM_SETICON = 0x0080
 	const ICON_SMALL = 0
@@ -1438,7 +1302,7 @@ func Uiinit() {
 	}
 
 	ui.mode.Store(int32(ModeSelect))
-	layoutSelect(600, 400)
+	layoutSelect(clientW, clientH)
 
 	procShowWindow.Call(hwnd, SW_SHOW)
 	procUpdateWindow.Call(hwnd)

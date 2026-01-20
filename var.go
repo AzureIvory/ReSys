@@ -55,12 +55,3 @@ var (
 	IID_IShellLinkW  = GUID{0x000214F9, 0x0000, 0x0000, [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
 	IID_IPersistFile = GUID{0x0000010b, 0x0000, 0x0000, [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
 )
-
-// disk.dll
-var (
-	modDisk     = syscall.NewLazyDLL("disk.dll")
-	procFormatW = modDisk.NewProc("FormatW")
-	procDeleteW = modDisk.NewProc("DeleteVolumeW")
-	procMergeW  = modDisk.NewProc("MergeVolumeW")
-	procSplitW  = modDisk.NewProc("SplitVolumeW")
-)

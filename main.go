@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -17,6 +18,8 @@ import (
 	"github.com/kdomanski/iso9660/util"
 	"golang.org/x/text/encoding/simplifiedchinese"
 )
+
+var dism, _ = GetDism()
 
 // 用于显示进度条。
 var ImageProgress func(phase string, percent float64, raw string)
@@ -321,7 +324,7 @@ func ApplyImage(imagePath string, index int, targetVol string) error {
 		}
 	}
 
-	if out, err := runCmd("dism.exe", dismOnLine, dismArgs...); err == nil {
+	if out, err := runCmd(dism, dismOnLine, "", dismArgs...); err == nil {
 		fmt.Println("[ApplyImage] DISM ok")
 		fmt.Println(out)
 		// DISM 结束
@@ -368,7 +371,7 @@ func ApplyImage(imagePath string, index int, targetVol string) error {
 		}
 	}
 
-	if out, err := runCmd(exePath, wimOnLine, wimArgs...); err == nil {
+	if out, err := runCmd(exePath, wimOnLine, "", wimArgs...); err == nil {
 		fmt.Println("[ApplyImage] wimlib-imagex ok")
 		fmt.Println(out)
 		if ImageProgress != nil {
@@ -670,14 +673,26 @@ func FixUEFI(osRoot, sysHint, locale string) error {
 		"/s", sysRoot,
 		"/f", "UEFI",
 	}
-	bcdpath := "bcdboot.exe"
-	if systemArch() == "32" {
-		bcdpath = "X:\\Windows\\Sysnative\\bcdboot.exe"
-	} else {
-		bcdpath = "X:\\Windows\\System32\\bcdboot.exe"
+	windir := os.Getenv("SystemRoot")
+	if windir == "" {
+		windir = os.Getenv("WINDIR")
+	}
+	isWow64 := runtime.GOARCH == "386" && os.Getenv("PROCESSOR_ARCHITEW6432") != ""
+	bcdpath := filepath.Join(windir, "System32", "bcdboot.exe")
+	if isWow64 {
+		bcdpath = filepath.Join(windir, "Sysnative", "bcdboot.exe")
 	}
 
-	out, err := runCmd(bcdpath, nil, args...)
+	if _, err := os.Stat(bcdpath); err != nil {
+		alt := filepath.Join(windir, "System32", "bcdboot.exe")
+		if _, err2 := os.Stat(alt); err2 == nil {
+			bcdpath = alt
+		} else {
+			bcdpath = "bcdboot.exe"
+		}
+	}
+
+	out, err := runCmd(bcdpath, nil, "", args...)
 	if err != nil {
 		fmt.Println("[FixUEFI] bcdboot failed")
 		fmt.Println(out)
@@ -697,17 +712,17 @@ func FixBIOS(osRoot, sysHint, locale string) error {
 	}
 
 	// 修复MBR/PBR
-	if out, err := runCmd("bootrec.exe", nil, "/fixmbr"); err != nil {
+	if out, err := runCmd("bootrec.exe", nil, "", "/fixmbr"); err != nil {
 		fmt.Println("[FixBIOS] bootrec /fixmbr failed (may be ok):", err)
 		fmt.Println(out)
 	} else {
 		fmt.Println("[FixBIOS] bootrec /fixmbr ok")
 		fmt.Println(out)
 	}
-	if out, err := runCmd("bootrec.exe", nil, "/fixboot"); err != nil {
+	if out, err := runCmd("bootrec.exe", nil, "", "/fixboot"); err != nil {
 		fmt.Println("[FixBIOS] bootrec /fixboot failed, try bootsect:", err)
 		fmt.Println(out)
-		if out2, err2 := runCmd("bootsect.exe", nil, "/nt60", sysRoot, "/mbr"); err2 != nil {
+		if out2, err2 := runCmd("bootsect.exe", nil, "", "/nt60", sysRoot, "/mbr"); err2 != nil {
 			fmt.Println("[FixBIOS] bootsect failed:", err2)
 			fmt.Println(out2)
 		} else {
@@ -725,14 +740,26 @@ func FixBIOS(osRoot, sysHint, locale string) error {
 		"/s", sysRoot,
 		"/f", "BIOS",
 	}
-	bcdpath := "bcdboot.exe"
-	if systemArch() == "32" {
-		bcdpath = "X:\\Windows\\Sysnative\\bcdboot.exe"
-	} else {
-		bcdpath = "X:\\Windows\\System32\\bcdboot.exe"
+	windir := os.Getenv("SystemRoot")
+	if windir == "" {
+		windir = os.Getenv("WINDIR")
+	}
+	isWow64 := runtime.GOARCH == "386" && os.Getenv("PROCESSOR_ARCHITEW6432") != ""
+	bcdpath := filepath.Join(windir, "System32", "bcdboot.exe")
+	if isWow64 {
+		bcdpath = filepath.Join(windir, "Sysnative", "bcdboot.exe")
 	}
 
-	out, err := runCmd(bcdpath, nil, args...)
+	if _, err := os.Stat(bcdpath); err != nil {
+		alt := filepath.Join(windir, "System32", "bcdboot.exe")
+		if _, err2 := os.Stat(alt); err2 == nil {
+			bcdpath = alt
+		} else {
+			bcdpath = "bcdboot.exe"
+		}
+	}
+
+	out, err := runCmd(bcdpath, nil, "", args...)
 	if err != nil {
 		fmt.Println("[FixBIOS] bcdboot failed")
 		fmt.Println(out)
@@ -903,8 +930,9 @@ func ListImageInfos(imagePath string) ([]ImageMeta, error) {
 	}
 
 	// DISM
-	if out, err := runCmd("dism.exe",
+	if out, err := runCmd(dism,
 		nil,
+		"",
 		"/English",
 		"/Get-WimInfo",
 		"/WimFile:"+imagePath,
@@ -923,7 +951,7 @@ func ListImageInfos(imagePath string) ([]ImageMeta, error) {
 	// wimlib-imagex
 	exePath, _ := os.Executable()
 	exePath = filepath.Join(filepath.Dir(exePath), "tools\\wimlib-imagex.exe")
-	if out, err := runCmd(exePath, nil, "info", imagePath); err == nil {
+	if out, err := runCmd(exePath, nil, "", "info", imagePath); err == nil {
 		if imgs, perr := parseImageInfoText(out); perr == nil && len(imgs) > 0 {
 			fmt.Println("[ListImageInfos] use wimlib-imagex result")
 			return imgs, nil
@@ -943,7 +971,7 @@ func GetBootMode() (int, int) {
 	if dirExists("tools\\BootMode.exe") != true {
 		return -1, -1
 	}
-	text, err := runCmd("tools\\BootMode.exe", nil, "")
+	text, err := runCmd("tools\\BootMode.exe", nil, "", "")
 	if err != nil {
 		return -1, -1
 	}
@@ -981,6 +1009,9 @@ func PE() int {
 
 func main() {
 	logWrite("启动\n")
+	if dism == "" {
+		dism = "dism.exe"
+	}
 	Uiinit()
 	//判断是否在PE
 	if strings.ToUpper(os.Getenv("SystemRoot")) == `X:\WINDOWS` {

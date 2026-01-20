@@ -78,6 +78,7 @@ func mapProgress(on func(int), base, span int) func(int) {
 		}
 	}
 }
+
 // split by \r / \n / \r\n（PartAssist 常用 \r 刷新进度）
 func splitCRLFBytes(data []byte) (tokens [][]byte) {
 	start := 0
@@ -1181,7 +1182,7 @@ func RunDiskpart(lines []string) (string, error) {
 	} else {
 		diskpart = "C:\\Windows\\System32\\diskpart.exe"
 	}
-	out, err := runCmd(diskpart, nil, "/s", path)
+	out, err := runCmd(diskpart, nil, "", "/s", path)
 	if err != nil {
 		return out, fmt.Errorf("diskpart failed: %w", err)
 	}
@@ -1211,7 +1212,7 @@ func killProcessImage(image string) {
 	if image == "" {
 		return
 	}
-	_, _ = runCmd("taskkill", nil, "/F", "/T", "/IM", image)
+	_, _ = runCmd("taskkill", nil, "", "/F", "/T", "/IM", image)
 }
 
 // PartAssist 的 /out 输出通常是 ANSI（系统代码页，如 GBK），这里做解码：
@@ -1378,7 +1379,7 @@ func RunPartAssist(args []string) (string, error) {
 	args2 := append([]string{}, args...)
 	args2 = append(args2, fmt.Sprintf("/out:%s", outFile))
 
-	stdout, runErr := runCmd(exe, nil, args2...)
+	stdout, runErr := runCmd(exe, nil, "", args2...)
 	fmt.Println(stdout, runErr)
 
 	var outText string

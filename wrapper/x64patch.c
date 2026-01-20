@@ -281,13 +281,53 @@ static int RunAndWaitW2(const wchar_t* exePath) {
     wchar_t cmd[MAX_PATH * 4];
     swprintf(cmd, _countof(cmd), L"\"%s\"", exePath);
 
+    // 打开 NUL 作为输出黑洞（可写）
+    SECURITY_ATTRIBUTES sa;
+    ZeroMemory(&sa, sizeof(sa));
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE; // 关键：让子进程能继承这个句柄
+
+    HANDLE hNull = CreateFileW(
+        L"NUL",
+        GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        &sa,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL
+    );
+
     STARTUPINFOW si;
     PROCESS_INFORMATION pi;
     ZeroMemory(&si, sizeof(si));
     ZeroMemory(&pi, sizeof(pi));
     si.cb = sizeof(si);
 
-    if (!CreateProcessW(exePath, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+    // 关键：指定使用自定义的标准句柄
+    si.dwFlags |= STARTF_USESTDHANDLES;
+    si.hStdOutput = hNull;
+    si.hStdError  = hNull;
+    si.hStdInput  = GetStdHandle(STD_INPUT_HANDLE); // 或者也给 NUL
+
+    // 关键：bInheritHandles 必须 TRUE，否则 hNull 传不过去
+    DWORD flags = 0;
+    // 可选：避免子进程自己弹出一个黑框（如果它是 console 子程序）
+    flags |= CREATE_NO_WINDOW;
+
+    BOOL ok = CreateProcessW(
+        exePath,        // lpApplicationName
+        cmd,            // lpCommandLine（可改成包含参数）
+        NULL, NULL,
+        TRUE,           // bInheritHandles = TRUE ！！！
+        flags,          // dwCreationFlags
+        NULL, NULL,
+        &si, &pi
+    );
+
+    // 父进程用完就关（子进程已经继承了一份）
+    if (hNull && hNull != INVALID_HANDLE_VALUE) CloseHandle(hNull);
+
+    if (!ok) {
         PrintLastErrorW(L"CreateProcess");
         return 3;
     }
@@ -302,6 +342,7 @@ static int RunAndWaitW2(const wchar_t* exePath) {
 
     return (int)exitCode;
 }
+
 
 int wmain(void) {
     wchar_t exeDir[MAX_PATH * 4];

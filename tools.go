@@ -617,6 +617,49 @@ func DetectWin(drive string) (string, error) {
 	return fmt.Sprintf("%s %s", osName, arch), nil
 }
 
+// 返回当前系统是否为 Windows XP（5.1/5.2）。
+func isWinXP() bool {
+	h, err := RegOpenKey(HKEY_LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows NT\CurrentVersion`)
+	if err != nil {
+		return false
+	}
+	defer RegCloseKey(h)
+
+	currentVersion, err := RegGetString(h, "CurrentVersion")
+	if err != nil {
+		return false
+	}
+	return currentVersion == "5.1" || currentVersion == "5.2"
+}
+
+// 返回 tools 目录下对应系统/架构的 dism.exe 绝对路径。
+// tools/xp/dism.exe 或 tools/32/dism.exe 或 tools/64/dism.exe
+func GetDism() (string, error) {
+	baseDir := ""
+	if exe, err := os.Executable(); err == nil {
+		baseDir = filepath.Dir(exe)
+	}
+	if baseDir == "" {
+		baseDir = "."
+	}
+
+	subDir := "32"
+	if isWinXP() {
+		subDir = "xp"
+	} else if systemArch() == "64" {
+		subDir = "64"
+	}
+
+	p := filepath.Join(baseDir, "tools", subDir, "dism.exe")
+	if st, err := os.Stat(p); err != nil || st.IsDir() {
+		if err != nil {
+			return "", fmt.Errorf("dism.exe not found: %s: %w", p, err)
+		}
+		return "", fmt.Errorf("dism.exe not found: %s", p)
+	}
+	return p, nil
+}
+
 // 推测指定盘符的系统架构（32/64）
 func detectArch(root string, hasPFx86, hasSysWOW, systemLoaded bool) string {
 	if hasPFx86 || hasSysWOW {
@@ -1282,6 +1325,7 @@ func Findpart() []string {
 	return part
 }
 
+
 // 进入PE
 // 可选参数：GoToPE(sdiPath, wimPath)
 func GoToPE(paths ...string) error {
@@ -1490,9 +1534,25 @@ func GoToPE(paths ...string) error {
 
 	fmt.Println("PE:", nm, "DRV:", lt, "SDI:", sdi, "WIM:", wim)
 
+	windir := os.Getenv("SystemRoot")
+	if windir == "" {
+		windir = os.Getenv("WINDIR")
+	}
+	isWow64 := runtime.GOARCH == "386" && os.Getenv("PROCESSOR_ARCHITEW6432") != ""
+	bcdeditPath := filepath.Join(windir, "System32", "bcdedit.exe")
+	if isWow64 {
+		bcdeditPath = filepath.Join(windir, "Sysnative", "bcdedit.exe")
+	}
+	out, err := runCmd(bcdeditPath, nil, "")
+	if err != nil && (errors.Is(err, os.ErrNotExist) || errors.Is(err, exec.ErrNotFound)) {
+		exe, e := os.Executable()
+		if e == nil {
+			bcdeditPath = filepath.Join(filepath.Dir(exe), "tools", "bcdedit.exe")
+		}
+	}
+
 	// /device guid
-	exe, _ := os.Executable()
-	out, err := runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/create", "/d", "pe", "/device")
+	out, err = runCmd(bcdeditPath, nil, "", "/create", "/d", "pe", "/device")
 	if err != nil {
 		return err
 	}
@@ -1504,17 +1564,17 @@ func GoToPE(paths ...string) error {
 	gd1 := strings.ToLower(m1[1])
 
 	// ramdisksdi*
-	_, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/set", "{"+gd1+"}", "ramdisksdidevice", "partition="+lt+":")
+	_, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd1+"}", "ramdisksdidevice", "partition="+lt+":")
 	if err != nil {
 		return err
 	}
-	_, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/set", "{"+gd1+"}", "ramdisksdipath", sdi)
+	_, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd1+"}", "ramdisksdipath", sdi)
 	if err != nil {
 		return err
 	}
 
 	// /application osloader guid2
-	out, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/create", "/d", "pe", "/application", "osloader")
+	out, err = runCmd(bcdeditPath, nil, "", "/create", "/d", "pe", "/application", "osloader")
 	if err != nil {
 		return err
 	}
@@ -1526,18 +1586,33 @@ func GoToPE(paths ...string) error {
 
 	// device/osdevice
 	dev := fmt.Sprintf("ramdisk=[%s:]%s,{%s}", lt, wim, gd1)
-	_, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/set", "{"+gd2+"}", "device", dev)
+	_, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd2+"}", "device", dev)
 	if err != nil {
 		return err
 	}
-	_, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/set", "{"+gd2+"}", "osdevice", dev)
+	_, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd2+"}", "osdevice", dev)
 	if err != nil {
 		return err
 	}
 
 	// BIOS/UEFI
 	fw := 0
-	out, er2 := runCmd("reg", nil, "query", `HKLM\SYSTEM\CurrentControlSet\Control`, "/v", "PEFirmwareType")
+	windir = os.Getenv("SystemRoot")
+	if windir == "" {
+		windir = os.Getenv("WINDIR")
+	}
+	isWow64 = runtime.GOARCH == "386" && os.Getenv("PROCESSOR_ARCHITEW6432") != ""
+	regPath := filepath.Join(windir, "System32", "reg.exe")
+	if isWow64 {
+		regPath = filepath.Join(windir, "Sysnative", "reg.exe")
+	}
+	out, er2 := runCmd(regPath, nil, "", "query", `HKLM\SYSTEM\CurrentControlSet\Control`, "/v", "PEFirmwareType")
+	if err != nil && (errors.Is(err, os.ErrNotExist) || errors.Is(err, exec.ErrNotFound)) {
+		if exe, e := os.Executable(); e == nil {
+			out, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "reg"), nil, "", "query",
+				`HKLM\SYSTEM\CurrentControlSet\Control`, "/v", "PEFirmwareType")
+		}
+	}
 	if er2 == nil {
 		r2 := regexp.MustCompile(`(?i)0x([0-9a-f]+)`)
 		m3 := r2.FindStringSubmatch(out)
@@ -1553,27 +1628,27 @@ func GoToPE(paths ...string) error {
 	if fw == 1 {
 		p1, p2 = p2, p1
 	}
-	if _, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/set", "{"+gd2+"}", "path", p1); err != nil {
-		if _, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/set", "{"+gd2+"}", "path", p2); err != nil {
+	if _, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd2+"}", "path", p1); err != nil {
+		if _, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd2+"}", "path", p2); err != nil {
 			return err
 		}
 	}
 
-	if _, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/set", "{"+gd2+"}", "systemroot", `\windows`); err != nil {
+	if _, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd2+"}", "systemroot", `\windows`); err != nil {
 		return err
 	}
-	if _, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/set", "{"+gd2+"}", "detecthal", "YES"); err != nil {
+	if _, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd2+"}", "detecthal", "YES"); err != nil {
 		return err
 	}
-	if _, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/set", "{"+gd2+"}", "winpe", "YES"); err != nil {
+	if _, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd2+"}", "winpe", "YES"); err != nil {
 		return err
 	}
-	if _, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/set", "{"+gd2+"}", "nx", "OptIn"); err != nil {
+	if _, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd2+"}", "nx", "OptIn"); err != nil {
 		return err
 	}
 
 	// 设置下次启动
-	if _, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "bcdedit"), nil, "/bootsequence", "{"+gd2+"}"); err != nil {
+	if _, err = runCmd(bcdeditPath, nil, "", "/bootsequence", "{"+gd2+"}"); err != nil {
 		return err
 	}
 	return nil
