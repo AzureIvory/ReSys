@@ -899,8 +899,6 @@ func SplitVolume(vol string, sizeMB int, fs, label string) (string, error) {
 	return newLetter, nil
 }
 
-// -------------------- MergeVolume / DeleteVolume / Format (diskpart) --------------------
-
 // 合并分区：将目标卷卷尾紧邻的未分配空间扩展到指定卷。
 // sizeMB: 扩展大小（MB），<=0 表示使用全部
 func MergeVolume(vol string, sizeMB int) error {
@@ -937,7 +935,6 @@ func DeleteVolume(vol string) error {
 
 	lines := []string{
 		fmt.Sprintf("select volume %s", volLetter),
-		// override 更接近 PartAssist 的“强删”行为；如果你想更保守，可以改成 "delete volume"
 		"delete volume override",
 	}
 
