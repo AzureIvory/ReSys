@@ -1325,43 +1325,82 @@ func Findpart() []string {
 	return part
 }
 
-// 进入PE
-// 可选参数：GoToPE(sdiPath, wimPath)
-func GoToPE(paths ...string) error {
+// 进入PE + 扫描模式：scan=true 时只返回最优 WIM/SDI
+// 用法示例：
+//
+//	ok, wim, sdi, err := GoToPE(true)          // 扫描
+//	_, _, _, err := GoToPE(false)             // 设置下次启动进PE
+//	ok, wim, sdi, err := GoToPE(true, sdiPath, wimPath)   // 扫描/校验自定义
+//	_, _, _, err := GoToPE(false, sdiPath, wimPath)       // 自定义设置启动
+func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 	var customSdi, customWim string
 	if len(paths) == 0 {
 	} else if len(paths) == 2 {
 		customSdi = strings.TrimSpace(paths[0])
 		customWim = strings.TrimSpace(paths[1])
 		if customSdi == "" || customWim == "" {
-			return fmt.Errorf("自定义路径需要同时指定 sdi 和 wim（要么都传，要么都不传）")
+			return false, "", "", fmt.Errorf("自定义路径需要同时指定 sdi 和 wim（要么都传，要么都不传）")
 		}
 	} else {
-		return fmt.Errorf("参数数量错误：GoToPE() 或 GoToPE(sdiPath, wimPath)")
+		return false, "", "", fmt.Errorf("参数数量错误：GoToPE(scan) 或 GoToPE(scan, sdiPath, wimPath)")
 	}
 
 	dvs, err := ListDrive()
 	if err != nil {
-		return err
+		return false, "", "", err
 	}
 
+	// ======== arch：按“OS 实际架构”来（WOW64 下也要当 64） ========
+	wantArch := func() string {
+		isWow64 := runtime.GOARCH == "386" && os.Getenv("PROCESSOR_ARCHITEW6432") != ""
+		if isWow64 {
+			return "64"
+		}
+		switch runtime.GOARCH {
+		case "amd64", "arm64":
+			return "64"
+		default:
+			return "32"
+		}
+	}()
+
+	normArch := func(a string) string {
+		a = strings.ToLower(strings.TrimSpace(a))
+		switch a {
+		case "64", "x64", "amd64", "arm64":
+			return "64"
+		case "32", "x86", "386":
+			return "32"
+		default:
+			return a
+		}
+	}
+
+	// ======== opts 增加架构字段 a（你要求的格式） ========
 	opts := []struct {
-		n, s, w string
+		n, s, w, a string
 	}{
-		{"WEPE", `\WEPE\WEPE.SDI`, `\WEPE\WEPE64.WIM`},    //64位微PE
-		{"FIR", `\FirPE\BOOT.SDI`, `\FirPE\11PEX64.WIM`},  //64位win11的FirPE
-		{"HOT", `\HotPE\boot.sdi`, `\HotPE\Boot.wim`},     //64位HOTPE
-		{"FirPE1", `\boot\boot.sdi`, `\boot\11pex64.wim`}, //64位FirPE1
-		{"PETEMP", `\PETEMP\*.sdi`, `\PETEMP\*.wim`},
-		{"PETEMP", `\PETEMP\*.SDI`, `\PETEMP\*.WIM`},
+		{"WEPE", `\WEPE\WEPE.SDI`, `\WEPE\WEPE64.WIM`, "64"},    //64位微PE
+		{"WEPE", `\WEPE\WEPE.SDI`, `\WEPE\WEPE32.WIM`, "32"},    //32位微PE（如存在）
+		{"FIR", `\FirPE\BOOT.SDI`, `\FirPE\11PEX64.WIM`, "64"},  //64位win11的FirPE
+		{"FIR", `\FirPE\BOOT.SDI`, `\FirPE\11PEX86.WIM`, "32"},  //32位FirPE（如存在）
+		{"HOT", `\HotPE\boot.sdi`, `\HotPE\Boot.wim`, "64"},     //64位HOTPE（一般为64）
+		{"FirPE1", `\boot\boot.sdi`, `\boot\11pex64.wim`, "64"}, //64位FirPE1
+		{"FirPE1", `\boot\boot.sdi`, `\boot\11pex86.wim`, "32"}, //32位FirPE1（如存在）
+		{"PETEMP", `\PETEMP\*.sdi`, `\PETEMP\*.wim`, ""},        //不强制架构，交给 chooseBestWim
+		{"PETEMP", `\PETEMP\*.SDI`, `\PETEMP\*.WIM`, ""},
 	}
 
-	hasGlob := func(s string) bool {
-		return strings.ContainsAny(s, "*?[")
+	// ======== 小工具 ========
+	hasGlob := func(s string) bool { return strings.ContainsAny(s, "*?[") }
+	hasDrivePrefix := func(p string) bool { return len(p) >= 2 && p[1] == ':' }
+
+	fileExists := func(p string) bool {
+		fi, e := os.Stat(p)
+		return e == nil && !fi.IsDir()
 	}
-	hasDrivePrefix := func(p string) bool {
-		return len(p) >= 2 && p[1] == ':'
-	}
+
+	// 把 abs 变成相对卷根 \xxx\yyy
 	toRel := func(root, abs string) string {
 		abs = strings.ReplaceAll(abs, "/", `\`)
 		root = strings.ReplaceAll(root, "/", `\`)
@@ -1370,51 +1409,51 @@ func GoToPE(paths ...string) error {
 			rest = strings.TrimPrefix(rest, `\`)
 			return `\` + rest
 		}
-		// 去掉盘符
 		if len(abs) >= 3 && abs[1] == ':' && (abs[2] == '\\' || abs[2] == '/') {
 			return `\` + strings.TrimPrefix(abs[3:], `\`)
 		}
 		return abs
 	}
 
-	// 通配符匹配
-	firstMatchInsensitive := func(pattern string) (string, bool) {
+	// 返回所有匹配（大小写不敏感 + 支持通配符）
+	allMatchesInsensitive := func(pattern string) ([]string, error) {
 		pattern = strings.ReplaceAll(pattern, "/", `\`)
 
 		if !hasGlob(pattern) {
-			if fi, e := os.Stat(pattern); e == nil && !fi.IsDir() {
-				return pattern, true
+			if fileExists(pattern) {
+				return []string{pattern}, nil
 			}
-			return "", false
+			return nil, nil
 		}
 
 		dir := filepath.Dir(pattern)
 		base := filepath.Base(pattern)
 
-		// 目录带通配符
 		if hasGlob(dir) {
 			ms, _ := filepath.Glob(pattern)
+			var out []string
 			for _, m := range ms {
-				if fi, e := os.Stat(m); e == nil && !fi.IsDir() {
-					return m, true
+				if fileExists(m) {
+					out = append(out, m)
 				}
 			}
-			return "", false
+			return out, nil
 		}
 
 		entries, e := os.ReadDir(dir)
 		if e != nil {
-			// 读目录失败
 			ms, _ := filepath.Glob(pattern)
+			var out []string
 			for _, m := range ms {
-				if fi, e2 := os.Stat(m); e2 == nil && !fi.IsDir() {
-					return m, true
+				if fileExists(m) {
+					out = append(out, m)
 				}
 			}
-			return "", false
+			return out, nil
 		}
 
 		patLower := strings.ToLower(base)
+		var out []string
 		for _, ent := range entries {
 			if ent.IsDir() {
 				continue
@@ -1422,52 +1461,162 @@ func GoToPE(paths ...string) error {
 			nameLower := strings.ToLower(ent.Name())
 			ok, _ := filepath.Match(patLower, nameLower)
 			if ok {
-				return filepath.Join(dir, ent.Name()), true
+				out = append(out, filepath.Join(dir, ent.Name()))
+			}
+		}
+		return out, nil
+	}
+
+	firstMatchInsensitive := func(pattern string) (string, bool) {
+		ms, _ := allMatchesInsensitive(pattern)
+		if len(ms) > 0 {
+			return ms[0], true
+		}
+		return "", false
+	}
+
+	// tools\boot.sdi 源文件定位（尽量稳）
+	findToolsBootSdi := func() (string, bool) {
+		exe, e := os.Executable()
+		if e != nil {
+			return "", false
+		}
+		base := filepath.Dir(exe)
+
+		// Windows 一般不区分大小写，但为了稳妥列几个
+		cands := []string{
+			filepath.Join(base, "tools", "boot.sdi"),
+			filepath.Join(base, "tools", "BOOT.SDI"),
+			filepath.Join(base, "tools", "Boot.sdi"),
+		}
+		for _, p := range cands {
+			if fileExists(p) {
+				return p, true
 			}
 		}
 		return "", false
 	}
 
-	var lt, sdi, wim, nm string
+	// 把 opts.s（可能带通配符）转成一个“具体 SDI 相对路径”
+	materializeSdiRel := func(sPat string) string {
+		sPat = strings.ReplaceAll(sPat, "/", `\`)
+		if sPat == "" {
+			return ""
+		}
+		if !hasGlob(sPat) {
+			return sPat
+		}
+		// \PETEMP\*.sdi -> \PETEMP\boot.sdi
+		dir := filepath.Dir(sPat)
+		dst := filepath.Join(dir, "boot.sdi")
+		if !strings.HasPrefix(dst, `\`) {
+			dst = `\` + dst
+		}
+		return dst
+	}
 
-	//跳过 opts
-	if customSdi != "" && customWim != "" {
-		sPat := strings.ReplaceAll(customSdi, "/", `\`)
-		wPat := strings.ReplaceAll(customWim, "/", `\`)
+	// 用 tools\boot.sdi 生成目标 SDI（只在缺 SDI 时调用）
+	ensureSdiByCopy := func(root string, sPatRel string, wAbs string) (sAbs string, sRel string, copied bool, err error) {
+		src, ok := findToolsBootSdi()
+		if !ok {
+			return "", "", false, fmt.Errorf("缺少SDI，且未找到 %s", `tools\boot.sdi`)
+		}
 
-		// 绝对路径
-		if hasDrivePrefix(sPat) || hasDrivePrefix(wPat) {
-			var vol string
-			if hasDrivePrefix(sPat) {
-				vol = strings.ToUpper(string(sPat[0]))
+		dstRel := materializeSdiRel(sPatRel)
+		if dstRel == "" {
+			// 没有可用的 sPat，就落到 WIM 同目录
+			dstAbs := filepath.Join(filepath.Dir(wAbs), "boot.sdi")
+			if e := Copy(src, dstAbs, false, true); e != nil {
+				return "", "", false, e
 			}
-			if hasDrivePrefix(wPat) {
-				wVol := strings.ToUpper(string(wPat[0]))
-				if vol != "" && vol != wVol {
-					return fmt.Errorf("sdi 和 wim 不在同一盘：%s vs %s", vol, wVol)
+			return dstAbs, toRel(root, dstAbs), true, nil
+		}
+
+		// 拼绝对路径：root + 去掉开头 '\'
+		dstAbs := filepath.Join(root, strings.TrimPrefix(dstRel, `\`))
+		if e := Copy(src, dstAbs, false, true); e != nil {
+			return "", "", false, e
+		}
+		return dstAbs, toRel(root, dstAbs), true, nil
+	}
+
+	// ======== 候选结构 ========
+	type peCand struct {
+		nm   string
+		arch string // opts 的 a
+		lt   string // 盘符字母，如 "C"
+		root string // 如 "C:\"
+		wAbs string
+		wRel string
+		sAbs string
+		sRel string
+		sPat string // opts.s（用于缺 SDI 时决定复制到哪里）
+	}
+
+	// wimAbs -> best cand（若同一 wim 由不同 opts 命中，优先保留“有 SDI 的那个”）
+	candByWim := map[string]peCand{}
+	var allWims []string
+
+	addCand := func(c peCand) {
+		if old, ok := candByWim[c.wAbs]; ok {
+			// 只做最小规则：优先保留“有 SDI”的
+			if old.sAbs == "" && c.sAbs != "" {
+				candByWim[c.wAbs] = c
+			}
+			return
+		}
+		candByWim[c.wAbs] = c
+		allWims = append(allWims, c.wAbs)
+	}
+
+	// ======== 收集候选（允许缺 SDI） ========
+	collect := func() error {
+		if customSdi != "" && customWim != "" {
+			sPat := strings.ReplaceAll(customSdi, "/", `\`)
+			wPat := strings.ReplaceAll(customWim, "/", `\`)
+
+			// 绝对路径
+			if hasDrivePrefix(sPat) || hasDrivePrefix(wPat) {
+				var vol string
+				if hasDrivePrefix(sPat) {
+					vol = strings.ToUpper(string(sPat[0]))
 				}
-				if vol == "" {
-					vol = wVol
+				if hasDrivePrefix(wPat) {
+					wVol := strings.ToUpper(string(wPat[0]))
+					if vol != "" && vol != wVol {
+						return fmt.Errorf("sdi 和 wim 不在同一盘：%s vs %s", vol, wVol)
+					}
+					if vol == "" {
+						vol = wVol
+					}
 				}
-			}
-			root := vol + `:\`
+				root := vol + `:\`
 
-			sAbs, ok := firstMatchInsensitive(sPat)
-			if !ok {
-				return fmt.Errorf("未找到SDI: %s", sPat)
-			}
-			wAbs, ok := firstMatchInsensitive(wPat)
-			if !ok {
-				return fmt.Errorf("未找到WIM: %s", wPat)
+				// WIM 必须存在
+				wAbs, ok := firstMatchInsensitive(wPat)
+				if !ok {
+					return fmt.Errorf("未找到WIM: %s", wPat)
+				}
+
+				// SDI 允许不存在（后面会补）
+				sAbs, _ := firstMatchInsensitive(sPat)
+
+				addCand(peCand{
+					nm: "CUSTOM", arch: "",
+					lt: vol, root: root,
+					wAbs: wAbs, wRel: toRel(root, wAbs),
+					sAbs: sAbs, sRel: func() string {
+						if sAbs == "" {
+							return ""
+						}
+						return toRel(root, sAbs)
+					}(),
+					sPat: sPat, // 直接用用户给的 sPat，补 SDI 时会 materialize
+				})
+				return nil
 			}
 
-			lt = vol
-			sdi = toRel(root, sAbs)
-			wim = toRel(root, wAbs)
-			nm = "CUSTOM"
-		} else {
-			// 相对路径
-			found := false
+			// 相对路径：遍历盘符
 			for _, d := range dvs {
 				if len(d) < 3 {
 					continue
@@ -1475,30 +1624,36 @@ func GoToPE(paths ...string) error {
 				vol := strings.ToUpper(string(d[0]))
 				root := vol + `:\`
 
-				sAbs, okS := firstMatchInsensitive(d + strings.TrimPrefix(sPat, `\`))
-				if !okS {
-					continue
-				}
 				wAbs, okW := firstMatchInsensitive(d + strings.TrimPrefix(wPat, `\`))
 				if !okW {
 					continue
 				}
+				sAbs, _ := firstMatchInsensitive(d + strings.TrimPrefix(sPat, `\`))
 
-				lt = vol
-				sdi = toRel(root, sAbs)
-				wim = toRel(root, wAbs)
-				nm = "CUSTOM"
-				found = true
-				break
+				addCand(peCand{
+					nm: "CUSTOM", arch: "",
+					lt: vol, root: root,
+					wAbs: wAbs, wRel: toRel(root, wAbs),
+					sAbs: sAbs, sRel: func() string {
+						if sAbs == "" {
+							return ""
+						}
+						return toRel(root, sAbs)
+					}(),
+					sPat: `\` + strings.TrimPrefix(sPat, `\`),
+				})
+				return nil
 			}
-			if !found {
-				return fmt.Errorf("未找到匹配的SDI/WIM：SDI=%s WIM=%s", sPat, wPat)
-			}
+			return fmt.Errorf("未找到匹配的SDI/WIM：SDI=%s WIM=%s", sPat, wPat)
 		}
-	} else {
-		// 走 opts
-		found := false
+
+		// 自动：按 opts 扫描所有盘符
 		for _, o := range opts {
+			// opts 声明了架构的话，就先过滤（你要求“需要考虑架构”）
+			if o.a != "" && normArch(o.a) != normArch(wantArch) {
+				continue
+			}
+
 			for _, d := range dvs {
 				if len(d) < 3 {
 					continue
@@ -1506,29 +1661,87 @@ func GoToPE(paths ...string) error {
 				vol := strings.ToUpper(string(d[0]))
 				root := vol + `:\`
 
-				sAbs, okS := firstMatchInsensitive(d + strings.TrimPrefix(o.s, `\`))
-				if !okS {
-					continue
-				}
-				wAbs, okW := firstMatchInsensitive(d + strings.TrimPrefix(o.w, `\`))
-				if !okW {
-					continue
+				// SDI 可缺失（只取第一个匹配）
+				sAbs := ""
+				sMatches, _ := allMatchesInsensitive(d + strings.TrimPrefix(o.s, `\`))
+				if len(sMatches) > 0 {
+					sAbs = sMatches[0]
 				}
 
-				lt = vol
-				sdi = toRel(root, sAbs)
-				wim = toRel(root, wAbs)
-				nm = o.n
-				found = true
-				break
-			}
-			if found {
-				break
+				// WIM 收集全部（尤其 PETEMP）
+				wMatches, _ := allMatchesInsensitive(d + strings.TrimPrefix(o.w, `\`))
+				for _, wAbs := range wMatches {
+					c := peCand{
+						nm:   o.n,
+						arch: o.a,
+						lt:   vol,
+						root: root,
+						wAbs: wAbs,
+						wRel: toRel(root, wAbs),
+						sAbs: sAbs,
+						sRel: "",
+						sPat: o.s,
+					}
+					if sAbs != "" {
+						c.sRel = toRel(root, sAbs)
+					}
+					addCand(c)
+				}
 			}
 		}
-		if !found {
-			return fmt.Errorf("未找到PE引导文件")
+		return nil
+	}
+
+	if err := collect(); err != nil {
+		if scan {
+			// 扫描模式：更像 hasPEFiles，尽量不把“找不到”当致命错误
+			return false, "", "", err
 		}
+		return false, "", "", err
+	}
+
+	if len(allWims) == 0 {
+		if scan {
+			return false, "", "", nil
+		}
+		return false, "", "", fmt.Errorf("未找到PE引导文件")
+	}
+
+	// ======== 最终：用 chooseBestWim 在“全部候选 WIM”里选最优 ========
+	bestWim := chooseBestWim(allWims, wantArch)
+	best, ok := candByWim[bestWim]
+	if !ok || bestWim == "" {
+		if scan {
+			return false, "", "", nil
+		}
+		return false, "", "", fmt.Errorf("chooseBestWim 选优失败")
+	}
+
+	// ======== 缺 SDI：用 tools\boot.sdi 复制补齐 ========
+	if best.sAbs == "" {
+		sAbs, sRel, _, e := ensureSdiByCopy(best.root, best.sPat, best.wAbs)
+		if e == nil {
+			best.sAbs = sAbs
+			best.sRel = sRel
+			candByWim[best.wAbs] = best
+		} else {
+			// scan 模式允许返回“wim 有、sdi 仍空”（与旧 hasPEFiles 行为兼容）
+			if !scan {
+				return true, best.wAbs, "", e
+			}
+		}
+	}
+
+	// scan 模式：直接返回最优路径（绝对路径）
+	if scan {
+		return true, best.wAbs, best.sAbs, nil
+	}
+
+	lt, sdi, wim, nm := best.lt, best.sRel, best.wRel, best.nm
+
+	// 执行模式：仍然必须有 SDI（ramdisk 引导要用）
+	if best.sRel == "" {
+		return true, best.wAbs, best.sAbs, fmt.Errorf("找到WIM但仍缺少SDI，无法设置ramdisk引导：WIM=%s", best.wAbs)
 	}
 
 	fmt.Println("PE:", nm, "DRV:", lt, "SDI:", sdi, "WIM:", wim)
@@ -1553,33 +1766,33 @@ func GoToPE(paths ...string) error {
 	// /device guid
 	out, err = runCmd(bcdeditPath, nil, "", "/create", "/d", "pe", "/device")
 	if err != nil {
-		return err
+		return false, "", "", err
 	}
 	re := regexp.MustCompile(`(?i)\{([a-f0-9-]+)\}`)
 	m1 := re.FindStringSubmatch(out)
 	if len(m1) < 2 {
-		return fmt.Errorf("guid1解析失败: %s", out)
+		return false, "", "", fmt.Errorf("guid1解析失败: %s", out)
 	}
 	gd1 := strings.ToLower(m1[1])
 
 	// ramdisksdi*
 	_, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd1+"}", "ramdisksdidevice", "partition="+lt+":")
 	if err != nil {
-		return err
+		return false, "", "", err
 	}
 	_, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd1+"}", "ramdisksdipath", sdi)
 	if err != nil {
-		return err
+		return false, "", "", err
 	}
 
 	// /application osloader guid2
 	out, err = runCmd(bcdeditPath, nil, "", "/create", "/d", "pe", "/application", "osloader")
 	if err != nil {
-		return err
+		return false, "", "", err
 	}
 	m2 := re.FindStringSubmatch(out)
 	if len(m2) < 2 {
-		return fmt.Errorf("guid2解析失败: %s", out)
+		return false, "", "", fmt.Errorf("guid2解析失败: %s", out)
 	}
 	gd2 := strings.ToLower(m2[1])
 
@@ -1587,11 +1800,11 @@ func GoToPE(paths ...string) error {
 	dev := fmt.Sprintf("ramdisk=[%s:]%s,{%s}", lt, wim, gd1)
 	_, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd2+"}", "device", dev)
 	if err != nil {
-		return err
+		return false, "", "", err
 	}
 	_, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd2+"}", "osdevice", dev)
 	if err != nil {
-		return err
+		return false, "", "", err
 	}
 
 	// BIOS/UEFI
@@ -1629,28 +1842,28 @@ func GoToPE(paths ...string) error {
 	}
 	if _, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd2+"}", "path", p1); err != nil {
 		if _, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd2+"}", "path", p2); err != nil {
-			return err
+			return false, "", "", err
 		}
 	}
 
 	if _, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd2+"}", "systemroot", `\windows`); err != nil {
-		return err
+		return false, "", "", err
 	}
 	if _, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd2+"}", "detecthal", "YES"); err != nil {
-		return err
+		return false, "", "", err
 	}
 	if _, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd2+"}", "winpe", "YES"); err != nil {
-		return err
+		return false, "", "", err
 	}
 	if _, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd2+"}", "nx", "OptIn"); err != nil {
-		return err
+		return false, "", "", err
 	}
 
 	// 设置下次启动
 	if _, err = runCmd(bcdeditPath, nil, "", "/bootsequence", "{"+gd2+"}"); err != nil {
-		return err
+		return false, "", "", err
 	}
-	return nil
+	return false, "", "", nil
 }
 
 // 修改wim文件，将自身及对应文件写入到wim中，并修改ini

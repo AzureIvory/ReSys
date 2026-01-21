@@ -548,7 +548,7 @@ func ensurePEAndReboot(arch string) error {
 		)
 
 		if attempt == 1 {
-			found, wim, sdi := hasPEFiles(arch)
+			found, wim, sdi, _ := GoToPE(true)
 			if found && strings.TrimSpace(wim) != "" {
 				wimPath = wim
 				sdiPath = sdi
@@ -589,7 +589,8 @@ func ensurePEAndReboot(arch string) error {
 
 		uiSetStatus("正在设置下次启动进入PE...")
 		logWrite("进入PE")
-		if err := GoToPE(); err != nil {
+
+		if _, _, _, err := GoToPE(false, sdiPath, wimPath); err != nil {
 			logWrite("进入PE失败：%v", err)
 			markFailedPEImage(failedPEImages, peID)
 			removePEArtifacts(wimPath, sdiPath)

@@ -1408,7 +1408,7 @@ func RunPartAssist(args []string) (string, error) {
 	return outText, nil
 }
 
-// 使用 diskpart，按盘符格式化卷。
+// 按盘符格式化卷。
 // letter: 盘符，可以是 "C" / "C:" / "C:\"
 // fs: 文件系统，例如 "ntfs" "fat32" "exfat"
 // label: 卷标，允许为空
