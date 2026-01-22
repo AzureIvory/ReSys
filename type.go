@@ -54,6 +54,92 @@ type GUID struct {
 	Data4 [8]byte
 }
 
+type driveLayoutInformationMbr struct {
+	Signature uint32
+	CheckSum  uint32
+}
+
+type driveLayoutInformationGpt struct {
+	DiskId               GUID
+	StartingUsableOffset int64
+	UsableLength         int64
+	MaxPartitionCount    uint32
+	_                    uint32
+}
+
+type partitionInformationEx struct {
+	PartitionStyle     uint32
+	StartingOffset     int64
+	PartitionLength    int64
+	PartitionNumber    uint32
+	RewritePartition   byte
+	IsServicePartition byte
+	_                  [2]byte
+}
+
+type partitionInformationMbr struct {
+	PartitionType       byte
+	BootIndicator       byte
+	RecognizedPartition byte
+	_                   byte
+	HiddenSectors       uint32
+}
+
+type partitionInformationGpt struct {
+	PartitionType GUID
+	PartitionId   GUID
+	Attributes    uint64
+	Name          [36]uint16
+}
+
+type getLengthInformation struct {
+	Length int64
+}
+
+type DiskInfo struct {
+	DiskNumber     int
+	SizeBytes      uint64
+	PartitionStyle string
+	UniqueId       string
+	IsSystemDisk   bool
+}
+
+type PartitionInfo struct {
+	DiskNumber     int
+	OffsetBytes    uint64
+	SizeBytes      uint64
+	PartitionGuid  string
+	Type           string
+	HasVolume      bool
+	VolumeGuidPath string
+	DriveLetter    string
+}
+
+type VolumeInfo struct {
+	DriveLetter    string
+	RootPath       string
+	VolumeGuidPath string
+	FileSystem     string
+	Label          string
+	SizeBytes      uint64
+	FreeBytes      uint64
+	DiskNumber     int
+	PartitionGuid  string
+	OffsetBytes    uint64
+}
+
+type FreeExtent struct {
+	DiskNumber  int
+	OffsetBytes uint64
+	SizeBytes   uint64
+}
+
+type ExtentPickPolicy struct {
+	PreferNonSystemDisk    bool
+	PreferLargestExtent    bool
+	PreferSameDiskAsTarget bool
+}
+
 // IShellLinkW vtable
 type iShellLinkWVtbl struct {
 	QueryInterface      uintptr

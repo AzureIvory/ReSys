@@ -13,6 +13,7 @@ const (
 	//磁盘相关
 	ioctlVolumeGetVolumeDiskExtents = 0x00560000 // IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS
 	ioctlDiskGetDriveLayoutEx       = 0x00070050 // IOCTL_DISK_GET_DRIVE_LAYOUT_EX
+	ioctlDiskGetLengthInfo          = 0x0007405C // IOCTL_DISK_GET_LENGTH_INFO
 	partitionStyleMBR               = 0          // PARTITION_STYLE_MBR
 	partitionStyleGPT               = 1          // PARTITION_STYLE_GPT
 	partitionStyleRAW               = 2          // PARTITION_STYLE_RAW

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -539,6 +540,640 @@ func ListCD() ([]string, error) {
 	return cds, nil
 }
 
+func formatGUID(g GUID) string {
+	return fmt.Sprintf("%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+		g.Data1, g.Data2, g.Data3,
+		g.Data4[0], g.Data4[1], g.Data4[2], g.Data4[3],
+		g.Data4[4], g.Data4[5], g.Data4[6], g.Data4[7],
+	)
+}
+
+func guidEqual(a, b GUID) bool {
+	return a.Data1 == b.Data1 &&
+		a.Data2 == b.Data2 &&
+		a.Data3 == b.Data3 &&
+		a.Data4 == b.Data4
+}
+
+func partitionTypeFromGPT(g GUID) string {
+	switch {
+	case guidEqual(g, GPTTypeEfiSystem):
+		return "EFI"
+	case guidEqual(g, GPTTypeMsr):
+		return "MSR"
+	case guidEqual(g, GPTTypeBasicData):
+		return "Basic"
+	case guidEqual(g, GPTTypeRecovery):
+		return "Recovery"
+	default:
+		return ""
+	}
+}
+
+func partitionTypeFromMBR(partType byte) string {
+	switch partType {
+	case 0x07:
+		return "Basic"
+	case 0x0B, 0x0C:
+		return "FAT32"
+	case 0x27:
+		return "Recovery"
+	case 0xEF:
+		return "EFI"
+	default:
+		return ""
+	}
+}
+
+func openPhysicalDrive(diskNumber int, access uint32) (syscall.Handle, error) {
+	diskPath := fmt.Sprintf(`\\.\PhysicalDrive%d`, diskNumber)
+	pDisk, err := syscall.UTF16PtrFromString(diskPath)
+	if err != nil {
+		return 0, err
+	}
+	hDisk, err := syscall.CreateFile(
+		pDisk,
+		access,
+		syscall.FILE_SHARE_READ|syscall.FILE_SHARE_WRITE,
+		nil,
+		syscall.OPEN_EXISTING,
+		0,
+		0,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return hDisk, nil
+}
+
+func getDiskSizeBytes(diskNumber int) (uint64, error) {
+	hDisk, err := openPhysicalDrive(diskNumber, syscall.GENERIC_READ)
+	if err != nil {
+		return 0, err
+	}
+	defer syscall.CloseHandle(hDisk)
+
+	var info getLengthInformation
+	var bytesRet uint32
+	err = syscall.DeviceIoControl(
+		hDisk,
+		ioctlDiskGetLengthInfo,
+		nil,
+		0,
+		(*byte)(unsafe.Pointer(&info)),
+		uint32(unsafe.Sizeof(info)),
+		&bytesRet,
+		nil,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("DeviceIoControl IOCTL_DISK_GET_LENGTH_INFO failed: %w", err)
+	}
+	if bytesRet < uint32(unsafe.Sizeof(info)) {
+		return 0, fmt.Errorf("unexpected DISK_GET_LENGTH_INFO size: %d", bytesRet)
+	}
+	if info.Length < 0 {
+		return 0, fmt.Errorf("invalid disk length: %d", info.Length)
+	}
+	return uint64(info.Length), nil
+}
+
+func volumeHandlePath(vol string) (string, error) {
+	raw := strings.TrimSpace(vol)
+	if raw == "" {
+		return "", fmt.Errorf("invalid volume: %q", vol)
+	}
+	low := strings.ToLower(raw)
+	if strings.HasPrefix(low, `\\?\volume{`) {
+		return strings.TrimRight(raw, `\`), nil
+	}
+	root := normRoot(raw)
+	if root == "" {
+		return "", fmt.Errorf("invalid volume: %q", vol)
+	}
+	return `\\.\` + strings.TrimRight(root, `\`), nil
+}
+
+func getVolumeInfoByPath(root string) (fsType, label string, sizeBytes, freeBytes uint64, err error) {
+	if root == "" {
+		return "", "", 0, 0, fmt.Errorf("empty root")
+	}
+	pRoot, e := syscall.UTF16PtrFromString(root)
+	if e != nil {
+		return "", "", 0, 0, e
+	}
+
+	volName := make([]uint16, 256)
+	fsName := make([]uint16, 256)
+	var serial, maxCompLen, flags uint32
+
+	r1, _, e1 := procGetVolumeInformationW.Call(
+		uintptr(unsafe.Pointer(pRoot)),
+		uintptr(unsafe.Pointer(&volName[0])),
+		uintptr(len(volName)),
+		uintptr(unsafe.Pointer(&serial)),
+		uintptr(unsafe.Pointer(&maxCompLen)),
+		uintptr(unsafe.Pointer(&flags)),
+		uintptr(unsafe.Pointer(&fsName[0])),
+		uintptr(len(fsName)),
+	)
+	if r1 == 0 {
+		if e1 != nil && e1 != syscall.Errno(0) {
+			return "", "", 0, 0, fmt.Errorf("GetVolumeInformationW: %w", e1)
+		}
+		return "", "", 0, 0, fmt.Errorf("GetVolumeInformationW failed")
+	}
+	fsType = strings.ToUpper(syscall.UTF16ToString(fsName))
+	label = syscall.UTF16ToString(volName)
+
+	var freeAvail, total, freeTotal uint64
+	r2, _, e2 := procGetDiskFreeSpaceExW.Call(
+		uintptr(unsafe.Pointer(pRoot)),
+		uintptr(unsafe.Pointer(&freeAvail)),
+		uintptr(unsafe.Pointer(&total)),
+		uintptr(unsafe.Pointer(&freeTotal)),
+	)
+	if r2 == 0 {
+		if e2 != nil && e2 != syscall.Errno(0) {
+			return fsType, label, 0, 0, fmt.Errorf("GetDiskFreeSpaceExW: %w", e2)
+		}
+		return fsType, label, 0, 0, fmt.Errorf("GetDiskFreeSpaceExW failed")
+	}
+	return fsType, label, total, freeAvail, nil
+}
+
+func parseMultiSz(buf []uint16) []string {
+	var out []string
+	start := 0
+	for i := 0; i < len(buf); i++ {
+		if buf[i] == 0 {
+			if i == start {
+				break
+			}
+			out = append(out, syscall.UTF16ToString(buf[start:i]))
+			start = i + 1
+		}
+	}
+	return out
+}
+
+func getVolumePathNames(volumeName string) ([]string, error) {
+	if volumeName == "" {
+		return nil, fmt.Errorf("empty volume name")
+	}
+	pVol, err := syscall.UTF16PtrFromString(volumeName)
+	if err != nil {
+		return nil, err
+	}
+	size := uint32(256)
+	for i := 0; i < 4; i++ {
+		buf := make([]uint16, size)
+		var retLen uint32
+		r, _, e := procGetVolumePathNamesW.Call(
+			uintptr(unsafe.Pointer(pVol)),
+			uintptr(unsafe.Pointer(&buf[0])),
+			uintptr(len(buf)),
+			uintptr(unsafe.Pointer(&retLen)),
+		)
+		if r != 0 {
+			return parseMultiSz(buf), nil
+		}
+		if e == syscall.ERROR_MORE_DATA && retLen > size {
+			size = retLen
+			continue
+		}
+		if e != nil && e != syscall.Errno(0) {
+			return nil, fmt.Errorf("GetVolumePathNamesForVolumeNameW: %w", e)
+		}
+		return nil, fmt.Errorf("GetVolumePathNamesForVolumeNameW failed")
+	}
+	return nil, fmt.Errorf("GetVolumePathNamesForVolumeNameW failed after retries")
+}
+
+func readDriveLayout(diskNumber int) (string, string, []PartitionInfo, error) {
+	hDisk, err := openPhysicalDrive(diskNumber, syscall.GENERIC_READ)
+	if err != nil {
+		return "", "", nil, err
+	}
+	defer syscall.CloseHandle(hDisk)
+
+	out := make([]byte, 1024*128)
+	var bytesRet uint32
+	err = syscall.DeviceIoControl(
+		hDisk,
+		ioctlDiskGetDriveLayoutEx,
+		nil,
+		0,
+		&out[0],
+		uint32(len(out)),
+		&bytesRet,
+		nil,
+	)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("DeviceIoControl IOCTL_DISK_GET_DRIVE_LAYOUT_EX failed: %w", err)
+	}
+	if bytesRet < 8 {
+		return "", "", nil, fmt.Errorf("unexpected DRIVE_LAYOUT_INFORMATION_EX size: %d", bytesRet)
+	}
+
+	styleVal := binary.LittleEndian.Uint32(out[0:4])
+	count := binary.LittleEndian.Uint32(out[4:8])
+	var style string
+	switch styleVal {
+	case partitionStyleMBR:
+		style = "MBR"
+	case partitionStyleGPT:
+		style = "GPT"
+	case partitionStyleRAW:
+		style = "RAW"
+	default:
+		style = "UNKNOWN"
+	}
+
+	mbtSize := unsafe.Sizeof(driveLayoutInformationMbr{})
+	gptSize := unsafe.Sizeof(driveLayoutInformationGpt{})
+	unionSize := mbtSize
+	if gptSize > unionSize {
+		unionSize = gptSize
+	}
+	headerSize := 8 + unionSize
+	if uint32(headerSize) > bytesRet {
+		return style, "", nil, fmt.Errorf("unexpected DRIVE_LAYOUT_INFORMATION_EX header: %d", bytesRet)
+	}
+
+	var uniqueId string
+	if styleVal == partitionStyleGPT {
+		gpt := (*driveLayoutInformationGpt)(unsafe.Pointer(&out[8]))
+		uniqueId = formatGUID(gpt.DiskId)
+	} else if styleVal == partitionStyleMBR {
+		mbr := (*driveLayoutInformationMbr)(unsafe.Pointer(&out[8]))
+		if mbr.Signature != 0 {
+			uniqueId = fmt.Sprintf("%08x", mbr.Signature)
+		}
+	}
+
+	unionPartSize := unsafe.Sizeof(partitionInformationMbr{})
+	if gptSize := unsafe.Sizeof(partitionInformationGpt{}); gptSize > unionPartSize {
+		unionPartSize = gptSize
+	}
+	entrySize := unsafe.Sizeof(partitionInformationEx{}) + unionPartSize
+	partitions := make([]PartitionInfo, 0, count)
+	for i := uint32(0); i < count; i++ {
+		baseOffset := uintptr(headerSize) + uintptr(i)*entrySize
+		if baseOffset+entrySize > uintptr(bytesRet) {
+			break
+		}
+		base := (*partitionInformationEx)(unsafe.Pointer(&out[baseOffset]))
+		if base.PartitionLength <= 0 {
+			continue
+		}
+
+		part := PartitionInfo{
+			DiskNumber:  diskNumber,
+			OffsetBytes: uint64(base.StartingOffset),
+			SizeBytes:   uint64(base.PartitionLength),
+		}
+		unionOffset := baseOffset + unsafe.Sizeof(partitionInformationEx{})
+		if base.PartitionStyle == partitionStyleGPT {
+			gpt := (*partitionInformationGpt)(unsafe.Pointer(&out[unionOffset]))
+			part.PartitionGuid = formatGUID(gpt.PartitionId)
+			part.Type = partitionTypeFromGPT(gpt.PartitionType)
+		} else if base.PartitionStyle == partitionStyleMBR {
+			mbr := (*partitionInformationMbr)(unsafe.Pointer(&out[unionOffset]))
+			part.Type = partitionTypeFromMBR(mbr.PartitionType)
+		}
+		partitions = append(partitions, part)
+	}
+
+	return style, uniqueId, partitions, nil
+}
+
+func ListPhysicalDisks() ([]DiskInfo, error) {
+	volumes, _ := ListVolumes()
+	systemDisk := -1
+	if sys := os.Getenv("SystemDrive"); sys != "" {
+		if dn, err := GetDiskNum(sys); err == nil {
+			systemDisk = int(dn)
+		}
+	}
+
+	const maxDisks = 128
+	disks := make([]DiskInfo, 0, 8)
+	for i := 0; i < maxDisks; i++ {
+		hDisk, err := openPhysicalDrive(i, syscall.GENERIC_READ)
+		if err != nil {
+			if errno, ok := err.(syscall.Errno); ok {
+				if errno == syscall.ERROR_FILE_NOT_FOUND || errno == syscall.ERROR_PATH_NOT_FOUND {
+					continue
+				}
+			}
+			continue
+		}
+		syscall.CloseHandle(hDisk)
+
+		style, uniqueId, _, err := readDriveLayout(i)
+		if err != nil {
+			continue
+		}
+		sizeBytes, err := getDiskSizeBytes(i)
+		if err != nil {
+			continue
+		}
+
+		isSystem := i == systemDisk
+		if !isSystem && systemDisk == -1 {
+			for _, vol := range volumes {
+				if strings.EqualFold(vol.DriveLetter, "C") && vol.DiskNumber == i {
+					isSystem = true
+					break
+				}
+			}
+		}
+
+		disks = append(disks, DiskInfo{
+			DiskNumber:     i,
+			SizeBytes:      sizeBytes,
+			PartitionStyle: style,
+			UniqueId:       uniqueId,
+			IsSystemDisk:   isSystem,
+		})
+	}
+	return disks, nil
+}
+
+func ListDiskPartitions(diskNumber int) ([]PartitionInfo, error) {
+	_, _, parts, err := readDriveLayout(diskNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	volumes, _ := ListVolumes()
+	for i := range parts {
+		for _, vol := range volumes {
+			if vol.DiskNumber != diskNumber {
+				continue
+			}
+			if vol.OffsetBytes >= parts[i].OffsetBytes &&
+				vol.OffsetBytes < parts[i].OffsetBytes+parts[i].SizeBytes {
+				parts[i].HasVolume = true
+				parts[i].VolumeGuidPath = vol.VolumeGuidPath
+				parts[i].DriveLetter = vol.DriveLetter
+				if parts[i].PartitionGuid == "" {
+					parts[i].PartitionGuid = vol.PartitionGuid
+				}
+				break
+			}
+		}
+	}
+	return parts, nil
+}
+
+func ListVolumes() ([]VolumeInfo, error) {
+	buf := make([]uint16, 1024)
+	r, _, err := procFindFirstVolumeW.Call(
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(len(buf)),
+	)
+	handle := syscall.Handle(r)
+	if r == 0 || handle == syscall.InvalidHandle {
+		if err != nil && err != syscall.Errno(0) {
+			return nil, fmt.Errorf("FindFirstVolumeW: %w", err)
+		}
+		return nil, fmt.Errorf("FindFirstVolumeW failed")
+	}
+	defer procFindVolumeClose.Call(uintptr(handle))
+
+	var volumes []VolumeInfo
+	for {
+		volName := syscall.UTF16ToString(buf)
+		volInfo := VolumeInfo{
+			VolumeGuidPath: volName,
+		}
+
+		paths, _ := getVolumePathNames(volName)
+		if len(paths) > 0 {
+			volInfo.RootPath = paths[0]
+			for _, p := range paths {
+				if len(p) >= 2 && p[1] == ':' {
+					volInfo.DriveLetter = strings.ToUpper(p[:1])
+					volInfo.RootPath = p
+					break
+				}
+			}
+		}
+
+		rootForInfo := volName
+		if volInfo.RootPath != "" {
+			rootForInfo = volInfo.RootPath
+		}
+		fs, label, sizeBytes, freeBytes, err := getVolumeInfoByPath(rootForInfo)
+		if err == nil {
+			volInfo.FileSystem = fs
+			volInfo.Label = label
+			volInfo.SizeBytes = sizeBytes
+			volInfo.FreeBytes = freeBytes
+		}
+
+		if diskNum, offset, _, err := getVolumeExtentBytes(volName); err == nil {
+			volInfo.DiskNumber = int(diskNum)
+			volInfo.OffsetBytes = uint64(offset)
+		}
+
+		volumes = append(volumes, volInfo)
+
+		r, _, e2 := procFindNextVolumeW.Call(
+			uintptr(handle),
+			uintptr(unsafe.Pointer(&buf[0])),
+			uintptr(len(buf)),
+		)
+		if r == 0 {
+			if e2 == syscall.ERROR_NO_MORE_FILES {
+				break
+			}
+			if e2 != nil && e2 != syscall.Errno(0) {
+				return volumes, fmt.Errorf("FindNextVolumeW: %w", e2)
+			}
+			break
+		}
+	}
+
+	partitions := make(map[int][]PartitionInfo)
+	for _, vol := range volumes {
+		if _, ok := partitions[vol.DiskNumber]; ok {
+			continue
+		}
+		if _, _, parts, err := readDriveLayout(vol.DiskNumber); err == nil {
+			partitions[vol.DiskNumber] = parts
+		}
+	}
+	for i := range volumes {
+		vol := &volumes[i]
+		if parts, ok := partitions[vol.DiskNumber]; ok {
+			for _, part := range parts {
+				if vol.OffsetBytes >= part.OffsetBytes &&
+					vol.OffsetBytes < part.OffsetBytes+part.SizeBytes {
+					vol.PartitionGuid = part.PartitionGuid
+					break
+				}
+			}
+		}
+	}
+
+	return volumes, nil
+}
+
+func GetDiskFreeExtents(diskNumber int) ([]FreeExtent, error) {
+	sizeBytes, err := getDiskSizeBytes(diskNumber)
+	if err != nil {
+		return nil, err
+	}
+	parts, err := ListDiskPartitions(diskNumber)
+	if err != nil {
+		return nil, err
+	}
+	if len(parts) == 0 {
+		return []FreeExtent{{DiskNumber: diskNumber, OffsetBytes: 0, SizeBytes: sizeBytes}}, nil
+	}
+
+	sort.Slice(parts, func(i, j int) bool {
+		return parts[i].OffsetBytes < parts[j].OffsetBytes
+	})
+
+	var free []FreeExtent
+	var cursor uint64
+	for _, p := range parts {
+		if p.OffsetBytes > cursor {
+			free = append(free, FreeExtent{
+				DiskNumber:  diskNumber,
+				OffsetBytes: cursor,
+				SizeBytes:   p.OffsetBytes - cursor,
+			})
+		}
+		end := p.OffsetBytes + p.SizeBytes
+		if end > cursor {
+			cursor = end
+		}
+	}
+	if cursor < sizeBytes {
+		free = append(free, FreeExtent{
+			DiskNumber:  diskNumber,
+			OffsetBytes: cursor,
+			SizeBytes:   sizeBytes - cursor,
+		})
+	}
+	return free, nil
+}
+
+func PickFreeExtent(needBytes uint64, policy ExtentPickPolicy) (FreeExtent, error) {
+	disks, err := ListPhysicalDisks()
+	if err != nil {
+		return FreeExtent{}, err
+	}
+	var candidates []FreeExtent
+	for _, d := range disks {
+		exts, err := GetDiskFreeExtents(d.DiskNumber)
+		if err != nil {
+			continue
+		}
+		for _, e := range exts {
+			if e.SizeBytes >= needBytes {
+				candidates = append(candidates, e)
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return FreeExtent{}, fmt.Errorf("no free extent large enough")
+	}
+
+	sort.Slice(candidates, func(i, j int) bool {
+		if policy.PreferLargestExtent && candidates[i].SizeBytes != candidates[j].SizeBytes {
+			return candidates[i].SizeBytes > candidates[j].SizeBytes
+		}
+		if policy.PreferNonSystemDisk {
+			isSysI := false
+			isSysJ := false
+			for _, d := range disks {
+				if d.DiskNumber == candidates[i].DiskNumber {
+					isSysI = d.IsSystemDisk
+				}
+				if d.DiskNumber == candidates[j].DiskNumber {
+					isSysJ = d.IsSystemDisk
+				}
+			}
+			if isSysI != isSysJ {
+				return !isSysI
+			}
+		}
+		return candidates[i].OffsetBytes < candidates[j].OffsetBytes
+	})
+
+	return candidates[0], nil
+}
+
+func CreatePartitionFromFreeExtent(extent FreeExtent, sizeBytes uint64, fs, label string) (string, error) {
+	if extent.SizeBytes == 0 {
+		return "", fmt.Errorf("free extent size is 0")
+	}
+	if sizeBytes == 0 || sizeBytes > extent.SizeBytes {
+		sizeBytes = extent.SizeBytes
+	}
+	fs2, err := parseFS(fs)
+	if err != nil {
+		return "", err
+	}
+	fs2 = strings.ToLower(fs2)
+
+	sizeMB64 := sizeBytes / (1024 * 1024)
+	if sizeMB64 == 0 {
+		return "", fmt.Errorf("sizeBytes too small")
+	}
+	maxInt := int(^uint(0) >> 1)
+	if sizeMB64 > uint64(maxInt) {
+		return "", fmt.Errorf("sizeBytes too large")
+	}
+	sizeMB := int(sizeMB64)
+
+	label = cleanLabel(label)
+	lblArg := ""
+	if strings.TrimSpace(label) != "" {
+		lblArg = " label=" + diskpartQuote(label)
+	}
+
+	beforeLetters, err := collectDriveLetters()
+	if err != nil {
+		return "", err
+	}
+
+	offsetKB := (extent.OffsetBytes + 1023) / 1024
+	lines := []string{
+		fmt.Sprintf("select disk %d", extent.DiskNumber),
+		fmt.Sprintf("create partition primary offset=%d size=%d align=1024", offsetKB, sizeMB),
+		fmt.Sprintf("format fs=%s%s quick", fs2, lblArg),
+		"assign",
+	}
+
+	out, err := RunDiskpart(lines)
+	if err != nil {
+		return "", fmt.Errorf("create partition(diskpart) failed: %w\n输出:\n%s", err, out)
+	}
+	if e := diskpartDetectError(out, "create/format/assign"); e != nil {
+		return "", e
+	}
+
+	for i := 0; i < 6; i++ {
+		afterLetters, err := collectDriveLetters()
+		if err != nil {
+			return "", err
+		}
+		for l := range afterLetters {
+			if _, ok := beforeLetters[l]; !ok {
+				return l, nil
+			}
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	return "", fmt.Errorf("create finished but cannot determine new drive letter")
+}
+
 // 把diskpart命令写入临时文件并执行。
 // 返回diskpart的输出，便于日志记录/排错。
 func RunDiskpart(lines []string) (string, error) {
@@ -640,12 +1275,10 @@ type volumeDiskExtentsRaw struct {
 }
 
 func getVolumeExtentBytes(vol string) (diskNum uint32, startBytes int64, lengthBytes int64, err error) {
-	root := normRoot(vol)
-	if root == "" {
-		return 0, 0, 0, fmt.Errorf("invalid volume: %q", vol)
+	volPath, err := volumeHandlePath(vol)
+	if err != nil {
+		return 0, 0, 0, err
 	}
-	// \\.\C:
-	volPath := `\\.\` + strings.TrimRight(root, `\`)
 	pVol, err := syscall.UTF16PtrFromString(volPath)
 	if err != nil {
 		return 0, 0, 0, err
