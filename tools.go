@@ -2620,3 +2620,103 @@ func GetMemory() (float64, error) {
 	const gib = 1024 * 1024 * 1024
 	return float64(m.ullTotalPhys) / float64(gib), nil
 }
+
+const (
+	// 你说镜像 <6G，而 Findpart 返回 >7G 的可用分区，所以这里用 7GiB 作为“下载最小安全空间”
+	minImageBytes uint64 = 7 * 1024 * 1024 * 1024
+
+	// 临时分区卷标，保持与你现有 PE 逻辑一致（你原来是 "TEMP"）
+	tempLabel = "TEMP"
+
+	// 标记文件：用于 PE 里识别“这是我们创建的临时分区”，避免误删
+	tempMarkerRel = `RESTALL\temp.marker`
+)
+
+// 清理指定分区
+func ClearPartition(letter string) error {
+	// TODO: your implementation
+	return nil
+}
+
+// 优先：用“连续未分配空间”创建 TEMP 分区；失败再最后 SplitVolume(C)
+// needBytes：你想保证 TEMP 至少能放下的空间（建议=镜像大小+余量）
+func ensureTempVolumeForBytes(needBytes uint64) (string, error) {
+	// 给点余量
+	const extra uint64 = 512 * 1024 * 1024
+	if needBytes < minImageBytes {
+		needBytes = minImageBytes
+	}
+	needBytes += extra
+
+	// 1) 先用未分配空间（全盘扫描，支持“另一块盘全未分配”的情况）
+	extent, err := PickFreeExtent(needBytes, ExtentPickPolicy{
+		PreferNonSystemDisk:   true,
+		PreferLargestExtent:   true,
+	})
+	if err == nil && extent.SizeBytes >= needBytes {
+		letter, err2 := CreatePartitionFromFreeExtent(extent, needBytes, "ntfs", tempLabel)
+		if err2 == nil {
+			root := normalizeRootPath(letter) // 你项目里已有
+			if root != "" {
+				// 写 marker
+				marker := filepath.Join(root, tempMarkerRel)
+				_ = os.MkdirAll(filepath.Dir(marker), 0o755)
+				_ = os.WriteFile(marker, []byte(time.Now().Format(time.RFC3339)), 0o644)
+				logWrite("已使用未分配空间创建 TEMP 分区：%s", root)
+				return root, nil
+			}
+		} else {
+			logWrite("CreatePartitionFromFreeExtent失败：%v", err2)
+		}
+	} else {
+		if err != nil {
+			logWrite("PickFreeExtent未找到足够大的未分配段：%v", err)
+		}
+	}
+
+	// 2) 最后兜底：拆分系统盘
+	// 尝试先清理一下，增加 shrink 成功率
+	_ = ClearPartition("C")
+
+	sizeMB64 := (needBytes + 1024*1024 - 1) / (1024 * 1024)
+	sizeMB := int(sizeMB64)
+	if sizeMB < 1024 {
+		sizeMB = 1024
+	}
+
+	newVol, err := SplitVolume("C", sizeMB, "ntfs", tempLabel)
+	if err != nil {
+		return "", err
+	}
+	root := normalizeRootPath(newVol)
+	if root == "" {
+		return "", fmt.Errorf("SplitVolume成功但未解析到新分区盘符: %v", newVol)
+	}
+
+	// 写 marker
+	marker := filepath.Join(root, tempMarkerRel)
+	_ = os.MkdirAll(filepath.Dir(marker), 0o755)
+	_ = os.WriteFile(marker, []byte(time.Now().Format(time.RFC3339)), 0o644)
+
+	logWrite("已通过拆分C盘创建 TEMP 分区：%s", root)
+	return root, nil
+}
+
+// PE 里用：扫描所有盘符找 marker，返回临时分区根路径（例如 "T:\\"）
+func findTempRootByMarker() string {
+	drives, _ := ListDrive()
+	for _, d := range drives {
+		root := normalizeRootPath(d)
+		if root == "" {
+			continue
+		}
+		if strings.HasPrefix(strings.ToUpper(root), "X:") {
+			continue
+		}
+		marker := filepath.Join(root, tempMarkerRel)
+		if st, err := os.Stat(marker); err == nil && !st.IsDir() {
+			return root
+		}
+	}
+	return ""
+}

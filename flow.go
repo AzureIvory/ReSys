@@ -77,6 +77,52 @@ func StartInstall(target string) {
 		return
 	}
 
+	// 单分区场景：如果镜像在系统盘(C)，必须在进PE前把镜像移到 TEMP，否则PE格式化目标分区会丢镜像
+	if !retryLoop("准备镜像存放分区", func() error {
+		parts := Findpart()
+		// 只有一个可用分区（或 Findpart 为空，视为单分区/空间紧张）
+		if len(parts) > 1 {
+			return nil
+		}
+
+		sysRoot := normalizeRootPath(systemDriveRoot())
+		imgRoot := normalizeRootPath(volumeRootFromPath(imgPath))
+		if sysRoot == "" || imgRoot == "" || !strings.EqualFold(sysRoot, imgRoot) {
+			return nil
+		}
+
+		st, err := os.Stat(imgPath)
+		if err != nil {
+			return err
+		}
+		need := uint64(st.Size())
+
+		// 先尝试用未分配创建 TEMP（或最后拆分），然后把镜像 copy 过去
+		uiSetStatus("单分区：正在创建TEMP分区并转移镜像...")
+		tmpRoot, err := ensureTempVolumeForBytes(need)
+		if err != nil {
+			return err
+		}
+
+		dstDir := filepath.Join(tmpRoot, "镜像")
+		_ = os.MkdirAll(dstDir, 0o755)
+		dstPath := filepath.Join(dstDir, filepath.Base(imgPath))
+
+		logWrite("单分区：转移镜像到TEMP：%s -> %s", imgPath, dstPath)
+		if err := Copy(imgPath, dstPath, true, true); err != nil {
+			return err
+		}
+		if _, err := os.Stat(dstPath); err != nil {
+			return err
+		}
+
+		imgPath = dstPath
+		logWrite("单分区：镜像已转移到TEMP，更新路径：%s", imgPath)
+		return nil
+	}) {
+		return
+	}
+
 	uiSetProgress(60)
 	uiSetStatus("正在写入重装信息...")
 
@@ -240,9 +286,11 @@ func detectTargetFromInfos(infos []ImageMeta) string {
 
 // 选择镜像下载盘符。
 func chooseDownloadRoot() string {
-	systemDrive := strings.ToUpper(os.Getenv("SystemDrive"))
+	systemDrive := strings.ToUpper(os.Getenv("SystemDrive")) // "C:"
 	parts := Findpart()
-	if len(parts) > 0 {
+
+	// 多分区：直接用 Findpart
+	if len(parts) > 1 {
 		for _, p := range parts {
 			if systemDrive == "" || !strings.EqualFold(strings.TrimSuffix(p, `\`), systemDrive) {
 				return p
@@ -250,6 +298,35 @@ func chooseDownloadRoot() string {
 		}
 		return parts[0]
 	}
+
+	// 单分区或 Findpart 为空：优先用系统盘 C
+	root := ""
+	if systemDrive != "" {
+		root = systemDrive + `\`
+	} else {
+		root = systemDriveRoot()
+	}
+	root = normalizeRootPath(root)
+
+	// 先尝试直接用 C
+	if root != "" {
+		if free, err := GetFreeSize(root); err == nil && free >= minImageBytes {
+			return root
+		}
+		// 不够 -> 清理 -> 再试
+		_ = ClearPartition("C")
+		if free, err := GetFreeSize(root); err == nil && free >= minImageBytes {
+			return root
+		}
+	}
+
+	// 还不够：用未分配创建 TEMP
+	tmp, err := ensureTempVolumeForBytes(minImageBytes)
+	if err == nil && tmp != "" {
+		return tmp
+	}
+
+	// 兜底
 	drives, _ := ListDrive()
 	for _, d := range drives {
 		if systemDrive != "" && strings.EqualFold(strings.TrimSuffix(d, `\`), systemDrive) {
@@ -1517,6 +1594,17 @@ func RunPEInstall() error {
 		return err
 	}
 	logWrite("安装后处理完成")
+
+	// 如果不是 PE 内创建的 tempVol，尝试通过 marker 找到我们创建的 TEMP 分区
+	if tempVol == "" {
+		if mr := findTempRootByMarker(); mr != "" {
+			mr = normalizeRootPath(mr)
+			if mr != "" && !strings.EqualFold(mr, targetRoot) {
+				tempVol = mr
+				logWrite("通过 marker 找到 TEMP 分区：%s", tempVol)
+			}
+		}
+	}
 
 	if tempVol != "" {
 		deleteCb := progressHandler(85, 5, "正在删除临时分区... %d%%", "删除临时分区进度：%d%%")
