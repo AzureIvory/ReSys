@@ -1581,20 +1581,21 @@ func DeleteVolume(vol string) error {
 	return nil
 }
 
-// 按盘符格式化卷。
+// 按盘符格式化卷：先尝试 FormatEX；失败则回退到 diskpart。
 func Format(letter, fs, label string, quick bool) error {
 	volLetter, err := parseLetter(letter)
 	if err != nil {
 		return err
 	}
 
-	fs2, err := parseFS(fs)
+	fsCanon, err := parseFS(fs)
 	if err != nil {
 		return err
 	}
-	fs2 = strings.ToLower(fs2)
 
 	label = cleanLabel(label)
+	fs2 := strings.ToLower(fsCanon)
+
 	lblArg := ""
 	if strings.TrimSpace(label) != "" {
 		lblArg = " label=" + diskpartQuote(label)
@@ -1611,12 +1612,54 @@ func Format(letter, fs, label string, quick bool) error {
 	}
 
 	out, err := RunDiskpart(lines)
-	fmt.Println(out)
+	logWrite(out)
 	if err != nil {
 		return fmt.Errorf("format(diskpart) failed: %w\n输出:\n%s", err, out)
 	}
 	if e := diskpartDetectError(out, "format"); e != nil {
 		return e
+	}
+	return nil
+}
+
+// 调用 Windows API FormatEx 格式化卷。
+// 无效
+func FormatEX(letter, fs, label string, quick bool) error {
+	root := normRoot(letter)
+	if root == "" {
+		return fmt.Errorf("invalid volume: %q", letter)
+	}
+	pRoot, err := syscall.UTF16PtrFromString(root)
+	if err != nil {
+		return err
+	}
+	pFS, err := syscall.UTF16PtrFromString(fs)
+	if err != nil {
+		return err
+	}
+	label = cleanLabel(label)
+	pLabel, err := syscall.UTF16PtrFromString(label)
+	if err != nil {
+		return err
+	}
+
+	cb := syscall.NewCallback(func(command uint32, modifier uint32, data uintptr) uintptr {
+		return 1
+	})
+
+	const mediaHardDisk = 0x00000000
+	r, _, e := procFormatEx.Call(
+		uintptr(unsafe.Pointer(pRoot)),
+		uintptr(mediaHardDisk),
+		uintptr(unsafe.Pointer(pFS)),
+		uintptr(unsafe.Pointer(pLabel)),
+		uintptr(boolToUintptr(quick)),
+		uintptr(0),
+		cb,
+	)
+	_ = r
+	if e != nil && e != syscall.Errno(0) {
+		return fmt.Errorf("FormatEx failed: %w", e)
 	}
 	return nil
 }

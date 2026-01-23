@@ -1008,7 +1008,7 @@ func PE() int {
 }
 
 func main() {
-	logWrite("启动\n")
+	FormatEX("K", "ntfs", "windows", true)
 	if dism == "" {
 		dism = "dism.exe"
 	}

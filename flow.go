@@ -666,6 +666,7 @@ func ensurePEAndReboot(arch string) error {
 
 		uiSetStatus("正在设置下次启动进入PE...")
 		logWrite("进入PE")
+		logWrite(sdiPath + "===" + wimPath)
 
 		if _, _, _, err := GoToPE(false, sdiPath, wimPath); err != nil {
 			logWrite("进入PE失败：%v", err)

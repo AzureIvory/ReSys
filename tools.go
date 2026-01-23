@@ -1866,6 +1866,70 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 	return false, "", "", nil
 }
 
+// 确保 WIM 文件可写
+func ensureWimWritable(wim string) error {
+	st, err := os.Stat(wim)
+	if err != nil {
+		return fmt.Errorf("WIM不存在或不可访问: %w", err)
+	}
+	if st.IsDir() {
+		return fmt.Errorf("WIM路径是目录不是文件: %s", wim)
+	}
+
+	// 1) 尝试直接以读写方式打开
+	tryOpenRW := func() error {
+		f, e := os.OpenFile(wim, os.O_RDWR, 0)
+		if e != nil {
+			return e
+		}
+		_ = f.Close()
+		return nil
+	}
+
+	if err := tryOpenRW(); err != nil {
+		// 2) 如果打不开，尝试去只读（Windows 属性只读）
+		if e2 := clearReadonly(wim); e2 != nil {
+			return fmt.Errorf("WIM不可写(打开失败): %v；去只读失败: %v", err, e2)
+		}
+		// 3) 去只读后再试一次
+		if err2 := tryOpenRW(); err2 != nil {
+			return fmt.Errorf("WIM仍不可写(已去只读): %v", err2)
+		}
+	}
+
+	// 4) 检查 WIM 所在目录是否可写（只读介质/无权限目录常见）
+	dir := filepath.Dir(wim)
+	tf, err := os.CreateTemp(dir, "wimwrite_*")
+	if err != nil {
+		return fmt.Errorf("WIM所在目录不可写: %s: %w", dir, err)
+	}
+	name := tf.Name()
+	_ = tf.Close()
+	_ = os.Remove(name)
+
+	return nil
+}
+
+// 清除文件“只读”属性
+func clearReadonly(path string) error {
+	p, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		return err
+	}
+	attrs, err := syscall.GetFileAttributes(p)
+	if err != nil {
+		return err
+	}
+
+	// 已经不是只读，直接返回
+	if attrs&syscall.FILE_ATTRIBUTE_READONLY == 0 {
+		return nil
+	}
+
+	attrs &^= syscall.FILE_ATTRIBUTE_READONLY
+	return syscall.SetFileAttributes(p, attrs)
+}
+
 // 修改wim文件，将自身及对应文件写入到wim中，并修改ini
 func Patwim(wim string) error {
 	if wim == "" {
@@ -1876,6 +1940,9 @@ func Patwim(wim string) error {
 		return err
 	}
 	wim = wimAbs
+	if err := ensureWimWritable(wim); err != nil {
+		return err
+	}
 
 	// 自身程序
 	selfExe, err := os.Executable()
@@ -2622,13 +2689,8 @@ func GetMemory() (float64, error) {
 }
 
 const (
-	// 你说镜像 <6G，而 Findpart 返回 >7G 的可用分区，所以这里用 7GiB 作为“下载最小安全空间”
 	minImageBytes uint64 = 7 * 1024 * 1024 * 1024
-
-	// 临时分区卷标，保持与你现有 PE 逻辑一致（你原来是 "TEMP"）
 	tempLabel = "TEMP"
-
-	// 标记文件：用于 PE 里识别“这是我们创建的临时分区”，避免误删
 	tempMarkerRel = `RESTALL\temp.marker`
 )
 
@@ -2638,8 +2700,8 @@ func ClearPartition(letter string) error {
 	return nil
 }
 
-// 优先：用“连续未分配空间”创建 TEMP 分区；失败再最后 SplitVolume(C)
-// needBytes：你想保证 TEMP 至少能放下的空间（建议=镜像大小+余量）
+// 优先：用连续未分配空间创建 TEMP 分区；失败再最后 SplitVolume(C)
+// needBytes：需要的空间
 func ensureTempVolumeForBytes(needBytes uint64) (string, error) {
 	// 给点余量
 	const extra uint64 = 512 * 1024 * 1024
@@ -2650,8 +2712,8 @@ func ensureTempVolumeForBytes(needBytes uint64) (string, error) {
 
 	// 1) 先用未分配空间（全盘扫描，支持“另一块盘全未分配”的情况）
 	extent, err := PickFreeExtent(needBytes, ExtentPickPolicy{
-		PreferNonSystemDisk:   true,
-		PreferLargestExtent:   true,
+		PreferNonSystemDisk: true,
+		PreferLargestExtent: true,
 	})
 	if err == nil && extent.SizeBytes >= needBytes {
 		letter, err2 := CreatePartitionFromFreeExtent(extent, needBytes, "ntfs", tempLabel)
@@ -2702,7 +2764,7 @@ func ensureTempVolumeForBytes(needBytes uint64) (string, error) {
 	return root, nil
 }
 
-// PE 里用：扫描所有盘符找 marker，返回临时分区根路径（例如 "T:\\"）
+// 扫描所有盘符找 marker，返回临时分区根路径（例如 "T:\\"）
 func findTempRootByMarker() string {
 	drives, _ := ListDrive()
 	for _, d := range drives {
@@ -2719,4 +2781,11 @@ func findTempRootByMarker() string {
 		}
 	}
 	return ""
+}
+
+func boolToUintptr(v bool) uintptr {
+	if v {
+		return 1
+	}
+	return 0
 }

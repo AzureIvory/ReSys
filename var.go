@@ -49,6 +49,8 @@ var (
 	procFindNextVolumeW         = modKernel32.NewProc("FindNextVolumeW")
 	procFindVolumeClose         = modKernel32.NewProc("FindVolumeClose")
 	procGetVolumePathNamesW     = modKernel32.NewProc("GetVolumePathNamesForVolumeNameW")
+	modFmifs                    = syscall.NewLazyDLL("fmifs.dll")
+	procFormatEx                = modFmifs.NewProc("FormatEx")
 	//固件类型检测BIOS/UEFI
 	procGetFirmwareType = modKernel32.NewProc("GetFirmwareType")
 )
