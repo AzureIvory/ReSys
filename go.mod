@@ -7,7 +7,7 @@ require (
 	github.com/anacrolix/torrent v1.59.1
 	github.com/kdomanski/iso9660 v0.4.0
 	golang.org/x/sys v0.39.0
-	golang.org/x/text v0.31.0
+	golang.org/x/text v0.33.0
 )
 
 require (
@@ -80,7 +80,7 @@ require (
 	golang.org/x/crypto v0.40.0 // indirect
 	golang.org/x/exp v0.0.0-20240823005443-9b4947da3948 // indirect
 	golang.org/x/net v0.42.0 // indirect
-	golang.org/x/sync v0.18.0 // indirect
+	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/time v0.0.0-20220609170525-579cf78fd858 // indirect
 	lukechampine.com/blake3 v1.1.6 // indirect
 	modernc.org/libc v1.22.3 // indirect

@@ -1755,7 +1755,7 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 	if isWow64 {
 		bcdeditPath = filepath.Join(windir, "Sysnative", "bcdedit.exe")
 	}
-	out, err := runCmd(bcdeditPath, nil, "")
+	out, err := runCmd(bcdeditPath, nil, nil, "")
 	if err != nil && (errors.Is(err, os.ErrNotExist) || errors.Is(err, exec.ErrNotFound)) {
 		exe, e := os.Executable()
 		if e == nil {
@@ -1764,7 +1764,7 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 	}
 
 	// /device guid
-	out, err = runCmd(bcdeditPath, nil, "", "/create", "/d", "pe", "/device")
+	out, err = runCmd(bcdeditPath, nil, nil, "", "/create", "/d", "pe", "/device")
 	if err != nil {
 		return false, "", "", err
 	}
@@ -1776,17 +1776,17 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 	gd1 := strings.ToLower(m1[1])
 
 	// ramdisksdi*
-	_, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd1+"}", "ramdisksdidevice", "partition="+lt+":")
+	_, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd1+"}", "ramdisksdidevice", "partition="+lt+":")
 	if err != nil {
 		return false, "", "", err
 	}
-	_, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd1+"}", "ramdisksdipath", sdi)
+	_, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd1+"}", "ramdisksdipath", sdi)
 	if err != nil {
 		return false, "", "", err
 	}
 
 	// /application osloader guid2
-	out, err = runCmd(bcdeditPath, nil, "", "/create", "/d", "pe", "/application", "osloader")
+	out, err = runCmd(bcdeditPath, nil, nil, "", "/create", "/d", "pe", "/application", "osloader")
 	if err != nil {
 		return false, "", "", err
 	}
@@ -1798,11 +1798,11 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 
 	// device/osdevice
 	dev := fmt.Sprintf("ramdisk=[%s:]%s,{%s}", lt, wim, gd1)
-	_, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd2+"}", "device", dev)
+	_, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "device", dev)
 	if err != nil {
 		return false, "", "", err
 	}
-	_, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd2+"}", "osdevice", dev)
+	_, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "osdevice", dev)
 	if err != nil {
 		return false, "", "", err
 	}
@@ -1818,10 +1818,10 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 	if isWow64 {
 		regPath = filepath.Join(windir, "Sysnative", "reg.exe")
 	}
-	out, er2 := runCmd(regPath, nil, "", "query", `HKLM\SYSTEM\CurrentControlSet\Control`, "/v", "PEFirmwareType")
+	out, er2 := runCmd(regPath, nil, nil, "", "query", `HKLM\SYSTEM\CurrentControlSet\Control`, "/v", "PEFirmwareType")
 	if err != nil && (errors.Is(err, os.ErrNotExist) || errors.Is(err, exec.ErrNotFound)) {
 		if exe, e := os.Executable(); e == nil {
-			out, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "reg"), nil, "", "query",
+			out, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "reg"), nil, nil, "", "query",
 				`HKLM\SYSTEM\CurrentControlSet\Control`, "/v", "PEFirmwareType")
 		}
 	}
@@ -1840,27 +1840,27 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 	if fw == 1 {
 		p1, p2 = p2, p1
 	}
-	if _, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd2+"}", "path", p1); err != nil {
-		if _, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd2+"}", "path", p2); err != nil {
+	if _, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "path", p1); err != nil {
+		if _, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "path", p2); err != nil {
 			return false, "", "", err
 		}
 	}
 
-	if _, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd2+"}", "systemroot", `\windows`); err != nil {
+	if _, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "systemroot", `\windows`); err != nil {
 		return false, "", "", err
 	}
-	if _, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd2+"}", "detecthal", "YES"); err != nil {
+	if _, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "detecthal", "YES"); err != nil {
 		return false, "", "", err
 	}
-	if _, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd2+"}", "winpe", "YES"); err != nil {
+	if _, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "winpe", "YES"); err != nil {
 		return false, "", "", err
 	}
-	if _, err = runCmd(bcdeditPath, nil, "", "/set", "{"+gd2+"}", "nx", "OptIn"); err != nil {
+	if _, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "nx", "OptIn"); err != nil {
 		return false, "", "", err
 	}
 
 	// 设置下次启动
-	if _, err = runCmd(bcdeditPath, nil, "", "/bootsequence", "{"+gd2+"}"); err != nil {
+	if _, err = runCmd(bcdeditPath, nil, nil, "", "/bootsequence", "{"+gd2+"}"); err != nil {
 		return false, "", "", err
 	}
 	return false, "", "", nil
@@ -2690,8 +2690,8 @@ func GetMemory() (float64, error) {
 
 const (
 	minImageBytes uint64 = 7 * 1024 * 1024 * 1024
-	tempLabel = "TEMP"
-	tempMarkerRel = `RESTALL\temp.marker`
+	tempLabel            = "TEMP"
+	tempMarkerRel        = `RESTALL\temp.marker`
 )
 
 // 清理指定分区

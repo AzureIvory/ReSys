@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -1182,6 +1183,18 @@ func RunDiskpart(lines []string) (string, error) {
 	}
 
 	script := strings.Join(lines, "\r\n") + "\r\n"
+	out, err := runDiskpartScriptFile(script)
+	if err == nil {
+		return out, nil
+	}
+
+	outDirect, directErr := runDiskpartDirect(script)
+	if directErr == nil {
+		return outDirect, nil
+	}
+	return outDirect, fmt.Errorf("diskpart failed (script file): %w; direct failed: %v\n直接执行输出:\n%s", err, directErr, outDirect)
+}
+func runDiskpartScriptFile(script string) (string, error) {
 	name := fmt.Sprintf("dp_fmt_%d.txt", time.Now().UnixNano())
 	baseDir := ""
 	if exe, err := os.Executable(); err == nil {
@@ -1204,18 +1217,48 @@ func RunDiskpart(lines []string) (string, error) {
 	if err := f.Close(); err != nil {
 		return "", fmt.Errorf("close script failed: %w", err)
 	}
-	diskpart := "diskpart.exe"
-	if systemArch() == "32" {
-		diskpart = "C:\\Windows\\Sysnative\\diskpart.exe"
-	} else {
-		diskpart = "C:\\Windows\\System32\\diskpart.exe"
-	}
-	out, err := runCmd(diskpart, nil, "", "/s", path)
+	diskpart := diskpartBinary()
+	out, err := runCmd(diskpart, nil, nil, "", "/s", path)
 	if err != nil {
 		return out, fmt.Errorf("diskpart failed: %w", err)
 	}
 	return out, nil
 
+}
+func runDiskpartDirect(script string) (string, error) {
+	script = strings.TrimRight(script, "\r\n") + "\r\nexit\r\n"
+	diskpart := diskpartBinary()
+	out, err := runCmd(diskpart, []byte(script), nil, "")
+	if err != nil {
+		return out, fmt.Errorf("diskpart direct failed: %w", err)
+	}
+	return out, nil
+}
+func diskpartBinary() string {
+	windir := os.Getenv("SystemRoot")
+	if windir == "" {
+		windir = os.Getenv("WINDIR")
+	}
+
+	isWow64 := runtime.GOARCH == "386" && os.Getenv("PROCESSOR_ARCHITEW6432") != ""
+
+	diskpart := filepath.Join(windir, "System32", "diskpart.exe")
+	if isWow64 {
+		diskpart = filepath.Join(windir, "Sysnative", "diskpart.exe")
+	}
+
+	if windir != "" {
+		if _, err := os.Stat(diskpart); err == nil {
+			return diskpart
+		}
+		alt := filepath.Join(windir, "System32", "diskpart.exe")
+		if _, err := os.Stat(alt); err == nil {
+			return alt
+		}
+	}
+
+	// 最后走 PATH
+	return "diskpart.exe"
 }
 
 func ansiToUTF8(b []byte) string {
@@ -1255,7 +1298,7 @@ func ansiToUTF8(b []byte) string {
 		return string(b)
 	}
 
-	// 转为 Go string（UTF-8）
+	// 转为 Go string
 	return string(utf16.Decode(w))
 }
 
@@ -1623,7 +1666,6 @@ func Format(letter, fs, label string, quick bool) error {
 }
 
 // 调用 Windows API FormatEx 格式化卷。
-// 无效
 func FormatEX(letter, fs, label string, quick bool) error {
 	root := normRoot(letter)
 	if root == "" {

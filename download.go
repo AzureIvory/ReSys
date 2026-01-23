@@ -418,7 +418,7 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 		go func() {
 			<-curlCtx.Done()
 			if cmd.Process != nil {
-				_, _ = runCmd("taskkill", nil, "", "/F", "/T", "/PID", strconv.Itoa(cmd.Process.Pid))
+				_, _ = runCmd("taskkill", nil, nil, "", "/F", "/T", "/PID", strconv.Itoa(cmd.Process.Pid))
 			}
 		}()
 

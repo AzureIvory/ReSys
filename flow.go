@@ -847,36 +847,6 @@ func IsWePE() bool {
 	return false
 }
 
-func runApproxProgress(onProgress func(int), fn func() error) error {
-	if onProgress == nil {
-		return fn()
-	}
-	done := make(chan error, 1)
-	go func() {
-		done <- fn()
-	}()
-
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
-	progress := 0
-
-	for {
-		select {
-		case err := <-done:
-			onProgress(100)
-			return err
-		case <-ticker.C:
-			if progress < 95 {
-				progress += 5
-				if progress > 95 {
-					progress = 95
-				}
-				onProgress(progress)
-			}
-		}
-	}
-}
-
 // 选择 PETEMP 所在盘符。
 func choosePETempRoot(needBytes int64) (string, error) {
 	systemDrive := strings.ToUpper(os.Getenv("SystemDrive"))
@@ -1490,14 +1460,12 @@ func RunPEInstall() error {
 
 			splitCb := progressHandler(10, 5, "正在拆分分区... %d%%", "拆分分区进度：%d%%")
 			var newVol string
-			err = runApproxProgress(splitCb, func() error {
-				var splitErr error
-				newVol, splitErr = SplitVolume(targetRoot, sizeMB, "ntfs", "TEMP")
-				return splitErr
-			})
+			splitCb(0)
+			newVol, err = SplitVolume(targetRoot, sizeMB, "ntfs", "TEMP")
 			if err != nil {
 				return err
 			}
+			splitCb(100)
 			uiSetProgress(15)
 			tempVol = normalizeRootPath(newVol)
 
@@ -1523,9 +1491,11 @@ func RunPEInstall() error {
 	}
 	formatCb := progressHandler(formatBase, formatSpan, "正在格式化分区... %d%%", "格式化进度：%d%%")
 
-	err = runApproxProgress(formatCb, func() error {
-		return Format(strings.ReplaceAll(strings.ReplaceAll(targetRoot, "\\", ""), ":", ""), "ntfs", "Windows", true)
-	})
+	formatCb(0)
+	err = Format(strings.ReplaceAll(strings.ReplaceAll(targetRoot, "\\", ""), ":", ""), "ntfs", "Windows", true)
+	if err == nil {
+		formatCb(100)
+	}
 	if err != nil {
 		logWrite("格式化失败: %v", err)
 	}
@@ -1609,18 +1579,19 @@ func RunPEInstall() error {
 
 	if tempVol != "" {
 		deleteCb := progressHandler(85, 5, "正在删除临时分区... %d%%", "删除临时分区进度：%d%%")
-		if err := runApproxProgress(deleteCb, func() error {
-			return DeleteVolume(tempVol)
-		}); err != nil {
+		deleteCb(0)
+		if err := DeleteVolume(tempVol); err != nil {
 			logWrite("删除临时分区失败：%v", err)
+		} else {
+			deleteCb(100)
 		}
 
 		mergeCb := progressHandler(90, 5, "正在合并临时分区... %d%%", "合并临时分区进度：%d%%")
-		if err := runApproxProgress(mergeCb, func() error {
-			return MergeVolume(targetRoot, 0)
-		}); err != nil {
+		mergeCb(0)
+		if err := MergeVolume(targetRoot, 0); err != nil {
 			logWrite("合并临时分区失败：%v", err)
 		} else {
+			mergeCb(100)
 			logWrite("已合并临时分区回系统分区：%s", targetRoot)
 		}
 	}
