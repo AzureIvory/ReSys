@@ -115,6 +115,12 @@ func StartInstall(target string) {
 		if _, err := os.Stat(dstPath); err != nil {
 			return err
 		}
+		if !strings.EqualFold(imgPath, dstPath) {
+			if err := Remove(imgPath, false); err != nil {
+				return err
+			}
+			logWrite("单分区：已删除原镜像：%s", imgPath)
+		}
 
 		imgPath = dstPath
 		logWrite("单分区：镜像已转移到TEMP，更新路径：%s", imgPath)
@@ -410,6 +416,8 @@ func downloadImage(target, arch string) (string, error) {
 
 			_ = Remove(dstPath, false)
 			triedLink = true
+			uiSetProgress(0)
+			uiSetStatus("正在下载镜像... 0.0% 速度: 0.00 MB/s")
 
 			logWrite("开始下载镜像(URL)：%s -> %s", link, dstPath)
 

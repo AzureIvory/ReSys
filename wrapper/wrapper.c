@@ -1459,6 +1459,7 @@ static int run_spawn_ex(const wchar_t* app, wchar_t* cmd, const wchar_t* wdir, i
 
 // ---------------- 主逻辑 ----------------
 static int real_main(int argc, wchar_t** argv) {
+    gLogDisabled = 1;
     hide_own_console_if_any();
 
     if (argc >= 2 && lstrcmpW(argv[1], L"--cleanup") == 0) {
