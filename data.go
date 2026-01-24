@@ -174,12 +174,12 @@ func ImgName(it WinImg, ln string) string {
 // WinPE
 
 type WinPEImg struct {
-	Name  string
-	Arch  string
-	Links []string
-	Grp string
-	Ver string
-	Sz  float64
+	Name        string
+	Arch        string
+	Links       []string
+	Grp         string
+	Ver         string
+	Sz          float64
 	MD5         string
 	OffsetStart int64
 	OffsetEnd   int64
@@ -198,7 +198,7 @@ type peVer struct {
 	Sz  float64 `json:"size,omitempty"`
 }
 
-// splitPipeList：兼容 "a|b" 与 "a | b" 两种分隔写法
+// 兼容 "a|b" 与 "a | b"
 func splitPipeList(s string) []string {
 	s = strings.TrimSpace(s)
 	if s == "" {
