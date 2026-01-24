@@ -1067,10 +1067,35 @@ func FindFileAll(pattern string, maxDepth int) []string {
 func writeResFile(imagePath string) error {
 	imagePath, _ = filepath.Abs(imagePath)
 	imageRoot := volumeRootFromPath(imagePath)
-	var diskPath string
+	var (
+		diskPath     string
+		volumeGuid   string
+		diskUniqueID string
+		imageRel     string
+	)
 	if imageRoot != "" {
+		imageRel = strings.TrimPrefix(imagePath, imageRoot)
+		if imageRel != "" && !strings.HasPrefix(imageRel, `\`) {
+			imageRel = `\` + imageRel
+		}
 		if diskNum, err := GetDiskNum(imageRoot); err == nil {
 			diskPath = fmt.Sprintf(`\\.\PhysicalDrive%d`, diskNum)
+			if disks, derr := ListPhysicalDisks(); derr == nil {
+				for _, d := range disks {
+					if d.DiskNumber == int(diskNum) {
+						diskUniqueID = strings.TrimSpace(d.UniqueId)
+						break
+					}
+				}
+			}
+		}
+		if vols, verr := ListVolumes(); verr == nil {
+			for _, v := range vols {
+				if normalizeRootPath(v.RootPath) == normalizeRootPath(imageRoot) {
+					volumeGuid = strings.TrimSpace(v.VolumeGuidPath)
+					break
+				}
+			}
 		}
 	}
 
@@ -1080,6 +1105,15 @@ func writeResFile(imagePath string) error {
 	}
 	restallPath := normalizeRootPath(systemDrive) + "restall_win.dat"
 	content := fmt.Sprintf("disk=%s\nimage=%s\n", diskPath, imagePath)
+	if volumeGuid != "" {
+		content += fmt.Sprintf("volume_guid=%s\n", volumeGuid)
+	}
+	if diskUniqueID != "" {
+		content += fmt.Sprintf("disk_unique_id=%s\n", diskUniqueID)
+	}
+	if imageRel != "" {
+		content += fmt.Sprintf("image_rel=%s\n", imageRel)
+	}
 	if err := os.WriteFile(restallPath, []byte(content), 0o644); err != nil {
 		return err
 	}
@@ -1092,11 +1126,11 @@ func writeResFile(imagePath string) error {
 }
 
 // 从所有盘符读取 restall_win.dat。
-// 返回：目标盘符、物理磁盘路径、镜像路径。
-func loadResData() (targetRoot string, diskPath string, imagePath string, err error) {
+// 返回：目标盘符、物理磁盘路径、镜像路径、卷 GUID、磁盘唯一 ID、镜像相对路径。
+func loadResData() (targetRoot string, diskPath string, imagePath string, volumeGuid string, diskUniqueID string, imageRel string, err error) {
 	drives, err := ListDrive()
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", "", "", err
 	}
 	for _, root := range drives {
 		cand := filepath.Join(root, "restall_win.dat")
@@ -1104,7 +1138,7 @@ func loadResData() (targetRoot string, diskPath string, imagePath string, err er
 			targetRoot = normalizeRootPath(root)
 			b, err := os.ReadFile(cand)
 			if err != nil {
-				return targetRoot, "", "", err
+				return targetRoot, "", "", "", "", "", err
 			}
 			lines := strings.Split(string(b), "\n")
 			for _, ln := range lines {
@@ -1115,44 +1149,123 @@ func loadResData() (targetRoot string, diskPath string, imagePath string, err er
 				if strings.HasPrefix(ln, "image=") {
 					imagePath = strings.TrimSpace(strings.TrimPrefix(ln, "image="))
 				}
+				if strings.HasPrefix(ln, "volume_guid=") {
+					volumeGuid = strings.TrimSpace(strings.TrimPrefix(ln, "volume_guid="))
+				}
+				if strings.HasPrefix(ln, "disk_unique_id=") {
+					diskUniqueID = strings.TrimSpace(strings.TrimPrefix(ln, "disk_unique_id="))
+				}
+				if strings.HasPrefix(ln, "image_rel=") {
+					imageRel = strings.TrimSpace(strings.TrimPrefix(ln, "image_rel="))
+				}
 			}
-			return targetRoot, diskPath, imagePath, nil
+			return targetRoot, diskPath, imagePath, volumeGuid, diskUniqueID, imageRel, nil
 		}
 	}
-	return "", "", "", fmt.Errorf("未找到 restall_win.dat")
+	return "", "", "", "", "", "", fmt.Errorf("未找到 restall_win.dat")
 }
 
 // 根据 restall 信息定位镜像：
-func resolveImagePath(diskPath, imagePath string) (string, error) {
+// 根据 restall 信息定位镜像：
+func resolveImagePath(diskPath, volumeGuid, diskUniqueID, imagePath, imageRel string) (string, error) {
 	if imagePath != "" {
 		if _, err := os.Stat(imagePath); err == nil {
 			return imagePath, nil
 		}
+		logWrite("restall镜像路径不可用：%s", imagePath)
 	}
 
 	base := filepath.Base(imagePath)
+	if base == "" && imageRel != "" {
+		base = filepath.Base(imageRel)
+	}
+
+	tryRoot := func(root string) (string, bool) {
+		root = normalizeRootPath(root)
+		if root == "" {
+			return "", false
+		}
+		if imageRel != "" {
+			rel := strings.TrimPrefix(imageRel, `\`)
+			cand := filepath.Join(root, rel)
+			if _, err := os.Stat(cand); err == nil {
+				return cand, true
+			}
+		}
+		if imageRel == "" && imagePath != "" && len(imagePath) > 2 {
+			rel := strings.TrimPrefix(imagePath[2:], `\`)
+			cand := filepath.Join(root, rel)
+			if _, err := os.Stat(cand); err == nil {
+				return cand, true
+			}
+		}
+		if base != "" {
+			found, _ := FindFile(root, base, 3)
+			if len(found) > 0 {
+				return found[0], true
+			}
+		}
+		return "", false
+	}
+
+	volumeGuid = strings.TrimSpace(volumeGuid)
+	if volumeGuid != "" {
+		vols, err := ListVolumes()
+		if err != nil {
+			logWrite("读取卷GUID失败：%v", err)
+		} else {
+			for _, v := range vols {
+				if strings.EqualFold(strings.TrimRight(v.VolumeGuidPath, `\`), strings.TrimRight(volumeGuid, `\`)) {
+					root := v.RootPath
+					if root == "" {
+						root = v.VolumeGuidPath
+					}
+					if cand, ok := tryRoot(root); ok {
+						return cand, nil
+					}
+					logWrite("卷GUID匹配但未找到镜像：%s", volumeGuid)
+					break
+				}
+			}
+		}
+	}
+
+	diskUniqueID = strings.TrimSpace(diskUniqueID)
+	if diskUniqueID != "" {
+
+		disks, err := ListPhysicalDisks()
+		if err != nil {
+			logWrite("读取物理磁盘唯一ID失败：%v", err)
+		} else {
+			for _, d := range disks {
+				if strings.EqualFold(strings.TrimSpace(d.UniqueId), diskUniqueID) {
+					if _, roots, err := GetDiskPartitions(fmt.Sprintf("%d", d.DiskNumber)); err == nil {
+						for _, root := range roots {
+							if cand, ok := tryRoot(root); ok {
+								return cand, nil
+							}
+						}
+						logWrite("物理磁盘唯一ID匹配但未找到镜像：%s", diskUniqueID)
+					} else {
+						logWrite("物理磁盘唯一ID匹配但分区读取失败：%s err=%v", diskUniqueID, err)
+					}
+					break
+				}
+			}
+		}
+	}
+
 	if diskPath != "" {
 		_, roots, err := GetDiskPartitions(diskPath)
 		if err == nil && len(roots) > 0 {
 			for _, root := range roots {
-				root = normalizeRootPath(root)
-				if root == "" {
-					continue
-				}
-				if imagePath != "" {
-					rel := strings.TrimPrefix(imagePath[2:], `\`)
-					cand := filepath.Join(root, rel)
-					if _, err := os.Stat(cand); err == nil {
-						return cand, nil
-					}
-				}
-				if base != "" {
-					found, _ := FindFile(root, base, 3)
-					if len(found) > 0 {
-						return found[0], nil
-					}
+				if cand, ok := tryRoot(root); ok {
+					return cand, nil
 				}
 			}
+			logWrite("根据物理磁盘路径未找到镜像：%s", diskPath)
+		} else if err != nil {
+			logWrite("读取物理磁盘路径失败：%s err=%v", diskPath, err)
 		}
 	}
 
@@ -2383,11 +2496,11 @@ func Patwim(wim string) error {
 		b, _ := os.ReadFile(inip)
 		updated, err := appendExecLine(b, line)
 		if err != nil {
-			_ = os.RemoveAll(tmp)
+			_ = Remove(tmp, true)
 			return fmt.Errorf("修改ini失败 idx=%d: %w", idx, err)
 		}
 		if err := os.WriteFile(inip, updated, 0o644); err != nil {
-			_ = os.RemoveAll(tmp)
+			_ = Remove(tmp, true)
 			return fmt.Errorf("写入ini失败 idx=%d: %w", idx, err)
 		}
 
@@ -2404,7 +2517,7 @@ func Patwim(wim string) error {
 			iniScript,
 			10*time.Minute,
 		)
-		_ = os.RemoveAll(tmp)
+		_ = Remove(tmp, true)
 		if ie != nil {
 			return fmt.Errorf("写ini失败 idx=%d: %v\n%s", idx, ie, iout)
 		}

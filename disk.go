@@ -1208,7 +1208,7 @@ func runDiskpartScriptFile(script string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("create script in workdir failed: %w", err)
 	}
-	//defer Remove(path, false) //用完就删除
+	defer Remove(path, false) //用完就删除
 
 	if _, err := f.WriteString(script); err != nil {
 		_ = f.Close()
