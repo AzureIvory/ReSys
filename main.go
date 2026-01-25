@@ -230,26 +230,6 @@ type writerFunc func(p []byte) (int, error)
 
 func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 
-// 规范化盘符根路径：接受 "C", "C:", "C:\"，统一变成 "C:\"
-func normRoot(vol string) string {
-	v := strings.TrimSpace(vol)
-	if v == "" {
-		return ""
-	}
-	v = strings.ToUpper(v)
-	if len(v) == 1 && v[0] >= 'A' && v[0] <= 'Z' {
-		return v + ":\\"
-	}
-	if len(v) == 2 && v[1] == ':' {
-		return v + "\\"
-	}
-	if !strings.HasSuffix(v, `\`) && !strings.HasSuffix(v, `/`) {
-		v += `\`
-	}
-	v = strings.ReplaceAll(v, `/`, `\`)
-	return v
-}
-
 // 获取固件类型（UEFI/BIOS）
 func GetFwType() (uint32, error) {
 	var t uint32
@@ -266,7 +246,7 @@ func GetFwType() (uint32, error) {
 // 找系统分区
 func FindOS(hint string) (string, error) {
 	if hint != "" {
-		root := normRoot(hint)
+		root, _ := NormalizeDrive(hint, 0)
 		if root != "" {
 			if st, err := os.Stat(root + "Windows"); err == nil && st.IsDir() {
 				fmt.Println("[FindOS] use hint:", root)
@@ -288,7 +268,7 @@ func FindOS(hint string) (string, error) {
 		if dt != driveFixed && dt != driveRemov {
 			continue
 		}
-		root := normRoot(r)
+		root, _ := NormalizeDrive(r, 0)
 		if st, err := os.Stat(root + "Windows"); err == nil && st.IsDir() {
 			cand = root
 			fmt.Println("[FindOS] found OS volume:", cand)
@@ -322,7 +302,7 @@ func FindESP(osRoot string) (string, error) {
 		if dt != driveFixed && dt != driveRemov {
 			continue
 		}
-		root := normRoot(r)
+		root, _ := NormalizeDrive(r, 0)
 		if root == "" {
 			continue
 		}
@@ -448,7 +428,7 @@ func FixUEFI(osRoot, sysHint, locale string) error {
 
 	var sysRoot string
 	if sysHint != "" {
-		r := normRoot(sysHint)
+		r, _ := NormalizeDrive(sysHint, 0)
 		if r != "" {
 			if fs, _, err := GetVolumeInfo(r); err == nil && fs == "FAT32" {
 				sysRoot = r
@@ -512,7 +492,7 @@ func FixUEFI(osRoot, sysHint, locale string) error {
 // BIOS/MBR引导修复
 func FixBIOS(osRoot, sysHint, locale string) error {
 	winDir := osRoot + "Windows"
-	sysRoot := normRoot(sysHint)
+	sysRoot, _ := NormalizeDrive(sysHint, 0)
 	if sysRoot == "" {
 		sysRoot = osRoot
 	}

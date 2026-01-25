@@ -1,9 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -19,7 +16,6 @@ import (
 	"syscall"
 	"time"
 	"unicode"
-	"unicode/utf16"
 	"unsafe"
 )
 
@@ -97,50 +93,6 @@ func systemArch() string {
 func dirExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
-}
-
-// 规范化盘符为 "D:\" 这种格式
-func normalizeRoot(drive string) (string, error) {
-	s := strings.TrimSpace(drive)
-	if s == "" {
-		return "", fmt.Errorf("empty drive")
-	}
-	s = strings.ReplaceAll(s, "/", `\`)
-
-	if len(s) == 1 { // "D"
-		s = s + ":"
-	}
-	if len(s) == 2 && s[1] == ':' { // "D:"
-		s = s + `\`
-	}
-	if len(s) != 3 || s[1] != ':' || s[2] != '\\' {
-		return "", fmt.Errorf("invalid drive: %q", drive)
-	}
-	s = strings.ToUpper(s[:1]) + s[1:]
-	return s, nil
-}
-
-// normalizeRootPath 统一盘符为类似 "C:\" 的格式。
-func normalizeRootPath(root string) string {
-	if root == "" {
-		return root
-	}
-	root = strings.ReplaceAll(root, "/", `\`)
-	if len(root) == 2 && root[1] == ':' {
-		root += `\`
-	}
-	if len(root) == 1 {
-		root += `:\`
-	}
-	return root
-}
-
-// volumeRootFromPath 从路径中提取盘符根（例如 C:\）。
-func volumeRootFromPath(p string) string {
-	if len(p) >= 3 && p[1] == ':' {
-		return strings.ToUpper(p[:1]) + `:\`
-	}
-	return ""
 }
 
 // 搜索文件
@@ -461,7 +413,7 @@ func FindFileAll(pattern string, maxDepth int) []string {
 // 写入重装文件
 func writeResFile(imagePath string) error {
 	imagePath, _ = filepath.Abs(imagePath)
-	imageRoot := volumeRootFromPath(imagePath)
+	imageRoot, _ := NormalizeDrive(imagePath, 2)
 	var (
 		diskPath     string
 		volumeGuid   string
@@ -486,7 +438,8 @@ func writeResFile(imagePath string) error {
 		}
 		if vols, verr := ListVolumes(); verr == nil {
 			for _, v := range vols {
-				if normalizeRootPath(v.RootPath) == normalizeRootPath(imageRoot) {
+				vRoot, _ := NormalizeDrive(v.RootPath, 0)
+				if strings.EqualFold(vRoot, imageRoot) {
 					volumeGuid = strings.TrimSpace(v.VolumeGuidPath)
 					break
 				}
@@ -498,7 +451,8 @@ func writeResFile(imagePath string) error {
 	if systemDrive == "" {
 		systemDrive = "C:"
 	}
-	restallPath := normalizeRootPath(systemDrive) + "restall_win.dat"
+	sysRoot, _ := NormalizeDrive(systemDrive, 0)
+	restallPath := sysRoot + "restall_win.dat"
 	content := fmt.Sprintf("disk=%s\nimage=%s\n", diskPath, imagePath)
 	if volumeGuid != "" {
 		content += fmt.Sprintf("volume_guid=%s\n", volumeGuid)
@@ -530,7 +484,7 @@ func loadResData() (targetRoot string, diskPath string, imagePath string, volume
 	for _, root := range drives {
 		cand := filepath.Join(root, "restall_win.dat")
 		if _, err := os.Stat(cand); err == nil {
-			targetRoot = normalizeRootPath(root)
+			targetRoot, _ = NormalizeDrive(root, 0)
 			b, err := os.ReadFile(cand)
 			if err != nil {
 				return targetRoot, "", "", "", "", "", err
@@ -576,7 +530,9 @@ func resolveImagePath(diskPath, volumeGuid, diskUniqueID, imagePath, imageRel st
 	}
 
 	tryRoot := func(root string) (string, bool) {
-		root = normalizeRootPath(root)
+		if nr, err := NormalizeDrive(root, 0); err == nil {
+			root = nr
+		}
 		if root == "" {
 			return "", false
 		}
@@ -775,70 +731,91 @@ func Findpart() []string {
 	return part
 }
 
-// 进入PE + 扫描模式：scan=true 时只返回最优 WIM/SDI
-// 用法示例：
-//
-//	ok, wim, sdi, err := GoToPE(true)          // 扫描
-//	_, _, _, err := GoToPE(false)             // 设置下次启动进PE
-//	ok, wim, sdi, err := GoToPE(true, sdiPath, wimPath)   // 扫描/校验自定义
-//	_, _, _, err := GoToPE(false, sdiPath, wimPath)       // 自定义设置启动
-func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
-	var customSdi, customWim string
+// 从多个候选里挑最合适的pe(一般不会用到)
+func chooseBestWim(paths []string, arch string) string {
 	if len(paths) == 0 {
-	} else if len(paths) == 2 {
-		customSdi = strings.TrimSpace(paths[0])
-		customWim = strings.TrimSpace(paths[1])
-		if customSdi == "" || customWim == "" {
-			return false, "", "", fmt.Errorf("自定义路径需要同时指定 sdi 和 wim（要么都传，要么都不传）")
+		return ""
+	}
+	arch = strings.TrimSpace(strings.ToLower(arch))
+
+	score := func(p string) int {
+		s := 0
+		lp := strings.ToLower(p)
+
+		if strings.Contains(lp, `\petemp\boot.wim`) {
+			s += 300
 		}
-	} else {
-		return false, "", "", fmt.Errorf("参数数量错误：GoToPE(scan) 或 GoToPE(scan, sdiPath, wimPath)")
+		if strings.Contains(lp, `\petemp\`) {
+			s += 100
+		}
+		if strings.Contains(lp, "wepe") {
+			s += 50
+		}
+		if strings.Contains(lp, "firpe") || strings.Contains(lp, "hotpe") {
+			s += 20
+		}
+
+		// 架构偏好
+		if arch == "64" {
+			if strings.Contains(lp, "64") || strings.Contains(lp, "x64") || strings.Contains(lp, "amd64") {
+				s += 20
+			}
+			if strings.Contains(lp, "32") || strings.Contains(lp, "x86") {
+				s -= 10
+			}
+		} else if arch == "32" {
+			if strings.Contains(lp, "32") || strings.Contains(lp, "x86") {
+				s += 20
+			}
+			if strings.Contains(lp, "64") || strings.Contains(lp, "x64") || strings.Contains(lp, "amd64") {
+				s -= 10
+			}
+		}
+		return s
 	}
 
-	dvs, err := ListDrive()
-	if err != nil {
-		return false, "", "", err
-	}
-
-	wantArch := func() string {
-		isWow64 := runtime.GOARCH == "386" && os.Getenv("PROCESSOR_ARCHITEW6432") != ""
-		if isWow64 {
-			return "64"
-		}
-		switch runtime.GOARCH {
-		case "amd64", "arm64":
-			return "64"
-		default:
-			return "32"
-		}
-	}()
-
-	normArch := func(a string) string {
-		a = strings.ToLower(strings.TrimSpace(a))
-		switch a {
-		case "64", "x64", "amd64", "arm64":
-			return "64"
-		case "32", "x86", "386":
-			return "32"
-		default:
-			return a
+	best := paths[0]
+	bestScore := score(best)
+	for _, p := range paths[1:] {
+		if sc := score(p); sc > bestScore {
+			best, bestScore = p, sc
 		}
 	}
+	return best
+}
 
-	opts := []struct {
-		n, s, w, a string
-	}{
-		{"WEPE", `\WEPE\WEPE.SDI`, `\WEPE\WEPE64.WIM`, "64"},    //64位微PE
-		{"WEPE", `\WEPE\WEPE.SDI`, `\WEPE\WEPE32.WIM`, "32"},    //32位微PE
-		{"FIR", `\FirPE\BOOT.SDI`, `\FirPE\11PEX64.WIM`, "64"},  //64位win11的FirPE
-		{"FIR", `\FirPE\BOOT.SDI`, `\FirPE\11PEX86.WIM`, "32"},  //32位FirPE
-		{"HOT", `\HotPE\boot.sdi`, `\HotPE\Boot.wim`, "64"},     //64位HOTPE
-		{"FirPE1", `\boot\boot.sdi`, `\boot\11pex64.wim`, "64"}, //64位FirPE1
-		{"FirPE1", `\boot\boot.sdi`, `\boot\11pex86.wim`, "32"}, //32位FirPE1
-		{"PETEMP", `\PETEMP\*.sdi`, `\PETEMP\*.wim`, ""},        //不强制架构，交给 chooseBestWim
-		{"PETEMP", `\PETEMP\*.SDI`, `\PETEMP\*.WIM`, ""},
+type peOpt struct {
+	n, s, w, a string
+}
+
+type peCand struct {
+	nm   string
+	arch string // opts 的 a
+	lt   string // 盘符字母，如 "C"
+	root string // 如 "C:\"
+	wAbs string
+	wRel string
+	sAbs string
+	sRel string
+	sPat string // opts.s（用于缺 SDI 时决定复制到哪里）
+}
+
+func parseGoToPEArgs(paths []string) (string, string, error) {
+	if len(paths) == 0 {
+		return "", "", nil
 	}
+	if len(paths) != 2 {
+		return "", "", fmt.Errorf("参数数量错误：GoToPE(scan) 或 GoToPE(scan, sdiPath, wimPath)")
+	}
+	customSdi := strings.TrimSpace(paths[0])
+	customWim := strings.TrimSpace(paths[1])
+	if customSdi == "" || customWim == "" {
+		return "", "", fmt.Errorf("自定义路径需要同时指定 sdi 和 wim（要么都传，要么都不传）")
+	}
+	return customSdi, customWim, nil
+}
 
+func collectPECands(dvs []string, opts []peOpt, wantArch, customSdi, customWim string) (map[string]peCand, []string, error) {
 	hasGlob := func(s string) bool { return strings.ContainsAny(s, "*?[") }
 	hasDrivePrefix := func(p string) bool { return len(p) >= 2 && p[1] == ':' }
 
@@ -922,83 +899,6 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 		return "", false
 	}
 
-	// tools\boot.sdi 源文件定位
-	findToolsBootSdi := func() (string, bool) {
-		exe, e := os.Executable()
-		if e != nil {
-			return "", false
-		}
-		base := filepath.Dir(exe)
-
-		cands := []string{
-			filepath.Join(base, "tools", "boot.sdi"),
-			filepath.Join(base, "tools", "BOOT.SDI"),
-			filepath.Join(base, "tools", "Boot.sdi"),
-		}
-		for _, p := range cands {
-			if fileExists(p) {
-				return p, true
-			}
-		}
-		return "", false
-	}
-
-	// 把 opts.s转成一个具体 SDI 相对路径
-	materializeSdiRel := func(sPat string) string {
-		sPat = strings.ReplaceAll(sPat, "/", `\`)
-		if sPat == "" {
-			return ""
-		}
-		if !hasGlob(sPat) {
-			return sPat
-		}
-		// \PETEMP\*.sdi -> \PETEMP\boot.sdi
-		dir := filepath.Dir(sPat)
-		dst := filepath.Join(dir, "boot.sdi")
-		if !strings.HasPrefix(dst, `\`) {
-			dst = `\` + dst
-		}
-		return dst
-	}
-
-	// 用 tools\boot.sdi 生成目标 SDI（只在缺 SDI 时调用）
-	ensureSdiByCopy := func(root string, sPatRel string, wAbs string) (sAbs string, sRel string, copied bool, err error) {
-		src, ok := findToolsBootSdi()
-		if !ok {
-			return "", "", false, fmt.Errorf("缺少SDI，且未找到 %s", `tools\boot.sdi`)
-		}
-
-		dstRel := materializeSdiRel(sPatRel)
-		if dstRel == "" {
-			// 没有可用的 sPat，就落到 WIM 同目录
-			dstAbs := filepath.Join(filepath.Dir(wAbs), "boot.sdi")
-			if e := Copy(src, dstAbs, false, true); e != nil {
-				return "", "", false, e
-			}
-			return dstAbs, toRel(root, dstAbs), true, nil
-		}
-
-		// 拼绝对路径：root + 去掉开头 '\'
-		dstAbs := filepath.Join(root, strings.TrimPrefix(dstRel, `\`))
-		if e := Copy(src, dstAbs, false, true); e != nil {
-			return "", "", false, e
-		}
-		return dstAbs, toRel(root, dstAbs), true, nil
-	}
-
-	type peCand struct {
-		nm   string
-		arch string // opts 的 a
-		lt   string // 盘符字母，如 "C"
-		root string // 如 "C:\"
-		wAbs string
-		wRel string
-		sAbs string
-		sRel string
-		sPat string // opts.s（用于缺 SDI 时决定复制到哪里）
-	}
-
-	// wimAbs -> best cand
 	candByWim := map[string]peCand{}
 	var allWims []string
 
@@ -1014,176 +914,204 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 		allWims = append(allWims, c.wAbs)
 	}
 
-	collect := func() error {
-		if customSdi != "" && customWim != "" {
-			sPat := strings.ReplaceAll(customSdi, "/", `\`)
-			wPat := strings.ReplaceAll(customWim, "/", `\`)
+	if customSdi != "" && customWim != "" {
+		sPat := strings.ReplaceAll(customSdi, "/", `\`)
+		wPat := strings.ReplaceAll(customWim, "/", `\`)
 
-			// 绝对路径
-			if hasDrivePrefix(sPat) || hasDrivePrefix(wPat) {
-				var vol string
-				if hasDrivePrefix(sPat) {
-					vol = strings.ToUpper(string(sPat[0]))
+		// 绝对路径
+		if hasDrivePrefix(sPat) || hasDrivePrefix(wPat) {
+			var vol string
+			if hasDrivePrefix(sPat) {
+				vol = strings.ToUpper(string(sPat[0]))
+			}
+			if hasDrivePrefix(wPat) {
+				wVol := strings.ToUpper(string(wPat[0]))
+				if vol != "" && vol != wVol {
+					return nil, nil, fmt.Errorf("sdi 和 wim 不在同一盘：%s vs %s", vol, wVol)
 				}
-				if hasDrivePrefix(wPat) {
-					wVol := strings.ToUpper(string(wPat[0]))
-					if vol != "" && vol != wVol {
-						return fmt.Errorf("sdi 和 wim 不在同一盘：%s vs %s", vol, wVol)
-					}
-					if vol == "" {
-						vol = wVol
-					}
+				if vol == "" {
+					vol = wVol
 				}
-				root := vol + `:\`
+			}
+			root := vol + `:\`
 
-				// WIM 必须存在
-				wAbs, ok := firstMatchInsensitive(wPat)
-				if !ok {
-					return fmt.Errorf("未找到WIM: %s", wPat)
-				}
-
-				sAbs, _ := firstMatchInsensitive(sPat)
-
-				addCand(peCand{
-					nm: "CUSTOM", arch: "",
-					lt: vol, root: root,
-					wAbs: wAbs, wRel: toRel(root, wAbs),
-					sAbs: sAbs, sRel: func() string {
-						if sAbs == "" {
-							return ""
-						}
-						return toRel(root, sAbs)
-					}(),
-					sPat: sPat, // 直接用sPat，补 SDI 时会 materialize
-				})
-				return nil
+			// WIM 必须存在
+			wAbs, ok := firstMatchInsensitive(wPat)
+			if !ok {
+				return nil, nil, fmt.Errorf("未找到WIM: %s", wPat)
 			}
 
-			// 相对路径：遍历盘符
-			for _, d := range dvs {
-				if len(d) < 3 {
-					continue
-				}
-				vol := strings.ToUpper(string(d[0]))
-				root := vol + `:\`
+			sAbs, _ := firstMatchInsensitive(sPat)
 
-				wAbs, okW := firstMatchInsensitive(d + strings.TrimPrefix(wPat, `\`))
-				if !okW {
-					continue
-				}
-				sAbs, _ := firstMatchInsensitive(d + strings.TrimPrefix(sPat, `\`))
-
-				addCand(peCand{
-					nm: "CUSTOM", arch: "",
-					lt: vol, root: root,
-					wAbs: wAbs, wRel: toRel(root, wAbs),
-					sAbs: sAbs, sRel: func() string {
-						if sAbs == "" {
-							return ""
-						}
-						return toRel(root, sAbs)
-					}(),
-					sPat: `\` + strings.TrimPrefix(sPat, `\`),
-				})
-				return nil
-			}
-			return fmt.Errorf("未找到匹配的SDI/WIM：SDI=%s WIM=%s", sPat, wPat)
+			addCand(peCand{
+				nm: "CUSTOM", arch: "",
+				lt: vol, root: root,
+				wAbs: wAbs, wRel: toRel(root, wAbs),
+				sAbs: sAbs, sRel: func() string {
+					if sAbs == "" {
+						return ""
+					}
+					return toRel(root, sAbs)
+				}(),
+				sPat: sPat, // 直接用sPat，补 SDI 时会 materialize
+			})
+			return candByWim, allWims, nil
 		}
 
-		// 按 opts 扫描所有盘符
-		for _, o := range opts {
-			if o.a != "" && normArch(o.a) != normArch(wantArch) {
+		// 相对路径：遍历盘符
+		for _, d := range dvs {
+			if len(d) < 3 {
 				continue
 			}
+			vol := strings.ToUpper(string(d[0]))
+			root := vol + `:\`
 
-			for _, d := range dvs {
-				if len(d) < 3 {
-					continue
-				}
-				vol := strings.ToUpper(string(d[0]))
-				root := vol + `:\`
-
-				// SDI 可缺失（只取第一个匹配）
-				sAbs := ""
-				sMatches, _ := allMatchesInsensitive(d + strings.TrimPrefix(o.s, `\`))
-				if len(sMatches) > 0 {
-					sAbs = sMatches[0]
-				}
-
-				// WIM 收集全部
-				wMatches, _ := allMatchesInsensitive(d + strings.TrimPrefix(o.w, `\`))
-				for _, wAbs := range wMatches {
-					c := peCand{
-						nm:   o.n,
-						arch: o.a,
-						lt:   vol,
-						root: root,
-						wAbs: wAbs,
-						wRel: toRel(root, wAbs),
-						sAbs: sAbs,
-						sRel: "",
-						sPat: o.s,
-					}
-					if sAbs != "" {
-						c.sRel = toRel(root, sAbs)
-					}
-					addCand(c)
-				}
+			wAbs, okW := firstMatchInsensitive(d + strings.TrimPrefix(wPat, `\`))
+			if !okW {
+				continue
 			}
+			sAbs, _ := firstMatchInsensitive(d + strings.TrimPrefix(sPat, `\`))
+
+			addCand(peCand{
+				nm: "CUSTOM", arch: "",
+				lt: vol, root: root,
+				wAbs: wAbs, wRel: toRel(root, wAbs),
+				sAbs: sAbs, sRel: func() string {
+					if sAbs == "" {
+						return ""
+					}
+					return toRel(root, sAbs)
+				}(),
+				sPat: `\` + strings.TrimPrefix(sPat, `\`),
+			})
+			return candByWim, allWims, nil
 		}
-		return nil
+		return nil, nil, fmt.Errorf("未找到匹配的SDI/WIM：SDI=%s WIM=%s", sPat, wPat)
 	}
 
-	if err := collect(); err != nil {
-		if scan {
-			// 扫描模式
-			return false, "", "", err
+	// 按 opts 扫描所有盘符
+	for _, o := range opts {
+		if o.a != "" && NormalizeArch(o.a) != NormalizeArch(wantArch) {
+			continue
 		}
-		return false, "", "", err
-	}
 
-	if len(allWims) == 0 {
-		if scan {
-			return false, "", "", nil
-		}
-		return false, "", "", fmt.Errorf("未找到PE引导文件")
-	}
+		for _, d := range dvs {
+			if len(d) < 3 {
+				continue
+			}
+			vol := strings.ToUpper(string(d[0]))
+			root := vol + `:\`
 
-	bestWim := chooseBestWim(allWims, wantArch)
-	best, ok := candByWim[bestWim]
-	if !ok || bestWim == "" {
-		if scan {
-			return false, "", "", nil
-		}
-		return false, "", "", fmt.Errorf("chooseBestWim 选优失败")
-	}
+			// SDI 可缺失（只取第一个匹配）
+			sAbs := ""
+			sMatches, _ := allMatchesInsensitive(d + strings.TrimPrefix(o.s, `\`))
+			if len(sMatches) > 0 {
+				sAbs = sMatches[0]
+			}
 
-	// 缺 SDI时用 tools\boot.sdi 复制补齐
-	if best.sAbs == "" {
-		sAbs, sRel, _, e := ensureSdiByCopy(best.root, best.sPat, best.wAbs)
-		if e == nil {
-			best.sAbs = sAbs
-			best.sRel = sRel
-			candByWim[best.wAbs] = best
-		} else {
-			// scan 模式允许返回wim 有、sdi 仍空
-			if !scan {
-				return true, best.wAbs, "", e
+			// WIM 收集全部
+			wMatches, _ := allMatchesInsensitive(d + strings.TrimPrefix(o.w, `\`))
+			for _, wAbs := range wMatches {
+				c := peCand{
+					nm:   o.n,
+					arch: o.a,
+					lt:   vol,
+					root: root,
+					wAbs: wAbs,
+					wRel: toRel(root, wAbs),
+					sAbs: sAbs,
+					sRel: "",
+					sPat: o.s,
+				}
+				if sAbs != "" {
+					c.sRel = toRel(root, sAbs)
+				}
+				addCand(c)
 			}
 		}
 	}
+	return candByWim, allWims, nil
+}
 
-	// scan 模式：直接返回最优绝对路径
-	if scan {
-		return true, best.wAbs, best.sAbs, nil
+// 用 tools\boot.sdi 生成目标 SDI（只在缺 SDI 时调用）
+func ensureSdiByCopy(root string, sPatRel string, wAbs string) (sAbs string, sRel string, err error) {
+	fileExists := func(p string) bool {
+		fi, e := os.Stat(p)
+		return e == nil && !fi.IsDir()
 	}
 
+	findToolsBootSdi := func() (string, bool) {
+		exe, e := os.Executable()
+		if e != nil {
+			return "", false
+		}
+		base := filepath.Dir(exe)
+		cands := []string{
+			filepath.Join(base, "tools", "boot.sdi"),
+			filepath.Join(base, "tools", "BOOT.SDI"),
+			filepath.Join(base, "tools", "Boot.sdi"),
+		}
+		for _, p := range cands {
+			if fileExists(p) {
+				return p, true
+			}
+		}
+		return "", false
+	}
+
+	toRel := func(root, abs string) string {
+		abs = strings.ReplaceAll(abs, "/", `\`)
+		root = strings.ReplaceAll(root, "/", `\`)
+		if len(abs) >= len(root) && strings.EqualFold(abs[:len(root)], root) {
+			rest := abs[len(root):]
+			rest = strings.TrimPrefix(rest, `\`)
+			return `\` + rest
+		}
+		if len(abs) >= 3 && abs[1] == ':' && (abs[2] == '\\' || abs[2] == '/') {
+			return `\` + strings.TrimPrefix(abs[3:], `\`)
+		}
+		return abs
+	}
+
+	materializeSdiRel := func(sPat string) string {
+		sPat = strings.ReplaceAll(sPat, "/", `\`)
+		if sPat == "" {
+			return ""
+		}
+		if !strings.ContainsAny(sPat, "*?[") {
+			return sPat
+		}
+		dir := filepath.Dir(sPat)
+		dst := filepath.Join(dir, "boot.sdi")
+		if !strings.HasPrefix(dst, `\`) {
+			dst = `\` + dst
+		}
+		return dst
+	}
+
+	src, ok := findToolsBootSdi()
+	if !ok {
+		return "", "", fmt.Errorf("缺少SDI，且未找到 %s", `tools\boot.sdi`)
+	}
+
+	dstRel := materializeSdiRel(sPatRel)
+	if dstRel == "" {
+		dstAbs := filepath.Join(filepath.Dir(wAbs), "boot.sdi")
+		if e := Copy(src, dstAbs, false, true); e != nil {
+			return "", "", e
+		}
+		return dstAbs, toRel(root, dstAbs), nil
+	}
+
+	dstAbs := filepath.Join(root, strings.TrimPrefix(dstRel, `\`))
+	if e := Copy(src, dstAbs, false, true); e != nil {
+		return "", "", e
+	}
+	return dstAbs, toRel(root, dstAbs), nil
+}
+
+func applyPEBoot(best peCand) error {
 	lt, sdi, wim, nm := best.lt, best.sRel, best.wRel, best.nm
-
-	// 执行模式：仍然必须有 SDI（ramdisk 引导要用）
-	if best.sRel == "" {
-		return true, best.wAbs, best.sAbs, fmt.Errorf("找到WIM但仍缺少SDI，无法设置ramdisk引导：WIM=%s", best.wAbs)
-	}
 
 	fmt.Println("PE:", nm, "DRV:", lt, "SDI:", sdi, "WIM:", wim)
 
@@ -1207,33 +1135,33 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 	// /device guid
 	out, err = runCmd(bcdeditPath, nil, nil, "", "/create", "/d", "pe", "/device")
 	if err != nil {
-		return false, "", "", err
+		return err
 	}
 	re := regexp.MustCompile(`(?i)\{([a-f0-9-]+)\}`)
 	m1 := re.FindStringSubmatch(out)
 	if len(m1) < 2 {
-		return false, "", "", fmt.Errorf("guid1解析失败: %s", out)
+		return fmt.Errorf("guid1解析失败: %s", out)
 	}
 	gd1 := strings.ToLower(m1[1])
 
 	// ramdisksdi*
 	_, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd1+"}", "ramdisksdidevice", "partition="+lt+":")
 	if err != nil {
-		return false, "", "", err
+		return err
 	}
 	_, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd1+"}", "ramdisksdipath", sdi)
 	if err != nil {
-		return false, "", "", err
+		return err
 	}
 
 	// /application osloader guid2
 	out, err = runCmd(bcdeditPath, nil, nil, "", "/create", "/d", "pe", "/application", "osloader")
 	if err != nil {
-		return false, "", "", err
+		return err
 	}
 	m2 := re.FindStringSubmatch(out)
 	if len(m2) < 2 {
-		return false, "", "", fmt.Errorf("guid2解析失败: %s", out)
+		return fmt.Errorf("guid2解析失败: %s", out)
 	}
 	gd2 := strings.ToLower(m2[1])
 
@@ -1241,11 +1169,11 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 	dev := fmt.Sprintf("ramdisk=[%s:]%s,{%s}", lt, wim, gd1)
 	_, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "device", dev)
 	if err != nil {
-		return false, "", "", err
+		return err
 	}
 	_, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "osdevice", dev)
 	if err != nil {
-		return false, "", "", err
+		return err
 	}
 
 	// BIOS/UEFI
@@ -1260,7 +1188,7 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 		regPath = filepath.Join(windir, "Sysnative", "reg.exe")
 	}
 	out, er2 := runCmd(regPath, nil, nil, "", "query", `HKLM\SYSTEM\CurrentControlSet\Control`, "/v", "PEFirmwareType")
-	if err != nil && (errors.Is(err, os.ErrNotExist) || errors.Is(err, exec.ErrNotFound)) {
+	if er2 != nil && (errors.Is(er2, os.ErrNotExist) || errors.Is(er2, exec.ErrNotFound)) {
 		if exe, e := os.Executable(); e == nil {
 			out, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "reg"), nil, nil, "", "query",
 				`HKLM\SYSTEM\CurrentControlSet\Control`, "/v", "PEFirmwareType")
@@ -1283,555 +1211,112 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 	}
 	if _, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "path", p1); err != nil {
 		if _, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "path", p2); err != nil {
-			return false, "", "", err
+			return err
 		}
 	}
 
 	if _, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "systemroot", `\windows`); err != nil {
-		return false, "", "", err
+		return err
 	}
 	if _, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "detecthal", "YES"); err != nil {
-		return false, "", "", err
+		return err
 	}
 	if _, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "winpe", "YES"); err != nil {
-		return false, "", "", err
+		return err
 	}
 	if _, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "nx", "OptIn"); err != nil {
-		return false, "", "", err
+		return err
 	}
 
 	// 设置下次启动
 	if _, err = runCmd(bcdeditPath, nil, nil, "", "/bootsequence", "{"+gd2+"}"); err != nil {
+		return err
+	}
+	return nil
+}
+
+// 进入PE + 扫描模式：scan=true 时只返回最优 WIM/SDI
+// 用法示例：
+//
+//	ok, wim, sdi, err := GoToPE(true)          // 扫描
+//	_, _, _, err := GoToPE(false)             // 设置下次启动进PE
+//	ok, wim, sdi, err := GoToPE(true, sdiPath, wimPath)   // 扫描/校验自定义
+//	_, _, _, err := GoToPE(false, sdiPath, wimPath)       // 自定义设置启动
+func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
+	customSdi, customWim, err := parseGoToPEArgs(paths)
+	if err != nil {
+		return false, "", "", err
+	}
+
+	dvs, err := ListDrive()
+	if err != nil {
+		return false, "", "", err
+	}
+
+	wantArch := NormalizeArch(SelfArch())
+	if runtime.GOARCH == "386" && os.Getenv("PROCESSOR_ARCHITEW6432") != "" {
+		wantArch = "64"
+	}
+
+	opts := []peOpt{
+		{"WEPE", `\WEPE\WEPE.SDI`, `\WEPE\WEPE64.WIM`, "64"},    //64位微PE
+		{"WEPE", `\WEPE\WEPE.SDI`, `\WEPE\WEPE32.WIM`, "32"},    //32位微PE
+		{"FIR", `\FirPE\BOOT.SDI`, `\FirPE\11PEX64.WIM`, "64"},  //64位win11的FirPE
+		{"FIR", `\FirPE\BOOT.SDI`, `\FirPE\11PEX86.WIM`, "32"},  //32位FirPE
+		{"HOT", `\HotPE\boot.sdi`, `\HotPE\Boot.wim`, "64"},     //64位HOTPE
+		{"FirPE1", `\boot\boot.sdi`, `\boot\11pex64.wim`, "64"}, //64位FirPE1
+		{"FirPE1", `\boot\boot.sdi`, `\boot\11pex86.wim`, "32"}, //32位FirPE1
+		{"PETEMP", `\PETEMP\*.sdi`, `\PETEMP\*.wim`, ""},        //不强制架构，交给 chooseBestWim
+		{"PETEMP", `\PETEMP\*.SDI`, `\PETEMP\*.WIM`, ""},
+	}
+
+	candByWim, allWims, err := collectPECands(dvs, opts, wantArch, customSdi, customWim)
+	if err != nil {
+		if scan {
+			return false, "", "", err
+		}
+		return false, "", "", err
+	}
+
+	if len(allWims) == 0 {
+		if scan {
+			return false, "", "", nil
+		}
+		return false, "", "", fmt.Errorf("未找到PE引导文件")
+	}
+
+	bestWim := chooseBestWim(allWims, wantArch)
+	best, ok := candByWim[bestWim]
+	if !ok || bestWim == "" {
+		if scan {
+			return false, "", "", nil
+		}
+		return false, "", "", fmt.Errorf("chooseBestWim 选优失败")
+	}
+
+	if best.sAbs == "" {
+		sAbs, sRel, e := ensureSdiByCopy(best.root, best.sPat, best.wAbs)
+		if e == nil {
+			best.sAbs = sAbs
+			best.sRel = sRel
+			candByWim[best.wAbs] = best
+		} else if !scan {
+			return true, best.wAbs, "", e
+		}
+	}
+
+	if scan {
+		return true, best.wAbs, best.sAbs, nil
+	}
+
+	if best.sRel == "" {
+		return true, best.wAbs, best.sAbs, fmt.Errorf("找到WIM但仍缺少SDI，无法设置ramdisk引导：WIM=%s", best.wAbs)
+	}
+
+	if err := applyPEBoot(best); err != nil {
 		return false, "", "", err
 	}
 	return false, "", "", nil
-}
-
-// 确保 WIM 文件可写
-func ensureWimWritable(wim string) error {
-	st, err := os.Stat(wim)
-	if err != nil {
-		return fmt.Errorf("WIM不存在或不可访问: %w", err)
-	}
-	if st.IsDir() {
-		return fmt.Errorf("WIM路径是目录不是文件: %s", wim)
-	}
-
-	// 1) 尝试直接以读写方式打开
-	tryOpenRW := func() error {
-		f, e := os.OpenFile(wim, os.O_RDWR, 0)
-		if e != nil {
-			return e
-		}
-		_ = f.Close()
-		return nil
-	}
-
-	if err := tryOpenRW(); err != nil {
-		// 2) 如果打不开，尝试去只读（Windows 属性只读）
-		if e2 := clearReadonly(wim); e2 != nil {
-			return fmt.Errorf("WIM不可写(打开失败): %v；去只读失败: %v", err, e2)
-		}
-		// 3) 去只读后再试一次
-		if err2 := tryOpenRW(); err2 != nil {
-			return fmt.Errorf("WIM仍不可写(已去只读): %v", err2)
-		}
-	}
-
-	// 4) 检查 WIM 所在目录是否可写（只读介质/无权限目录常见）
-	dir := filepath.Dir(wim)
-	tf, err := os.CreateTemp(dir, "wimwrite_*")
-	if err != nil {
-		return fmt.Errorf("WIM所在目录不可写: %s: %w", dir, err)
-	}
-	name := tf.Name()
-	_ = tf.Close()
-	_ = os.Remove(name)
-
-	return nil
-}
-
-// 修改wim文件，将自身及对应文件写入到wim中，并修改ini
-func Patwim(wim string) error {
-	if wim == "" {
-		return fmt.Errorf("wim为空")
-	}
-	wimAbs, err := filepath.Abs(wim)
-	if err != nil {
-		return err
-	}
-	wim = wimAbs
-	if err := ensureWimWritable(wim); err != nil {
-		return err
-	}
-
-	// 自身程序
-	selfExe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	selfExe, _ = filepath.Abs(selfExe)
-	selfName := filepath.Base(selfExe)
-
-	dir := filepath.Dir(selfExe)
-
-	resolveTool := func(name, fallback string) string {
-		if p, err := exec.LookPath(name); err == nil {
-			return p
-		}
-		if fallback != "" {
-			if st, err := os.Stat(fallback); err == nil && !st.IsDir() {
-				return fallback
-			}
-		}
-		return ""
-	}
-
-	runWithTimeout := func(exe string, args []string, to time.Duration) (string, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), to)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, exe, args...)
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-		var buf bytes.Buffer
-		cmd.Stdout = &buf
-		cmd.Stderr = &buf
-		err := cmd.Run()
-		out := buf.String()
-		if ctx.Err() == context.DeadlineExceeded {
-			return out, fmt.Errorf("超时: %s %s", exe, strings.Join(args, " "))
-		}
-		return out, err
-	}
-
-	//把多条命令从 stdin 喂进去
-	runUpdateWithStdin := func(exe string, args []string, stdinText string, to time.Duration) (string, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), to)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, exe, args...)
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-		cmd.Stdin = strings.NewReader(stdinText)
-		var buf bytes.Buffer
-		cmd.Stdout = &buf
-		cmd.Stderr = &buf
-		err := cmd.Run()
-		out := buf.String()
-		if ctx.Err() == context.DeadlineExceeded {
-			return out, fmt.Errorf("超时: %s %s", exe, strings.Join(args, " "))
-		}
-		return out, err
-	}
-
-	qCmdArg := func(s string) string {
-		if !strings.ContainsAny(s, " \t") && !strings.Contains(s, `"`) {
-			return s
-		}
-		return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
-	}
-
-	// 插入启动项
-	appendExecLine := func(b []byte, line string) ([]byte, error) {
-		pickNLBytes := func(src []byte) []byte {
-			if bytes.Contains(src, []byte("\r\n")) {
-				return []byte("\r\n")
-			}
-			if bytes.Contains(src, []byte("\n")) {
-				return []byte("\n")
-			}
-			return []byte("\r\n")
-		}
-
-		lowerASCII := func(c byte) byte {
-			if c >= 'A' && c <= 'Z' {
-				return c + 32
-			}
-			return c
-		}
-		isSpace := func(c byte) bool { return c == ' ' || c == '\t' }
-
-		findEndfileLineStartBytes := func(src []byte) (int, bool) {
-			i := 0
-			for i < len(src) {
-				lineStart := i
-				j := bytes.IndexByte(src[i:], '\n')
-				if j == -1 {
-					i = len(src)
-				} else {
-					i += j + 1
-				}
-				lineBytes := src[lineStart:i]
-				trimmed := bytes.TrimRight(lineBytes, "\r\n")
-				trimmed = bytes.TrimLeft(trimmed, " \t")
-				if len(trimmed) < len("_ENDFILE") {
-					continue
-				}
-				ok := true
-				for k := 0; k < len("_ENDFILE"); k++ {
-					if lowerASCII(trimmed[k]) != lowerASCII("_ENDFILE"[k]) {
-						ok = false
-						break
-					}
-				}
-				if !ok {
-					continue
-				}
-				if len(trimmed) == len("_ENDFILE") {
-					return lineStart, true
-				}
-				c := trimmed[len("_ENDFILE")]
-				if isSpace(c) || c == '/' || c == ';' {
-					return lineStart, true
-				}
-			}
-			return 0, false
-		}
-
-		containsFoldASCII := func(hay, needle []byte) bool {
-			if len(needle) == 0 {
-				return true
-			}
-			for i := 0; i+len(needle) <= len(hay); i++ {
-				ok := true
-				for j := 0; j < len(needle); j++ {
-					if lowerASCII(hay[i+j]) != lowerASCII(needle[j]) {
-						ok = false
-						break
-					}
-				}
-				if ok {
-					return true
-				}
-			}
-			return false
-		}
-
-		applyOnBytes := func(src []byte) []byte {
-			nl := pickNLBytes(src)
-			insertPos := len(src)
-			if p, ok := findEndfileLineStartBytes(src); ok {
-				insertPos = p
-			}
-			head := src[:insertPos]
-			tail := src[insertPos:]
-
-			if containsFoldASCII(head, []byte(line)) {
-				return src
-			}
-
-			out := make([]byte, 0, len(src)+len(line)+len(nl)+4)
-			out = append(out, head...)
-			if len(out) > 0 && out[len(out)-1] != '\n' {
-				out = append(out, nl...)
-			}
-			out = append(out, []byte(line)...)
-			out = append(out, nl...)
-			out = append(out, tail...)
-			return out
-		}
-
-		// UTF-16LE BOM：FF FE
-		if len(b) >= 2 && b[0] == 0xFF && b[1] == 0xFE {
-			raw := b[2:]
-			if len(raw)%2 != 0 {
-				raw = raw[:len(raw)-1]
-			}
-
-			u := make([]uint16, len(raw)/2)
-			for i := 0; i < len(u); i++ {
-				u[i] = binary.LittleEndian.Uint16(raw[i*2 : i*2+2])
-			}
-			s := string(utf16.Decode(u))
-
-			nl := "\r\n"
-			if strings.Contains(s, "\n") && !strings.Contains(s, "\r\n") {
-				nl = "\n"
-			}
-
-			reEnd := regexp.MustCompile(`(?im)^[ \t]*_endfile\b.*(?:\r?\n|$)`)
-			loc := reEnd.FindStringIndex(s)
-
-			head := s
-			tail := ""
-			if loc != nil {
-				head = s[:loc[0]]
-				tail = s[loc[0]:]
-			}
-
-			if strings.Contains(strings.ToLower(head), strings.ToLower(line)) {
-				return b, nil
-			}
-
-			if head != "" && !strings.HasSuffix(head, "\n") {
-				head += nl
-			}
-			head += line + nl
-			s2 := head + tail
-
-			u2 := utf16.Encode([]rune(s2))
-			o := make([]byte, 2+len(u2)*2)
-			o[0], o[1] = 0xFF, 0xFE
-			for i, v := range u2 {
-				binary.LittleEndian.PutUint16(o[2+i*2:2+i*2+2], v)
-			}
-			return o, nil
-		}
-
-		return applyOnBytes(b), nil
-	}
-
-	wimlib := resolveTool("wimlib-imagex.exe", filepath.Join(dir, "tools", "wimlib-imagex.exe"))
-	if wimlib == "" {
-		return fmt.Errorf("找不到 wimlib-imagex.exe（PATH 或 %s）", filepath.Join(dir, "tools", "wimlib-imagex.exe"))
-	}
-
-	type wimRes struct {
-		src   string
-		dst   string
-		isDir bool
-	}
-	resList := []wimRes{
-		{src: selfExe, dst: `\Windows\` + selfName, isDir: false},
-		{src: filepath.Join(dir, "Windows.json"), dst: `\Windows\Windows.json`, isDir: false},
-		{src: filepath.Join(dir, "WinPE.json"), dst: `\Windows\WinPE.json`, isDir: false},
-		{src: filepath.Join(dir, "disk.dll"), dst: `\Windows\disk.dll`, isDir: false},
-		{src: filepath.Join(dir, "trackers.txt"), dst: `\Windows\trackers.txt`, isDir: false},
-		{src: filepath.Join(dir, "tools"), dst: `\Windows\tools`, isDir: true},
-	}
-
-	// 资源存在性检查
-	keep := make([]wimRes, 0, len(resList))
-	for _, r := range resList {
-		st, e := os.Stat(r.src)
-		if e != nil {
-			fmt.Fprintf(os.Stderr, "WARN: 跳过缺少资源: %s (%v)\n", r.src, e)
-			continue
-		}
-		if r.isDir && !st.IsDir() {
-			fmt.Fprintf(os.Stderr, "WARN: 跳过资源(应为目录但不是): %s\n", r.src)
-			continue
-		}
-		if !r.isDir && st.IsDir() {
-			fmt.Fprintf(os.Stderr, "WARN: 跳过资源(应为文件但却是目录): %s\n", r.src)
-			continue
-		}
-		keep = append(keep, r)
-	}
-	resList = keep
-
-	wimBase := func(p string) string {
-		p = strings.TrimRight(p, `\/`)
-		if i := strings.LastIndexAny(p, `\/`); i >= 0 {
-			return p[i+1:]
-		}
-		return p
-	}
-	wimDir := func(p string) string {
-		p = strings.TrimRight(p, `\/`)
-		if i := strings.LastIndexAny(p, `\/`); i >= 0 {
-			return p[:i]
-		}
-		return ""
-	}
-	wimJoin := func(a, b string) string {
-		if a == "" {
-			return `\` + b
-		}
-		if strings.HasSuffix(a, `\`) || strings.HasSuffix(a, `/`) {
-			return a + b
-		}
-		return a + `\` + b
-	}
-
-	//获取 Index：info 文本 -> info --xml -> 默认 1
-	getIdxs := func() ([]int, error) {
-		out, err := runWithTimeout(wimlib, []string{"info", wim}, 2*time.Minute)
-		if err != nil {
-			return nil, fmt.Errorf("wimlib info失败: %w\n%s", err, out)
-		}
-
-		reIdx := regexp.MustCompile(`(?m)^\s*Image\s+(\d+)\s*:`)
-		ms := reIdx.FindAllStringSubmatch(out, -1)
-
-		seen := map[int]bool{}
-		idxs := make([]int, 0, len(ms))
-		for _, m := range ms {
-			i, _ := strconv.Atoi(m[1])
-			if i > 0 && !seen[i] {
-				seen[i] = true
-				idxs = append(idxs, i)
-			}
-		}
-		if len(idxs) > 0 {
-			return idxs, nil
-		}
-
-		xout, xerr := runWithTimeout(wimlib, []string{"info", wim, "--xml"}, 2*time.Minute)
-		if xerr == nil && len(xout) > 0 {
-			b := []byte(xout)
-			if len(b) >= 2 && b[0] == 0xFF && b[1] == 0xFE {
-				raw := b[2:]
-				if len(raw)%2 != 0 {
-					raw = raw[:len(raw)-1]
-				}
-				u := make([]uint16, len(raw)/2)
-				for i := range u {
-					u[i] = binary.LittleEndian.Uint16(raw[i*2 : i*2+2])
-				}
-				s := string(utf16.Decode(u))
-
-				reXML := regexp.MustCompile(`(?i)<\s*image\b[^>]*\bindex\s*=\s*"(\d+)"`)
-				ms2 := reXML.FindAllStringSubmatch(s, -1)
-
-				seen2 := map[int]bool{}
-				idxs2 := make([]int, 0, len(ms2))
-				for _, m := range ms2 {
-					i, _ := strconv.Atoi(m[1])
-					if i > 0 && !seen2[i] {
-						seen2[i] = true
-						idxs2 = append(idxs2, i)
-					}
-				}
-				if len(idxs2) > 0 {
-					return idxs2, nil
-				}
-			} else {
-				s := xout
-				reXML := regexp.MustCompile(`(?i)<\s*image\b[^>]*\bindex\s*=\s*"(\d+)"`)
-				ms2 := reXML.FindAllStringSubmatch(s, -1)
-
-				seen2 := map[int]bool{}
-				idxs2 := make([]int, 0, len(ms2))
-				for _, m := range ms2 {
-					i, _ := strconv.Atoi(m[1])
-					if i > 0 && !seen2[i] {
-						seen2[i] = true
-						idxs2 = append(idxs2, i)
-					}
-				}
-				if len(idxs2) > 0 {
-					return idxs2, nil
-				}
-			}
-		}
-
-		return []int{1}, nil
-	}
-
-	idxs, err := getIdxs()
-	if err != nil {
-		return err
-	}
-
-	// 启动项
-	line := "EXEC %WinDir%\\" + selfName
-
-	for _, idx := range idxs {
-		// 列出 \Windows 下的文件
-		dout, de := runWithTimeout(wimlib, []string{"dir", wim, strconv.Itoa(idx), `--path=\Windows`}, 2*time.Minute)
-		if de != nil {
-			return fmt.Errorf("dir失败 idx=%d: %v\n%s", idx, de, dout)
-		}
-
-		actual := map[string]string{}
-		pecmdActual := ""
-		for _, ln := range strings.Split(dout, "\n") {
-			f := strings.Fields(strings.TrimSpace(ln))
-			if len(f) == 0 {
-				continue
-			}
-			nm := strings.TrimRight(f[len(f)-1], `\/`)
-			lm := strings.ToLower(nm)
-			if _, ok := actual[lm]; !ok {
-				actual[lm] = nm
-			}
-			if lm == "pecmd.ini" {
-				pecmdActual = nm
-			}
-		}
-
-		// 生成 update 命令脚本
-		cmdLines := make([]string, 0, len(resList)*2)
-		for _, r := range resList {
-			baseLower := strings.ToLower(wimBase(r.dst))
-			delPath := r.dst
-			if act, ok := actual[baseLower]; ok && act != "" {
-				delPath = wimJoin(wimDir(r.dst), act)
-			}
-			if r.isDir {
-				cmdLines = append(cmdLines, "delete --recursive --force "+qCmdArg(delPath))
-			} else {
-				cmdLines = append(cmdLines, "delete --force "+qCmdArg(delPath))
-			}
-
-			cmdLines = append(cmdLines, "add "+qCmdArg(r.src)+" "+qCmdArg(r.dst))
-		}
-		script := strings.Join(cmdLines, "\n") + "\n"
-
-		uout, ue := runUpdateWithStdin(
-			wimlib,
-			[]string{"update", wim, strconv.Itoa(idx)},
-			script,
-			10*time.Minute,
-		)
-		if ue != nil {
-			return fmt.Errorf("写入资源失败 idx=%d: %v\n%s", idx, ue, uout)
-		}
-
-		// Pecmd.ini 文件名
-		iniName := pecmdActual
-		if iniName == "" {
-			iniName = "Pecmd.ini"
-		}
-
-		// 抽取 Pecmd.ini
-		tmp, _ := os.MkdirTemp("", "wim_")
-		_, _ = runWithTimeout(wimlib,
-			[]string{"extract", wim, strconv.Itoa(idx), `\Windows\` + iniName, "--dest-dir=" + tmp},
-			5*time.Minute,
-		)
-
-		p1 := filepath.Join(tmp, "Windows", iniName)
-		p2 := filepath.Join(tmp, iniName)
-		inip := p1
-		if _, e1 := os.Stat(p1); e1 != nil {
-			inip = p2
-		}
-		if _, e2 := os.Stat(inip); e2 != nil {
-			_ = os.MkdirAll(filepath.Dir(p1), 0o755)
-			inip = p1
-			_ = os.WriteFile(inip, []byte{}, 0o644)
-		}
-
-		b, _ := os.ReadFile(inip)
-		updated, err := appendExecLine(b, line)
-		if err != nil {
-			_ = Remove(tmp, true)
-			return fmt.Errorf("修改ini失败 idx=%d: %w", idx, err)
-		}
-		if err := os.WriteFile(inip, updated, 0o644); err != nil {
-			_ = Remove(tmp, true)
-			return fmt.Errorf("写入ini失败 idx=%d: %w", idx, err)
-		}
-
-		// 写回 Pecmd.ini
-		iniDst := `\Windows\` + iniName
-		iniScript := strings.Join([]string{
-			"delete --force " + qCmdArg(iniDst),
-			"add " + qCmdArg(inip) + " " + qCmdArg(iniDst),
-		}, "\n") + "\n"
-
-		iout, ie := runUpdateWithStdin(
-			wimlib,
-			[]string{"update", wim, strconv.Itoa(idx)},
-			iniScript,
-			10*time.Minute,
-		)
-		_ = Remove(tmp, true)
-		if ie != nil {
-			return fmt.Errorf("写ini失败 idx=%d: %v\n%s", idx, ie, iout)
-		}
-	}
-
-	return nil
 }
 
 // 从指定的文件中，按偏移区间 [start, end) 抽取数据，写入到指定的文件中。
@@ -2008,7 +1493,7 @@ func ensureTempVolumeForBytes(needBytes uint64) (string, error) {
 	if err == nil && extent.SizeBytes >= needBytes {
 		letter, err2 := CreatePartitionFromFreeExtent(extent, needBytes, "ntfs", tempLabel)
 		if err2 == nil {
-			root := normalizeRootPath(letter) // 你项目里已有
+			root, _ := NormalizeDrive(letter, 0)
 			if root != "" {
 				// 写 marker
 				marker := filepath.Join(root, tempMarkerRel)
@@ -2040,7 +1525,7 @@ func ensureTempVolumeForBytes(needBytes uint64) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	root := normalizeRootPath(newVol)
+	root, _ := NormalizeDrive(newVol, 0)
 	if root == "" {
 		return "", fmt.Errorf("SplitVolume成功但未解析到新分区盘符: %v", newVol)
 	}
@@ -2058,7 +1543,7 @@ func ensureTempVolumeForBytes(needBytes uint64) (string, error) {
 func findTempRootByMarker() string {
 	drives, _ := ListDrive()
 	for _, d := range drives {
-		root := normalizeRootPath(d)
+		root, _ := NormalizeDrive(d, 0)
 		if root == "" {
 			continue
 		}
@@ -2078,18 +1563,4 @@ func boolToUintptr(v bool) uintptr {
 		return 1
 	}
 	return 0
-}
-
-// 取自身架构
-func GetSelfArch() string {
-	switch runtime.GOARCH {
-	case "amd64":
-		return "64"
-	case "386":
-		return "32"
-	case "arm", "arm64":
-		return "arm"
-	default:
-		return "other"
-	}
 }
