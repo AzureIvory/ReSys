@@ -1526,7 +1526,8 @@ func RunPEInstall() error {
 	uiSetStatus("安装完成，正在重启...")
 	uiSetProgress(100)
 	logWrite("PE安装流程完成，准备重启")
-	Shutdown(true)
+	Message("安装完成,测试模式", "信息")
+	//Shutdown(true)
 	return nil
 }
 
