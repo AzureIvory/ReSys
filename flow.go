@@ -85,8 +85,8 @@ func StartInstall(target string) {
 			return nil
 		}
 
-		sysRoot := normalizeRootPath(systemDriveRoot())
-		imgRoot := normalizeRootPath(volumeRootFromPath(imgPath))
+		sysRoot, _ := NormalizeDrive(systemDriveRoot(), 0)
+		imgRoot, _ := NormalizeDrive(imgPath, 2)
 		if sysRoot == "" || imgRoot == "" || !strings.EqualFold(sysRoot, imgRoot) {
 			return nil
 		}
@@ -234,7 +234,9 @@ func chooseDownloadRoot() string {
 	} else {
 		root = systemDriveRoot()
 	}
-	root = normalizeRootPath(root)
+	if nr, err := NormalizeDrive(root, 0); err == nil {
+		root = nr
+	}
 
 	// 先尝试直接用 C
 	if root != "" {
@@ -654,59 +656,6 @@ func resolveSdiPath(wimPath string) string {
 		return sdis[0]
 	}
 	return ""
-}
-
-// 从多个候选里挑最合适的pe(一般不会用到)
-func chooseBestWim(paths []string, arch string) string {
-	if len(paths) == 0 {
-		return ""
-	}
-	arch = strings.TrimSpace(strings.ToLower(arch))
-
-	score := func(p string) int {
-		s := 0
-		lp := strings.ToLower(p)
-
-		if strings.Contains(lp, `\petemp\boot.wim`) {
-			s += 300
-		}
-		if strings.Contains(lp, `\petemp\`) {
-			s += 100
-		}
-		if strings.Contains(lp, "wepe") {
-			s += 50
-		}
-		if strings.Contains(lp, "firpe") || strings.Contains(lp, "hotpe") {
-			s += 20
-		}
-
-		// 架构偏好
-		if arch == "64" {
-			if strings.Contains(lp, "64") || strings.Contains(lp, "x64") || strings.Contains(lp, "amd64") {
-				s += 20
-			}
-			if strings.Contains(lp, "32") || strings.Contains(lp, "x86") {
-				s -= 10
-			}
-		} else if arch == "32" {
-			if strings.Contains(lp, "32") || strings.Contains(lp, "x86") {
-				s += 20
-			}
-			if strings.Contains(lp, "64") || strings.Contains(lp, "x64") || strings.Contains(lp, "amd64") {
-				s -= 10
-			}
-		}
-		return s
-	}
-
-	best := paths[0]
-	bestScore := score(best)
-	for _, p := range paths[1:] {
-		if sc := score(p); sc > bestScore {
-			best, bestScore = p, sc
-		}
-	}
-	return best
 }
 
 // 扫描当前磁盘是否已存在可用 PE 引导文件。
@@ -1353,10 +1302,12 @@ func RunPEInstall() error {
 	uiSetStatus("正在准备分区...")
 
 	tempVol := ""
-	targetRoot = normalizeRootPath(targetRoot)
+	if nr, err := NormalizeDrive(targetRoot, 0); err == nil {
+		targetRoot = nr
+	}
 	imagePath = strings.TrimSpace(imagePath)
 
-	imageRoot := normalizeRootPath(volumeRootFromPath(imagePath))
+	imageRoot, _ := NormalizeDrive(imagePath, 2)
 	if strings.EqualFold(imageRoot, targetRoot) {
 		fi, err := os.Stat(imagePath)
 		if err != nil {
@@ -1371,7 +1322,7 @@ func RunPEInstall() error {
 		alts := otherInstallVolumes(targetRoot)
 
 		for _, v := range alts {
-			altRoot := normalizeRootPath(v)
+			altRoot, _ := NormalizeDrive(v, 0)
 			if altRoot == "" {
 				continue
 			}
@@ -1439,7 +1390,9 @@ func RunPEInstall() error {
 			}
 			splitCb(100)
 			uiSetProgress(15)
-			tempVol = normalizeRootPath(newVol)
+			if nr, err := NormalizeDrive(newVol, 0); err == nil {
+				tempVol = nr
+			}
 
 			newPath := filepath.Join(tempVol, filepath.Base(imagePath))
 			logWrite("仅能拆分分区保存镜像：%s -> %s", imagePath, newPath)
@@ -1541,7 +1494,9 @@ func RunPEInstall() error {
 	// 如果不是 PE 内创建的 tempVol，尝试通过 marker 找到我们创建的 TEMP 分区
 	if tempVol == "" {
 		if mr := findTempRootByMarker(); mr != "" {
-			mr = normalizeRootPath(mr)
+			if nr, err := NormalizeDrive(mr, 0); err == nil {
+				mr = nr
+			}
 			if mr != "" && !strings.EqualFold(mr, targetRoot) {
 				tempVol = mr
 				logWrite("通过 marker 找到 TEMP 分区：%s", tempVol)
@@ -1580,7 +1535,10 @@ func chooseInstallTargetRoot() string {
 	parts := Findpart()
 	if len(parts) > 0 {
 		logWrite("选择未装系统分区：%s", parts[0])
-		return normalizeRootPath(parts[0])
+		if nr, err := NormalizeDrive(parts[0], 0); err == nil {
+			return nr
+		}
+		return ""
 	}
 	drives, _ := ListDrive()
 	for _, d := range drives {
@@ -1589,7 +1547,10 @@ func chooseInstallTargetRoot() string {
 		}
 		if GetDriveType(d) == driveFixed {
 			logWrite("回退选择固定盘分区：%s", d)
-			return normalizeRootPath(d)
+			if nr, err := NormalizeDrive(d, 0); err == nil {
+				return nr
+			}
+			return ""
 		}
 	}
 	return ""
@@ -1600,7 +1561,7 @@ func otherInstallVolumes(targetRoot string) []string {
 	drives, _ := ListDrive()
 	var out []string
 	for _, d := range drives {
-		root := normalizeRootPath(d)
+		root, _ := NormalizeDrive(d, 0)
 		if root == "" || strings.EqualFold(root, targetRoot) {
 			continue
 		}

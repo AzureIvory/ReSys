@@ -346,6 +346,150 @@ func GetWinPE() ([]WinPEImg, error) {
 	return out, nil
 }
 
+func parsePELinks(txt string) (string, float64, []string, bool, error) {
+	up := strings.ToUpper(txt)
+	p1 := strings.Index(up, "[PEX64]")
+	if p1 < 0 {
+		return "", 0, nil, false, nil
+	}
+
+	rest := txt[p1+len("[PEX64]"):]
+	// 找下一段开始（常见是 [PEX86] / [XPPE]）
+	nx := strings.Index(rest, "[")
+	if nx > 0 {
+		rest = rest[:nx]
+	}
+
+	type it struct {
+		nm  string
+		url string
+		u2  string
+	}
+	m := map[int]*it{}
+
+	ls := strings.Split(strings.ReplaceAll(rest, "\r", ""), "\n")
+	for _, l := range ls {
+		l = strings.TrimSpace(l)
+		if len(l) < 6 || !strings.HasPrefix(l, "PE") {
+			continue
+		}
+		eq := strings.Index(l, "=")
+		if eq < 0 {
+			continue
+		}
+		k := strings.TrimSpace(l[:eq])
+		v := strings.TrimSpace(l[eq+1:])
+		if v == "" {
+			continue
+		}
+
+		// k: PE3Name / PE3Url / PE3Url2
+		j := 2
+		for j < len(k) && k[j] >= '0' && k[j] <= '9' {
+			j++
+		}
+		if j == 2 {
+			continue
+		}
+		id, er := strconv.Atoi(k[2:j])
+		if er != nil || id <= 0 {
+			continue
+		}
+		key := k[j:]
+
+		itm := m[id]
+		if itm == nil {
+			itm = &it{}
+			m[id] = itm
+		}
+		switch key {
+		case "Name":
+			itm.nm = v
+		case "Url":
+			itm.url = v
+		case "Url2":
+			itm.u2 = v
+		}
+	}
+
+	dd := map[string]bool{}
+	add := func(out *[]string, s string) {
+		s = strings.TrimSpace(s)
+		if s == "" || dd[s] {
+			return
+		}
+		dd[s] = true
+		*out = append(*out, s)
+	}
+
+	isMain := func(nm string) bool {
+		nm = strings.TrimSpace(nm)
+		// 兼容不同写法：Windows 11 PE 精简版 / Win11PE精简版 等
+		if strings.Contains(nm, "Windows 11") && strings.Contains(nm, "精简") {
+			return true
+		}
+		if strings.Contains(nm, "Win11") && strings.Contains(nm, "精简") {
+			return true
+		}
+		if strings.Contains(nm, "Windows11") && strings.Contains(nm, "精简") {
+			return true
+		}
+		return false
+	}
+	isBak := func(nm string) bool {
+		nm = strings.TrimSpace(nm)
+		return strings.Contains(nm, "备用")
+	}
+
+	var a, b2 *it
+	for i := 1; i <= 50; i++ {
+		x := m[i]
+		if x == nil {
+			continue
+		}
+		if a == nil && isMain(x.nm) && !isBak(x.nm) {
+			a = x
+		}
+		if b2 == nil && isMain(x.nm) && isBak(x.nm) {
+			b2 = x
+		}
+	}
+
+	var out []string
+	if a != nil {
+		add(&out, a.url)
+		add(&out, a.u2)
+		if b2 != nil {
+			add(&out, b2.url)
+			add(&out, b2.u2)
+		}
+		if len(out) > 0 {
+			return "EasyRC Windows 11 PE 精简版", 0, out, true, nil
+		}
+	}
+
+	var first *it
+	for i := 1; i <= 50; i++ {
+		x := m[i]
+		if x == nil {
+			continue
+		}
+		if first == nil && (strings.TrimSpace(x.url) != "" || strings.TrimSpace(x.u2) != "") {
+			first = x
+		}
+		add(&out, x.url)
+		add(&out, x.u2)
+	}
+	if len(out) > 0 {
+		name := "EasyRC PE"
+		if first != nil && strings.TrimSpace(first.nm) != "" {
+			name = "EasyRC " + strings.TrimSpace(first.nm)
+		}
+		return name, 0, out, true, nil
+	}
+	return "", 0, nil, false, nil
+}
+
 // PELnk：优先 PEDownload.html（尽量找 Win11 精简版；找不到则取第一个链接）
 // 若失败则回退到 WinPE.json（FIRPE > Win11PE精简版 > 64位）
 // 返回：name / size(可选) / links(按优先级) / err
@@ -353,218 +497,56 @@ func PELnk() (string, float64, []string, error) {
 	// 1) PEDownload.html 优先：尽量找 Win11 精简版；若找不到相关文字则取第一个链接
 	b, e1 := getbWithFallback(peHtmlURL, localDataPath("PEDownload.html"))
 	if e1 == nil {
-		txt := string(b)
-
-		up := strings.ToUpper(txt)
-		p1 := strings.Index(up, "[PEX64]")
-		if p1 >= 0 {
-			rest := txt[p1+len("[PEX64]"):]
-			// 找下一段开始（常见是 [PEX86] / [XPPE]）
-			nx := strings.Index(rest, "[")
-			if nx > 0 {
-				rest = rest[:nx]
-			}
-
-			type it struct {
-				nm  string
-				url string
-				u2  string
-			}
-			m := map[int]*it{}
-
-			ls := strings.Split(strings.ReplaceAll(rest, "\r", ""), "\n")
-			for _, l := range ls {
-				l = strings.TrimSpace(l)
-				if len(l) < 6 || !strings.HasPrefix(l, "PE") {
-					continue
-				}
-				eq := strings.Index(l, "=")
-				if eq < 0 {
-					continue
-				}
-				k := strings.TrimSpace(l[:eq])
-				v := strings.TrimSpace(l[eq+1:])
-				if v == "" {
-					continue
-				}
-
-				// k: PE3Name / PE3Url / PE3Url2
-				j := 2
-				for j < len(k) && k[j] >= '0' && k[j] <= '9' {
-					j++
-				}
-				if j == 2 {
-					continue
-				}
-				id, er := strconv.Atoi(k[2:j])
-				if er != nil || id <= 0 {
-					continue
-				}
-				key := k[j:]
-
-				itm := m[id]
-				if itm == nil {
-					itm = &it{}
-					m[id] = itm
-				}
-				switch key {
-				case "Name":
-					itm.nm = v
-				case "Url":
-					itm.url = v
-				case "Url2":
-					itm.u2 = v
-				}
-			}
-
+		name, sz, links, ok, err := parsePELinks(string(b))
+		if err != nil {
+			return "", 0, nil, err
+		}
+		if ok {
 			dd := map[string]bool{}
-			add := func(out *[]string, s string) {
-				s = strings.TrimSpace(s)
-				if s == "" || dd[s] {
-					return
-				}
+			for _, s := range links {
 				dd[s] = true
-				*out = append(*out, s)
 			}
 
-			isMain := func(nm string) bool {
-				nm = strings.TrimSpace(nm)
-				// 兼容不同写法：Windows 11 PE 精简版 / Win11PE精简版 等
-				if strings.Contains(nm, "Windows 11") && strings.Contains(nm, "精简") {
-					return true
-				}
-				if strings.Contains(nm, "Win11") && strings.Contains(nm, "精简") {
-					return true
-				}
-				if strings.Contains(nm, "Windows11") && strings.Contains(nm, "精简") {
-					return true
-				}
-				return false
-			}
-			isBak := func(nm string) bool {
-				nm = strings.TrimSpace(nm)
-				return strings.Contains(nm, "备用")
-			}
-
-			// 先尝试：主=精简版，备=备用线路（按编号顺序）
-			var a, b2 *it
-			for i := 1; i <= 50; i++ {
-				x := m[i]
-				if x == nil {
-					continue
-				}
-				if a == nil && isMain(x.nm) && !isBak(x.nm) {
-					a = x
-				}
-				if b2 == nil && isMain(x.nm) && isBak(x.nm) {
-					b2 = x
-				}
-			}
-
-			var out []string
-			if a != nil {
-				add(&out, a.url)
-				add(&out, a.u2)
-				if b2 != nil {
-					add(&out, b2.url)
-					add(&out, b2.u2)
-				}
-				if len(out) > 0 {
-					// 追加 WinPE.json 的优选链接作为进一步备用（去重，保持顺序）
-					name := "EasyRC Windows 11 PE 精简版"
-					sz := 0.0
-					pes, e3 := GetWinPE()
-					if e3 == nil && len(pes) > 0 {
-						bi, bs := -1, -1
-						for i := range pes {
-							s := 0
-							if strings.EqualFold(strings.TrimSpace(pes[i].Grp), "FIRPE") {
-								s += 1000
-							}
-							v := strings.TrimSpace(pes[i].Ver)
-							if strings.Contains(v, "Win11PE精简版") || strings.Contains(v, "Windows 11 PE 精简版") {
-								s += 200
-							}
-							a := strings.TrimSpace(pes[i].Arch)
-							if a == "64" {
-								s += 50
-							} else if a == "32" {
-								s += 10
-							}
-							if s > bs {
-								bs, bi = s, i
-							}
-						}
-						if bi >= 0 && len(pes[bi].Links) > 0 {
-							if sz == 0 {
-								sz = pes[bi].Sz
-							}
-							for _, s := range pes[bi].Links {
-								add(&out, s)
-							}
-						}
+			pes, e3 := GetWinPE()
+			if e3 == nil && len(pes) > 0 {
+				bi, bs := -1, -1
+				for i := range pes {
+					s := 0
+					if strings.EqualFold(strings.TrimSpace(pes[i].Grp), "FIRPE") {
+						s += 1000
 					}
-					return name, sz, out, nil
-				}
-			}
-
-			// 若没找到“Windows 11 PE 精简版”等文字：取 [PEX64] 段全部链接（按先后顺序），去重；
-			// 使用时先用第一个，失效就用第二个…类推；再追加 WinPE.json 的优选链接作为进一步备用
-			var first *it
-			for i := 1; i <= 50; i++ {
-				x := m[i]
-				if x == nil {
-					continue
-				}
-				if first == nil && (strings.TrimSpace(x.url) != "" || strings.TrimSpace(x.u2) != "") {
-					first = x
-				}
-				add(&out, x.url)
-				add(&out, x.u2)
-			}
-			if len(out) > 0 {
-				name := "EasyRC PE"
-				if first != nil && strings.TrimSpace(first.nm) != "" {
-					name = "EasyRC " + strings.TrimSpace(first.nm)
-				}
-				sz := 0.0
-
-				pes, e3 := GetWinPE()
-				if e3 == nil && len(pes) > 0 {
-					bi, bs := -1, -1
-					for i := range pes {
-						s := 0
-						if strings.EqualFold(strings.TrimSpace(pes[i].Grp), "FIRPE") {
-							s += 1000
-						}
-						v := strings.TrimSpace(pes[i].Ver)
-						if strings.Contains(v, "Win11PE精简版") || strings.Contains(v, "Windows 11 PE 精简版") {
-							s += 200
-						}
-						a := strings.TrimSpace(pes[i].Arch)
-						if a == "64" {
-							s += 50
-						} else if a == "32" {
-							s += 10
-						}
-						if s > bs {
-							bs, bi = s, i
-						}
+					v := strings.TrimSpace(pes[i].Ver)
+					if strings.Contains(v, "Win11PE精简版") || strings.Contains(v, "Windows 11 PE 精简版") {
+						s += 200
 					}
-					if bi >= 0 && len(pes[bi].Links) > 0 {
-						if name == "EasyRC PE" {
-							name = pes[bi].Name
-						}
-						if sz == 0 {
-							sz = pes[bi].Sz
-						}
-						for _, s := range pes[bi].Links {
-							add(&out, s)
-						}
+					a := strings.TrimSpace(pes[i].Arch)
+					if a == "64" {
+						s += 50
+					} else if a == "32" {
+						s += 10
+					}
+					if s > bs {
+						bs, bi = s, i
 					}
 				}
-				return name, sz, out, nil
+				if bi >= 0 && len(pes[bi].Links) > 0 {
+					if name == "EasyRC PE" {
+						name = pes[bi].Name
+					}
+					if sz == 0 {
+						sz = pes[bi].Sz
+					}
+					for _, s := range pes[bi].Links {
+						s = strings.TrimSpace(s)
+						if s == "" || dd[s] {
+							continue
+						}
+						dd[s] = true
+						links = append(links, s)
+					}
+				}
 			}
+			return name, sz, links, nil
 		}
 	}
 

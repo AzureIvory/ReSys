@@ -513,7 +513,7 @@ func Shutdown(reboot bool) {
 // drive：可以是 "D", "D:", "D:\"
 // 返回如: "Windows 7 x64" / "Windows 10 x86" / "Windows 11 x64"
 func DetectWin(drive string) (string, error) {
-	root, err := normalizeRoot(drive)
+	root, err := NormalizeDrive(drive, 0)
 	if err != nil {
 		return "", err
 	}
