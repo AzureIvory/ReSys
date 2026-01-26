@@ -515,20 +515,55 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 	}
 
 	// 续传
-	if hasPart {
-		err := runCurl(true)
-		if err == nil {
+	// 下载 + 断点续传 + 大小校验
+	const maxAttempts = 3
+	attempts := 0
+	withResume := hasPart
+
+	for {
+		attempts++
+		if attempts > maxAttempts {
+			return fmt.Errorf("下载失败: 超过最大尝试次数")
+		}
+
+		err := runCurl(withResume)
+		if err != nil {
+			if withResume {
+				_ = os.Remove(tmpPath)
+			}
+			if withResume || hasPart {
+				withResume = false
+				continue
+			}
+			return err
+		}
+
+		if total <= 0 {
 			return nil
 		}
-		// 若续传失败
-		_ = os.Remove(tmpPath)
-	}
 
-	// 从头下载
-	if err := runCurl(false); err != nil {
-		return err
+		// 从头下载
+		st, statErr := os.Stat(dstPath)
+		if statErr != nil {
+			return fmt.Errorf("stat %s 失败: %w", dstPath, statErr)
+		}
+
+		if st.Size() == total {
+			return nil
+		}
+
+		if st.Size() > total {
+			_ = Remove(dstPath, false)
+			return fmt.Errorf("下载文件大小异常: got=%d expect=%d", st.Size(), total)
+		}
+
+		// 小于预期大小，尝试继续下载
+		if err := os.Rename(dstPath, tmpPath); err != nil {
+			return fmt.Errorf("续传准备失败: %w", err)
+		}
+		hasPart = true
+		withResume = true
 	}
-	return nil
 }
 
 // 判断网络是否连通。

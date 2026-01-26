@@ -1112,8 +1112,7 @@ func ensureSdiByCopy(root string, sPatRel string, wAbs string) (sAbs string, sRe
 
 func applyPEBoot(best peCand) error {
 	lt, sdi, wim, nm := best.lt, best.sRel, best.wRel, best.nm
-
-	fmt.Println("PE:", nm, "DRV:", lt, "SDI:", sdi, "WIM:", wim)
+	logWrite("PE:", nm, "DRV:", lt, "SDI:", sdi, "WIM:", wim)
 
 	windir := os.Getenv("SystemRoot")
 	if windir == "" {
@@ -1245,11 +1244,13 @@ func applyPEBoot(best peCand) error {
 func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 	customSdi, customWim, err := parseGoToPEArgs(paths)
 	if err != nil {
+		logWrite("GoToPE 参数解析失败：" + err.Error())
 		return false, "", "", err
 	}
 
 	dvs, err := ListDrive()
 	if err != nil {
+		logWrite("GoToPE ListDrive失败：" + err.Error())
 		return false, "", "", err
 	}
 
@@ -1272,6 +1273,7 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 
 	candByWim, allWims, err := collectPECands(dvs, opts, wantArch, customSdi, customWim)
 	if err != nil {
+		logWrite("GoToPE collectPECands失败：" + err.Error())
 		if scan {
 			return false, "", "", err
 		}
@@ -1282,6 +1284,7 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 		if scan {
 			return false, "", "", nil
 		}
+		logWrite("GoToPE 未找到PE引导文件")
 		return false, "", "", fmt.Errorf("未找到PE引导文件")
 	}
 

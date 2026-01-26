@@ -150,6 +150,7 @@ func ApplyImage(imagePath string, index int, targetVol string) error {
 		}
 		return nil
 	} else {
+		logWrite("ApplyImage 执行wimlib-imagex失败：" + err.Error())
 		fmt.Println("[ApplyImage] wimlib-imagex failed, will try DISM")
 		fmt.Println(out)
 	}
@@ -179,6 +180,7 @@ func ApplyImage(imagePath string, index int, targetVol string) error {
 		}
 		return nil
 	} else {
+		logWrite("ApplyImage 执行dism失败：" + err.Error() + "  dism:" + dism)
 		fmt.Println("[ApplyImage] DISM failed")
 		fmt.Println(out)
 		return err
@@ -417,6 +419,7 @@ func Patwim(wim string) error {
 	}
 	wim = wimAbs
 	if err := ensureWimWritable(wim); err != nil {
+		logWrite("Patwim ensureWimWritable失败：" + err.Error())
 		return err
 	}
 
@@ -621,6 +624,7 @@ func Patwim(wim string) error {
 
 		uout, ue := runCmdWithTimeout(wimlib, []string{"update", wim, strconv.Itoa(idx)}, script, 10*time.Minute)
 		if ue != nil {
+			logWrite("Patwim runCmdWithTimeout update失败：" + err.Error())
 			return fmt.Errorf("写入资源失败 idx=%d: %v\n%s", idx, ue, uout)
 		}
 
@@ -630,11 +634,14 @@ func Patwim(wim string) error {
 		}
 
 		tmp, _ := os.MkdirTemp("", "wim_")
-		_, _ = runCmdWithTimeout(wimlib,
+		_, err = runCmdWithTimeout(wimlib,
 			[]string{"extract", wim, strconv.Itoa(idx), `\Windows\` + iniName, "--dest-dir=" + tmp},
 			"",
 			5*time.Minute,
 		)
+		if err != nil {
+			logWrite("Patwim runCmdWithTimeout extract失败：" + err.Error())
+		}
 
 		p1 := filepath.Join(tmp, "Windows", iniName)
 		p2 := filepath.Join(tmp, iniName)
@@ -651,10 +658,12 @@ func Patwim(wim string) error {
 		b, _ := os.ReadFile(inip)
 		updated, err := appendExecLine(b, line)
 		if err != nil {
+			logWrite("Patwim appendExecLine插入启动项失败："+err.Error()+"idx=%d", idx)
 			_ = Remove(tmp, true)
 			return fmt.Errorf("修改ini失败 idx=%d: %w", idx, err)
 		}
 		if err := os.WriteFile(inip, updated, 0o644); err != nil {
+			logWrite("Patwim 写入ini失败："+err.Error()+"idx=%d", idx)
 			_ = Remove(tmp, true)
 			return fmt.Errorf("写入ini失败 idx=%d: %w", idx, err)
 		}
@@ -697,6 +706,7 @@ func ApplyISOImage(isoPath string, index int, targetVol string) error {
 	if err != nil {
 		parts := Findpart()
 		if len(parts) == 0 {
+			logWrite("ApplyISOImage 未找到可用分区用于解包ISO")
 			return fmt.Errorf("未找到可用分区用于解包ISO！")
 		}
 		var lastErr error
@@ -715,6 +725,7 @@ func ApplyISOImage(isoPath string, index int, targetVol string) error {
 			break
 		}
 		if lastErr != nil || isoRoot == "" {
+			logWrite("ApplyISOImage 解包ISO失败:" + err.Error())
 			return fmt.Errorf("解包ISO失败！")
 		}
 	}
@@ -726,6 +737,7 @@ func ApplyISOImage(isoPath string, index int, targetVol string) error {
 	if _, err := os.Stat(installPath); err != nil {
 		found, findErr := FindFile(isoRoot, "install.wim|install.esd", 3)
 		if findErr != nil || len(found) == 0 {
+			logWrite("ApplyISOImage ISO中未找到安装镜像！")
 			return fmt.Errorf("ISO中未找到安装镜像！")
 		}
 		installPath = found[0]
@@ -733,16 +745,19 @@ func ApplyISOImage(isoPath string, index int, targetVol string) error {
 
 	if strings.EqualFold(filepath.Ext(installPath), ".esd") {
 		if ApplyEsdImage(installPath, index, targetVol) != nil {
+			logWrite("ApplyISOImage 应用镜像失败！")
 			return fmt.Errorf("应用镜像失败！")
 		}
 		return nil
 	}
 	if strings.EqualFold(filepath.Ext(installPath), ".wim") {
 		if ApplyWimImage(installPath, index, targetVol) != nil {
+			logWrite("ApplyISOImage 应用镜像失败！")
 			return fmt.Errorf("应用镜像失败！")
 		}
 		return nil
 	}
+	logWrite("ApplyISOImage 不支持的镜像")
 
 	return fmt.Errorf("ISO安装镜像类型不支持！")
 }
