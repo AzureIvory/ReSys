@@ -15,9 +15,11 @@ import (
 	"unsafe"
 )
 
+// parseFS 函数。
 func parseFS(fs string) (string, error) {
 	fs = strings.TrimSpace(fs)
 	if fs == "" {
+		logWrite("parseFS 文件系统为空")
 		return "", fmt.Errorf("fs 不能为空")
 	}
 	fs = strings.ToUpper(fs)
@@ -25,12 +27,16 @@ func parseFS(fs string) (string, error) {
 	case "NTFS", "FAT32":
 		return fs, nil
 	default:
+		logWrite("parseFS 不支持的文件系统: %s", fs)
 		return "", fmt.Errorf("不支持的 fs：%q（仅支持 NTFS/FAT32）", fs)
 	}
 }
+
+// collectDriveLetters 函数。
 func collectDriveLetters() (map[string]struct{}, error) {
 	drives, err := ListDrive()
 	if err != nil {
+		logWrite("collectDriveLetters ListDrive失败: %v", err)
 		return nil, err
 	}
 	set := make(map[string]struct{}, len(drives))
@@ -53,6 +59,7 @@ func collectDriveLetters() (map[string]struct{}, error) {
 func GetDiskPartitions(diskID string) (int, []string, error) {
 	diskID = strings.TrimSpace(diskID)
 	if diskID == "" {
+		logWrite("GetDiskPartitions diskID为空")
 		return 0, nil, fmt.Errorf("diskID 为空")
 	}
 
@@ -66,6 +73,7 @@ func GetDiskPartitions(diskID string) (int, []string, error) {
 		root := strings.ToUpper(diskID[:1]) + `:\`
 		dn, err := GetDiskNum(root)
 		if err != nil {
+			logWrite("GetDiskPartitions GetDiskNum失败: root=%s err=%v", root, err)
 			return 0, nil, err
 		}
 		diskNum = dn
@@ -75,6 +83,7 @@ func GetDiskPartitions(diskID string) (int, []string, error) {
 		root := strings.ToUpper(diskID) + `:\`
 		dn, err := GetDiskNum(root)
 		if err != nil {
+			logWrite("GetDiskPartitions GetDiskNum失败: root=%s err=%v", root, err)
 			return 0, nil, err
 		}
 		diskNum = dn
@@ -84,12 +93,14 @@ func GetDiskPartitions(diskID string) (int, []string, error) {
 		if m := re.FindStringSubmatch(diskID); len(m) == 2 {
 			n, err := strconv.ParseUint(m[1], 10, 32)
 			if err != nil {
+				logWrite("GetDiskPartitions 解析磁盘号失败: %v", err)
 				return 0, nil, fmt.Errorf("解析磁盘号失败: %w", err)
 			}
 			diskNum = uint32(n)
 		} else {
 			n, err := strconv.ParseUint(diskID, 10, 32)
 			if err != nil {
+				logWrite("GetDiskPartitions 解析磁盘号失败: %v", err)
 				return 0, nil, fmt.Errorf("解析磁盘号失败: %w", err)
 			}
 			diskNum = uint32(n)
@@ -98,6 +109,7 @@ func GetDiskPartitions(diskID string) (int, []string, error) {
 
 	drives, err := ListDrive()
 	if err != nil {
+		logWrite("GetDiskPartitions ListDrive失败: %v", err)
 		return 0, nil, err
 	}
 
@@ -524,6 +536,7 @@ func ListCD() ([]string, error) {
 	return cds, nil
 }
 
+// formatGUID 函数。
 func formatGUID(g GUID) string {
 	return fmt.Sprintf("%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x",
 		g.Data1, g.Data2, g.Data3,
@@ -532,6 +545,7 @@ func formatGUID(g GUID) string {
 	)
 }
 
+// guidEqual 函数。
 func guidEqual(a, b GUID) bool {
 	return a.Data1 == b.Data1 &&
 		a.Data2 == b.Data2 &&
@@ -539,6 +553,7 @@ func guidEqual(a, b GUID) bool {
 		a.Data4 == b.Data4
 }
 
+// partitionTypeFromGPT 函数。
 func partitionTypeFromGPT(g GUID) string {
 	switch {
 	case guidEqual(g, GPTTypeEfiSystem):
@@ -554,6 +569,7 @@ func partitionTypeFromGPT(g GUID) string {
 	}
 }
 
+// partitionTypeFromMBR 函数。
 func partitionTypeFromMBR(partType byte) string {
 	switch partType {
 	case 0x07:
@@ -569,6 +585,7 @@ func partitionTypeFromMBR(partType byte) string {
 	}
 }
 
+// openPhysicalDrive 函数。
 func openPhysicalDrive(diskNumber int, access uint32) (syscall.Handle, error) {
 	diskPath := fmt.Sprintf(`\\.\PhysicalDrive%d`, diskNumber)
 	pDisk, err := syscall.UTF16PtrFromString(diskPath)
@@ -590,6 +607,7 @@ func openPhysicalDrive(diskNumber int, access uint32) (syscall.Handle, error) {
 	return hDisk, nil
 }
 
+// getDiskSizeBytes 函数。
 func getDiskSizeBytes(diskNumber int) (uint64, error) {
 	hDisk, err := openPhysicalDrive(diskNumber, syscall.GENERIC_READ)
 	if err != nil {
@@ -621,6 +639,7 @@ func getDiskSizeBytes(diskNumber int) (uint64, error) {
 	return uint64(info.Length), nil
 }
 
+// volumeHandlePath 函数。
 func volumeHandlePath(vol string) (string, error) {
 	raw := strings.TrimSpace(vol)
 	if raw == "" {
@@ -637,6 +656,7 @@ func volumeHandlePath(vol string) (string, error) {
 	return `\\.\` + strings.TrimRight(root, `\`), nil
 }
 
+// getVolumeInfoByPath 函数。
 func getVolumeInfoByPath(root string) (fsType, label string, sizeBytes, freeBytes uint64, err error) {
 	if root == "" {
 		return "", "", 0, 0, fmt.Errorf("empty root")
@@ -685,6 +705,7 @@ func getVolumeInfoByPath(root string) (fsType, label string, sizeBytes, freeByte
 	return fsType, label, total, freeAvail, nil
 }
 
+// parseMultiSz 函数。
 func parseMultiSz(buf []uint16) []string {
 	var out []string
 	start := 0
@@ -700,6 +721,7 @@ func parseMultiSz(buf []uint16) []string {
 	return out
 }
 
+// getVolumePathNames 函数。
 func getVolumePathNames(volumeName string) ([]string, error) {
 	if volumeName == "" {
 		return nil, fmt.Errorf("empty volume name")
@@ -733,6 +755,7 @@ func getVolumePathNames(volumeName string) ([]string, error) {
 	return nil, fmt.Errorf("GetVolumePathNamesForVolumeNameW failed after retries")
 }
 
+// readDriveLayout 函数。
 func readDriveLayout(diskNumber int) (string, string, []PartitionInfo, error) {
 	hDisk, err := openPhysicalDrive(diskNumber, syscall.GENERIC_READ)
 	if err != nil {
@@ -831,6 +854,7 @@ func readDriveLayout(diskNumber int) (string, string, []PartitionInfo, error) {
 	return style, uniqueId, partitions, nil
 }
 
+// ListPhysicalDisks 函数。
 func ListPhysicalDisks() ([]DiskInfo, error) {
 	volumes, _ := ListVolumes()
 	systemDisk := -1
@@ -884,6 +908,7 @@ func ListPhysicalDisks() ([]DiskInfo, error) {
 	return disks, nil
 }
 
+// ListDiskPartitions 函数。
 func ListDiskPartitions(diskNumber int) ([]PartitionInfo, error) {
 	_, _, parts, err := readDriveLayout(diskNumber)
 	if err != nil {
@@ -911,6 +936,7 @@ func ListDiskPartitions(diskNumber int) ([]PartitionInfo, error) {
 	return parts, nil
 }
 
+// ListVolumes 函数。
 func ListVolumes() ([]VolumeInfo, error) {
 	buf := make([]uint16, 1024)
 	r, _, err := procFindFirstVolumeW.Call(
@@ -1005,6 +1031,7 @@ func ListVolumes() ([]VolumeInfo, error) {
 	return volumes, nil
 }
 
+// GetDiskFreeExtents 函数。
 func GetDiskFreeExtents(diskNumber int) ([]FreeExtent, error) {
 	sizeBytes, err := getDiskSizeBytes(diskNumber)
 	if err != nil {
@@ -1047,6 +1074,7 @@ func GetDiskFreeExtents(diskNumber int) ([]FreeExtent, error) {
 	return free, nil
 }
 
+// PickFreeExtent 函数。
 func PickFreeExtent(needBytes uint64, policy ExtentPickPolicy) (FreeExtent, error) {
 	disks, err := ListPhysicalDisks()
 	if err != nil {
@@ -1093,6 +1121,7 @@ func PickFreeExtent(needBytes uint64, policy ExtentPickPolicy) (FreeExtent, erro
 	return candidates[0], nil
 }
 
+// CreatePartitionFromFreeExtent 函数。
 func CreatePartitionFromFreeExtent(extent FreeExtent, sizeBytes uint64, fs, label string) (string, error) {
 	if extent.SizeBytes == 0 {
 		return "", fmt.Errorf("free extent size is 0")
@@ -1177,6 +1206,8 @@ func RunDiskpart(lines []string) (string, error) {
 	}
 	return outDirect, fmt.Errorf("diskpart failed (script file): %w; direct failed: %v\n直接执行输出:\n%s", err, directErr, outDirect)
 }
+
+// runDiskpartScriptFile 函数。
 func runDiskpartScriptFile(script string) (string, error) {
 	name := fmt.Sprintf("dp_fmt_%d.txt", time.Now().UnixNano())
 	baseDir := ""
@@ -1208,6 +1239,8 @@ func runDiskpartScriptFile(script string) (string, error) {
 	return out, nil
 
 }
+
+// runDiskpartDirect 函数。
 func runDiskpartDirect(script string) (string, error) {
 	script = strings.TrimRight(script, "\r\n") + "\r\nexit\r\n"
 	diskpart := diskpartBinary()
@@ -1217,6 +1250,8 @@ func runDiskpartDirect(script string) (string, error) {
 	}
 	return out, nil
 }
+
+// diskpartBinary 函数。
 func diskpartBinary() string {
 	windir := os.Getenv("SystemRoot")
 	if windir == "" {
@@ -1259,6 +1294,7 @@ type volumeDiskExtentsRaw struct {
 	Extents             [1]diskExtentRaw
 }
 
+// getVolumeExtentBytes 函数。
 func getVolumeExtentBytes(vol string) (diskNum uint32, startBytes int64, lengthBytes int64, err error) {
 	volPath, err := volumeHandlePath(vol)
 	if err != nil {
@@ -1310,6 +1346,7 @@ func getVolumeExtentBytes(vol string) (diskNum uint32, startBytes int64, lengthB
 	return ext.DiskNumber, ext.StartingOffset, ext.ExtentLength, nil
 }
 
+// cleanLabel 函数。
 func cleanLabel(label string) string {
 	label = strings.TrimSpace(label)
 	if label == "" {
@@ -1322,6 +1359,7 @@ func cleanLabel(label string) string {
 	return label
 }
 
+// diskpartQuote 函数。
 func diskpartQuote(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {

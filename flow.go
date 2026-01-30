@@ -23,6 +23,7 @@ var (
 	failedLinks   = map[string]struct{}{}
 )
 
+// markFailedLink 标记失败链接，避免重复使用。
 func markFailedLink(link string) {
 	link = strings.TrimSpace(link)
 	if link == "" {
@@ -33,6 +34,7 @@ func markFailedLink(link string) {
 	failedLinks[link] = struct{}{}
 }
 
+// isFailedLink 判断链接是否已标记失败。
 func isFailedLink(link string) bool {
 	link = strings.TrimSpace(link)
 	if link == "" {
@@ -48,6 +50,7 @@ func isFailedLink(link string) bool {
 // - <4GB 使用 32 位
 // - >=4GB 使用 64 位
 // - 获取失败默认 64 位
+// desiredArch 根据物理内存推断优选架构。
 func desiredArch() string {
 	mem, err := GetMemory()
 	if err != nil {
@@ -63,6 +66,7 @@ func desiredArch() string {
 // 搜索/下载镜像
 // 写入 restall_win.dat / restall_img.dat
 // 准备 PE 并重启进入 PE
+// StartInstall 启动安装流程。
 func StartInstall(target string) {
 	win2()
 	imgArch := desiredArch()
@@ -155,6 +159,7 @@ func StartInstall(target string) {
 }
 
 // 优先本地找镜像，找不到再下载。
+// findOrDownloadImage 查找本地或下载镜像。
 func findOrDownloadImage(target, arch string) (string, error) {
 	local, _ := findLocalImage(target, arch)
 	if local != "" {
@@ -168,6 +173,7 @@ func findOrDownloadImage(target, arch string) (string, error) {
 // - 优先匹配目标系统（win7/win10/win11）
 // - 架构优先与期望一致（32/64）
 // - 若仅有 64 位则直接使用 64 位
+// findLocalImage 搜索本地镜像并按规则筛选。
 func findLocalImage(target, arch string) (string, error) {
 	imgs, err := Findimg()
 	if err != nil {
@@ -213,6 +219,7 @@ func findLocalImage(target, arch string) (string, error) {
 }
 
 // 选择镜像下载盘符。
+// chooseDownloadRoot 选择镜像下载目录。
 func chooseDownloadRoot() string {
 	systemDrive := strings.ToUpper(os.Getenv("SystemDrive")) // "C:"
 	parts := Findpart()
@@ -273,6 +280,7 @@ func chooseDownloadRoot() string {
 }
 
 // 根据目标系统/架构下载镜像。
+// downloadImage 下载指定目标与架构的镜像。
 func downloadImage(target, arch string) (string, error) {
 	ent, err := GetWinImgs(target)
 	if err != nil {
@@ -360,6 +368,7 @@ func downloadImage(target, arch string) (string, error) {
 			cancel()
 
 			if err == nil {
+				logDownloadSize("URL", link, dstPath, it.Size)
 				if vErr := validateImageFile(it, dstPath); vErr != nil {
 					markFailedLink(link)
 					_ = Remove(dstPath, false)
@@ -429,6 +438,7 @@ func downloadImage(target, arch string) (string, error) {
 		})
 
 		if err == nil {
+			logDownloadSize("BT", link, dstPath, it.Size)
 			if vErr := validateImageFile(it, dstPath); vErr != nil {
 				markFailedLink(link)
 				_ = Remove(dstPath, false)
@@ -452,6 +462,7 @@ func downloadImage(target, arch string) (string, error) {
 	return "", fmt.Errorf("未找到可用镜像下载链接")
 }
 
+// validateImageFile 校验镜像文件完整性。
 func validateImageFile(it WinImg, imagePath string) error {
 	if strings.TrimSpace(it.SHA1) != "" {
 		ok, got, err := CheckFileSHA1(imagePath, it.SHA1)
@@ -474,6 +485,7 @@ func validateImageFile(it WinImg, imagePath string) error {
 }
 
 // 按架构过滤镜像列表。
+// filterWinImgsByArch 按架构筛选镜像列表。
 func filterWinImgsByArch(ent []WinImg, arch string) []WinImg {
 	arch = strings.TrimSpace(arch)
 	if arch == "" {
@@ -489,6 +501,7 @@ func filterWinImgsByArch(ent []WinImg, arch string) []WinImg {
 }
 
 // 选择下载镜像与链接。
+// pickWinImg 选择可用镜像与链接。
 func pickWinImg(ent []WinImg) (WinImg, string, error) {
 	if len(ent) == 0 {
 		return WinImg{}, "", fmt.Errorf("未找到可用镜像")
@@ -546,6 +559,7 @@ func pickWinImg(ent []WinImg) (WinImg, string, error) {
 }
 
 // 确保有可用 PE 引导文件，若无则下载 PE。
+// ensurePEAndReboot 确保 PE 镜像可用并设置重启进入 PE。
 func ensurePEAndReboot(arch string) error {
 	arch = strings.TrimSpace(arch)
 	if arch == "" {
@@ -562,11 +576,13 @@ func ensurePEAndReboot(arch string) error {
 		)
 
 		if attempt == 1 {
-			found, wim, sdi, _ := GoToPE(true)
+			found, wim, sdi, scanErr := GoToPE(true)
 			if found && strings.TrimSpace(wim) != "" {
 				wimPath = wim
 				sdiPath = sdi
 				logWrite("使用已有PE：%s", wimPath)
+			} else if scanErr != nil {
+				logWrite("ensurePEAndReboot 扫描PE失败: %v", scanErr)
 			}
 		}
 
@@ -639,6 +655,7 @@ func ensurePEAndReboot(arch string) error {
 }
 
 // 根据wim路径推测sdi路径
+// resolveSdiPath 根据 wim 路径推测 sdi 路径。
 func resolveSdiPath(wimPath string) string {
 	wimPath = strings.TrimSpace(wimPath)
 	if wimPath == "" {
@@ -659,6 +676,7 @@ func resolveSdiPath(wimPath string) string {
 }
 
 // 扫描当前磁盘是否已存在可用 PE 引导文件。
+// hasPEFiles 扫描磁盘是否已有可用 PE 文件。
 func hasPEFiles(arch string) (bool, string, string) {
 	drives, err := ListDrive()
 	if err != nil {
@@ -720,6 +738,7 @@ func hasPEFiles(arch string) (bool, string, string) {
 }
 
 // 文件存在且不是目录。
+// fileExists 判断文件是否存在且非目录。
 func fileExists(path string) bool {
 	if st, err := os.Stat(path); err == nil && !st.IsDir() {
 		return true
@@ -727,6 +746,7 @@ func fileExists(path string) bool {
 	return false
 }
 
+// systemDriveRoot 获取系统盘根路径。
 func systemDriveRoot() string {
 	drive := strings.TrimSpace(os.Getenv("SystemDrive"))
 	if drive == "" {
@@ -757,6 +777,7 @@ func systemDriveRoot() string {
 
 // IsWePE 检测当前运行环境是否为微PE。
 // 规则：系统盘的 Program Files 下存在 WepeGuide 目录则视为微PE。
+// IsWePE 判断当前是否运行于微PE。
 func IsWePE() bool {
 	root := systemDriveRoot()
 	if root == "" {
@@ -770,6 +791,7 @@ func IsWePE() bool {
 }
 
 // 选择 PETEMP 所在盘符。
+// choosePETempRoot 选择 PETEMP 目录所在盘符。
 func choosePETempRoot(needBytes int64) (string, error) {
 	systemDrive := strings.ToUpper(os.Getenv("SystemDrive"))
 	if systemDrive != "" {
@@ -796,6 +818,7 @@ func choosePETempRoot(needBytes int64) (string, error) {
 }
 
 // 创建指定目录
+// ensureCleanDir 确保目录存在。
 func ensureCleanDir(dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -807,6 +830,7 @@ func ensureCleanDir(dir string) error {
 // 下载 PE 镜像
 const peLinksID = "pe_links"
 
+// peImageID 生成 PE 镜像的唯一标识。
 func peImageID(it WinPEImg) string {
 	parts := []string{
 		strings.TrimSpace(it.Grp),
@@ -818,6 +842,7 @@ func peImageID(it WinPEImg) string {
 	return strings.Join(parts, "|")
 }
 
+// markFailedPEImage 标记失败的 PE 镜像。
 func markFailedPEImage(failed map[string]struct{}, id string) {
 	if id == "" {
 		return
@@ -825,6 +850,7 @@ func markFailedPEImage(failed map[string]struct{}, id string) {
 	failed[id] = struct{}{}
 }
 
+// removePEArtifacts 清理 PE 临时文件。
 func removePEArtifacts(wimPath, sdiPath string) {
 	if strings.TrimSpace(wimPath) != "" {
 		_ = Remove(wimPath, false)
@@ -837,6 +863,7 @@ func removePEArtifacts(wimPath, sdiPath string) {
 	}
 }
 
+// downloadPE 下载 PE 镜像。
 func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string, error) {
 	arch = strings.TrimSpace(arch)
 	if arch == "" {
@@ -969,6 +996,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 					logWrite("PE解包失败：%v", err)
 					continue
 				}
+				logDownloadSize("PE-EXE", link, wimPath, it.Sz)
 
 			} else {
 				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
@@ -983,6 +1011,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 					_ = Remove(wimPath, false)
 					continue
 				}
+				logDownloadSize("PE", link, wimPath, it.Sz)
 			}
 
 			if err := copySDIToPETEMP(peDir); err != nil {
@@ -1019,6 +1048,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 }
 
 // 使用 PEDownload.html 的链接下载 PE。
+// downloadPEFromLinks 使用外部链接下载 PE。
 func downloadPEFromLinks(links []string) (string, error) {
 	seen := map[string]bool{}
 	var out []string
@@ -1072,6 +1102,7 @@ func downloadPEFromLinks(links []string) (string, error) {
 			_ = Remove(wimPath, false)
 			continue
 		}
+		logDownloadSize("PE-Link", link, wimPath, 0)
 
 		if err := copySDIToPETEMP(peDir); err != nil {
 			return "", err
@@ -1083,6 +1114,7 @@ func downloadPEFromLinks(links []string) (string, error) {
 }
 
 // 复制 tools 目录下的 SDI 文件到 PETEMP。
+// copySDIToPETEMP 复制 tools 中的 SDI 文件到 PETEMP。
 func copySDIToPETEMP(peDir string) error {
 	selfExe, err := os.Executable()
 	if err != nil {
@@ -1104,6 +1136,7 @@ func copySDIToPETEMP(peDir string) error {
 }
 
 // 优先在运行目录和用户下载目录中查找 WEPE 安装包。
+// tryLocalWepe 尝试使用本地 WEPE 安装包。
 func tryLocalWepe(wepe []WinPEImg, arch string) (string, error) {
 	type cand struct {
 		img  WinPEImg
@@ -1186,6 +1219,7 @@ func tryLocalWepe(wepe []WinPEImg, arch string) (string, error) {
 }
 
 // 返回本地 WEPE 搜索目录
+// localWepeSearchDirs 返回本地 WEPE 搜索目录。
 func localWepeSearchDirs() []string {
 	var out []string
 	exe, err := os.Executable()
@@ -1204,6 +1238,7 @@ func localWepeSearchDirs() []string {
 }
 
 // 计算文件 MD5 并与期望值比较。
+// matchMD5 计算并对比文件 MD5。
 func matchMD5(path, expect string) (bool, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -1225,6 +1260,7 @@ func matchMD5(path, expect string) (bool, error) {
 // 4) 格式化目标分区并应用镜像
 // 5) 修复引导 + 安装后文件处理
 // 6) 若创建临时分区，安装完成后合并回 C 盘
+// RunPEInstall 在 PE 模式执行安装流程。
 func RunPEInstall() error {
 	uiSetProgress(0)
 	uiSetStatus("正在读取重装信息...")
@@ -1435,6 +1471,11 @@ func RunPEInstall() error {
 		logWrite("镜像索引列表：%s", formatImageInfos(infos))
 	}
 	logWrite("选择镜像索引：%d", index)
+	if st, statErr := os.Stat(imagePath); statErr == nil {
+		logWrite("应用镜像前信息：path=%s size=%d index=%d", imagePath, st.Size(), index)
+	} else {
+		logWrite("应用镜像前读取镜像大小失败：path=%s err=%v", imagePath, statErr)
+	}
 
 	uiSetStatus(fmt.Sprintf("正在应用镜像（索引 %d）...", index))
 
@@ -1532,6 +1573,7 @@ func RunPEInstall() error {
 }
 
 // 选择安装目标分区
+// chooseInstallTargetRoot 选择安装目标分区。
 func chooseInstallTargetRoot() string {
 	parts := Findpart()
 	if len(parts) > 0 {
@@ -1558,6 +1600,7 @@ func chooseInstallTargetRoot() string {
 }
 
 // 列出除目标分区外的其他固定磁盘分区。
+// otherInstallVolumes 列出除目标分区外的其他分区。
 func otherInstallVolumes(targetRoot string) []string {
 	drives, _ := ListDrive()
 	var out []string
@@ -1574,6 +1617,7 @@ func otherInstallVolumes(targetRoot string) []string {
 }
 
 // 安装完成后的文件处理。
+// postInstallTasks 安装完成后的文件处理。
 func postInstallTasks(targetRoot, targetOS string) error {
 	selfExe, err := os.Executable()
 	if err != nil {
@@ -1600,6 +1644,7 @@ func postInstallTasks(targetRoot, targetOS string) error {
 }
 
 // 格式化镜像索引信息用于日志输出。
+// formatImageInfos 格式化镜像索引信息用于日志。
 func formatImageInfos(infos []ImageMeta) string {
 	var parts []string
 	for _, info := range infos {
@@ -1610,6 +1655,7 @@ func formatImageInfos(infos []ImageMeta) string {
 }
 
 // 把 0~100 的子进度映射到总进度
+// mapPct 将子进度映射到总进度。
 func mapPct(base, span int32, pct float64) int32 {
 	if pct < 0 {
 		pct = 0
@@ -1621,6 +1667,7 @@ func mapPct(base, span int32, pct float64) int32 {
 }
 
 // 取下载链接的文件名
+// linkBaseName 从链接中提取文件名。
 func linkBaseName(link string) string {
 	raw := strings.TrimSpace(link)
 	if raw == "" {
@@ -1634,6 +1681,35 @@ func linkBaseName(link string) string {
 	return base
 }
 
+// logDownloadSize 记录下载完成后的文件大小与期望大小。
+func logDownloadSize(kind, link, path string, expectedMB float64) {
+	st, err := os.Stat(path)
+	if err != nil {
+		logWrite("%s下载完成但读取文件大小失败: path=%s err=%v", kind, path, err)
+		return
+	}
+	actual := st.Size()
+	if expectedMB > 0 {
+		expectBytes := int64(expectedMB * 1024 * 1024)
+		diff := actual - expectBytes
+		if diff < 0 {
+			diff = -diff
+		}
+		// 允许 2% 误差
+		tolerance := int64(float64(expectBytes) * 0.02)
+		if tolerance < 10*1024*1024 {
+			tolerance = 10 * 1024 * 1024
+		}
+		if diff > tolerance {
+			logWrite("%s下载完成: size=%d expect=%d 不一致 link=%s path=%s", kind, actual, expectBytes, link, path)
+		} else {
+			logWrite("%s下载完成: size=%d expect=%d link=%s path=%s", kind, actual, expectBytes, link, path)
+		}
+		return
+	}
+	logWrite("%s下载完成: size=%d link=%s path=%s", kind, actual, link, path)
+}
+
 type ProgressReporter struct {
 	base, span int32
 	uiEvery    time.Duration
@@ -1645,6 +1721,7 @@ type ProgressReporter struct {
 	enableLog  bool
 }
 
+// NewProgressReporter 创建进度上报器。
 func NewProgressReporter(base, span int32, uiEvery, logEvery time.Duration, statusFmt, logFmt string, enableLog bool) *ProgressReporter {
 	return &ProgressReporter{
 		base:      base,
@@ -1657,6 +1734,7 @@ func NewProgressReporter(base, span int32, uiEvery, logEvery time.Duration, stat
 	}
 }
 
+// Update 更新进度与日志。
 func (p *ProgressReporter) Update(pct float64, speedBytes int64) {
 	now := time.Now()
 
@@ -1682,6 +1760,7 @@ func (p *ProgressReporter) Update(pct float64, speedBytes int64) {
 }
 
 // 统一重试执行器
+// retryLoop 通用重试执行器。
 func retryLoop(title string, fn func() error) bool {
 	for attempt := 0; ; attempt++ {
 		if err := fn(); err == nil {
@@ -1700,6 +1779,7 @@ func retryLoop(title string, fn func() error) bool {
 	}
 }
 
+// retryLoopWithResult 通用重试执行器（带返回值）。
 func retryLoopWithResult[T any](title string, fn func() (T, error)) (T, bool) {
 	var zero T
 	for attempt := 0; ; attempt++ {

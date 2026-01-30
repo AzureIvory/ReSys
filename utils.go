@@ -9,6 +9,7 @@ import (
 	"unsafe"
 )
 
+// ansiToUTF8 函数。
 func ansiToUTF8(b []byte) string {
 	if len(b) == 0 {
 		return ""
@@ -59,6 +60,7 @@ func ansiToUTF8(b []byte) string {
 func NormalizeDrive(input string, mode int) (string, error) {
 	s := strings.TrimSpace(input)
 	if s == "" {
+		logWrite("NormalizeDrive 输入为空")
 		return "", fmt.Errorf("empty drive")
 	}
 	s = strings.ReplaceAll(s, "/", `\`)
@@ -66,6 +68,7 @@ func NormalizeDrive(input string, mode int) (string, error) {
 	extractLetter := func(val string) (string, error) {
 		val = strings.TrimSpace(val)
 		if val == "" {
+			logWrite("NormalizeDrive 盘符为空: input=%s", input)
 			return "", fmt.Errorf("empty drive letter")
 		}
 		val = strings.ToUpper(val)
@@ -76,9 +79,11 @@ func NormalizeDrive(input string, mode int) (string, error) {
 			val = val[:1]
 		case len(val) == 1:
 		default:
+			logWrite("NormalizeDrive 盘符格式异常: input=%s", input)
 			return "", fmt.Errorf("invalid drive letter: %q", input)
 		}
 		if val[0] < 'A' || val[0] > 'Z' {
+			logWrite("NormalizeDrive 盘符范围异常: input=%s", input)
 			return "", fmt.Errorf("invalid drive letter: %q", input)
 		}
 		return val, nil
@@ -100,8 +105,10 @@ func NormalizeDrive(input string, mode int) (string, error) {
 		if len(s) >= 3 && s[1] == ':' && (s[2] == '\\' || s[2] == '/') {
 			return strings.ToUpper(s[:1]) + `:\`, nil
 		}
+		logWrite("NormalizeDrive 解析路径失败: input=%s", input)
 		return "", fmt.Errorf("invalid path for drive root: %q", input)
 	default:
+		logWrite("NormalizeDrive 模式无效: mode=%d input=%s", mode, input)
 		return "", fmt.Errorf("invalid normalize mode: %d", mode)
 	}
 }

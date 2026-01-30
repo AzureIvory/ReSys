@@ -172,6 +172,7 @@ const (
 // 原自绘标题栏高度（现在由系统标题栏负责了），用于把旧布局整体上移保持观感一致
 const oldTitleBarH int32 = 44
 
+// yFromOld 函数。
 func yFromOld(oldY int32) int32 { return oldY - oldTitleBarH }
 
 // 辅助函数：Win32 COLORREF 是 0x00BBGGRR，和通常的 RGB 相反
@@ -361,6 +362,7 @@ func initDPI() {
 	procSetProcessDPIAware.Call()
 }
 
+// getHInstance 函数。
 func getHInstance() windows.Handle {
 	var h windows.Handle
 	r, _, _ := procGetModuleHandleExW.Call(
@@ -387,6 +389,7 @@ const (
 
 type Rect struct{ X, Y, W, H int32 }
 
+// contains 函数。
 func (r Rect) contains(x, y int32) bool {
 	return x >= r.X && y >= r.Y && x < r.X+r.W && y < r.Y+r.H
 }
@@ -432,6 +435,7 @@ type UI struct {
 
 var ui UI
 
+// uiSetProgress 函数。
 func uiSetProgress(pos int32) {
 	if ui.hwnd == 0 {
 		return
@@ -440,6 +444,7 @@ func uiSetProgress(pos int32) {
 	procPostMessageW.Call(uintptr(ui.hwnd), WM_APP_SET_PROGRESS, uintptr(pos), 0)
 }
 
+// uiSetStatus 函数。
 func uiSetStatus(s string) {
 	if ui.hwnd == 0 {
 		return
@@ -448,11 +453,13 @@ func uiSetStatus(s string) {
 	procPostMessageW.Call(uintptr(ui.hwnd), WM_APP_SET_STATUS, p, 0)
 }
 
+// uiShowError 函数。
 func uiShowError(title, text string) {
 	procMessageBeep.Call(0)
 	Message(title, text)
 }
 
+// uiSwitchToProgress 函数。
 func uiSwitchToProgress() {
 	if ui.hwnd == 0 {
 		return
@@ -460,6 +467,7 @@ func uiSwitchToProgress() {
 	procPostMessageW.Call(uintptr(ui.hwnd), WM_APP_SWITCH_MODE, uintptr(ModeProgress), 0)
 }
 
+// win2 函数。
 func win2() {
 	uiSwitchToProgress()
 }
@@ -507,12 +515,15 @@ func MessageRetryExit(title, text string) bool {
 	return ret == IDRETRY
 }
 
+// icoToHICON 函数。
 func icoToHICON(ico []byte, want int32) (windows.Handle, error) {
 	if len(ico) < 6 {
+		logWrite("icoToHICON ico长度不足: len=%d", len(ico))
 		return 0, syscall.EINVAL
 	}
 	count := int(*(*uint16)(unsafe.Pointer(&ico[4])))
 	if count <= 0 {
+		logWrite("icoToHICON 图标数量异常: count=%d", count)
 		return 0, syscall.EINVAL
 	}
 	type entry struct {
@@ -556,12 +567,14 @@ func icoToHICON(ico []byte, want int32) (windows.Handle, error) {
 		}
 	}
 	if best < 0 {
+		logWrite("icoToHICON 未找到合适的图标尺寸")
 		return 0, syscall.EINVAL
 	}
 	e := (*entry)(unsafe.Pointer(&ico[entriesOff+best*16]))
 	start := int(e.ImageOffset)
 	end := start + int(e.BytesInRes)
 	if start < 0 || end > len(ico) || start >= end {
+		logWrite("icoToHICON 图标数据越界: start=%d end=%d len=%d", start, end, len(ico))
 		return 0, syscall.EINVAL
 	}
 	imgBits := ico[start:end]
@@ -578,14 +591,17 @@ func icoToHICON(ico []byte, want int32) (windows.Handle, error) {
 		LR_DEFAULTCOLOR,
 	)
 	if h == 0 {
+		logWrite("icoToHICON CreateIconFromResourceEx失败: err=%v", err)
 		return 0, err
 	}
 	return windows.Handle(h), nil
 }
 
+// decodeGIFFrames 函数。
 func decodeGIFFrames(gifBytes []byte) ([]Frame, error) {
 	g, err := gif.DecodeAll(bytes.NewReader(gifBytes))
 	if err != nil {
+		logWrite("decodeGIFFrames 解析GIF失败: err=%v", err)
 		return nil, err
 	}
 
@@ -602,6 +618,7 @@ func decodeGIFFrames(gifBytes []byte) ([]Frame, error) {
 
 		hbmp, w, h, err := rgbaToDIB(out)
 		if err != nil {
+			logWrite("decodeGIFFrames 转换DIB失败: err=%v", err)
 			return nil, err
 		}
 
@@ -618,6 +635,7 @@ func decodeGIFFrames(gifBytes []byte) ([]Frame, error) {
 	return frames, nil
 }
 
+// rgbaToDIB 函数。
 func rgbaToDIB(img *image.RGBA) (windows.Handle, int32, int32, error) {
 	type BITMAPINFOHEADER struct {
 		Size          uint32
@@ -639,6 +657,10 @@ func rgbaToDIB(img *image.RGBA) (windows.Handle, int32, int32, error) {
 	const BI_RGB = 0
 	w := int32(img.Bounds().Dx())
 	h := int32(img.Bounds().Dy())
+	if w <= 0 || h <= 0 {
+		logWrite("rgbaToDIB 图像尺寸异常: w=%d h=%d", w, h)
+		return 0, 0, 0, fmt.Errorf("invalid image size")
+	}
 
 	var bi BITMAPINFO
 	bi.Header.Size = uint32(unsafe.Sizeof(bi.Header))
@@ -661,6 +683,7 @@ func rgbaToDIB(img *image.RGBA) (windows.Handle, int32, int32, error) {
 		0,
 	)
 	if hbmp == 0 {
+		logWrite("rgbaToDIB CreateDIBSection失败: err=%v", err)
 		return 0, 0, 0, err
 	}
 
@@ -682,11 +705,13 @@ func rgbaToDIB(img *image.RGBA) (windows.Handle, int32, int32, error) {
 	return windows.Handle(hbmp), w, h, nil
 }
 
+// mustUTF16 函数。
 func mustUTF16(s string) *uint16 {
 	p, _ := windows.UTF16PtrFromString(s)
 	return p
 }
 
+// allocUTF16 函数。
 func allocUTF16(s string) uintptr {
 	u16, _ := windows.UTF16FromString(s)
 	nbytes := uintptr(len(u16) * 2)
@@ -699,12 +724,15 @@ func allocUTF16(s string) uintptr {
 	copy(dst, u16)
 	return mem
 }
+
+// freeUTF16 函数。
 func freeUTF16(p uintptr) {
 	if p != 0 {
 		procLocalFree.Call(p)
 	}
 }
 
+// makeFont 函数。
 func makeFont(height int32, weight int32, _ string) windows.Handle {
 	faceName := "Microsoft YaHei UI"
 
@@ -723,10 +751,12 @@ func makeFont(height int32, weight int32, _ string) windows.Handle {
 	return windows.Handle(h)
 }
 
+// setLayerAlpha 函数。
 func setLayerAlpha(hwnd windows.Handle, alpha byte) {
 	procSetLayeredWindowAttribs.Call(uintptr(hwnd), 0, uintptr(alpha), LWA_ALPHA)
 }
 
+// paint 函数。
 func paint() {
 	var ps PAINTSTRUCT
 	hdc, _, _ := procBeginPaint.Call(uintptr(ui.hwnd), uintptr(unsafe.Pointer(&ps)))
@@ -786,9 +816,13 @@ type BITMAPINFOHEADER struct {
 
 type RGBA struct{ R, G, B, A byte }
 
+// colorRGBA 函数。
 func colorRGBA(r, g, b, a byte) *image.Uniform { return image.NewUniform(imageRGBA(r, g, b, a)) }
-func imageRGBA(r, g, b, a byte) color.RGBA     { return color.RGBA{R: r, G: g, B: b, A: a} }
 
+// imageRGBA 函数。
+func imageRGBA(r, g, b, a byte) color.RGBA { return color.RGBA{R: r, G: g, B: b, A: a} }
+
+// drawButton 函数。
 func drawButton(hdc windows.Handle, b *Button, font windows.Handle) {
 	if !b.Visible {
 		return
@@ -867,11 +901,13 @@ func drawButton(hdc windows.Handle, b *Button, font windows.Handle) {
 	}
 }
 
+// fillRect 函数。
 func fillRect(hdc windows.Handle, rc *RECT, hbr windows.Handle) {
 	fill := user32.NewProc("FillRect")
 	fill.Call(uintptr(hdc), uintptr(unsafe.Pointer(rc)), uintptr(hbr))
 }
 
+// getAllButtons 函数。
 func getAllButtons() []*Button {
 	if ui.mode.Load() == int32(ModeSelect) {
 		return []*Button{&ui.btn7, &ui.btn10, &ui.btn11, &ui.btnAdv}
@@ -879,6 +915,7 @@ func getAllButtons() []*Button {
 	return nil
 }
 
+// paintSelect 函数。
 func paintSelect(hdc windows.Handle, w, h int32) {
 	procSetBkMode.Call(uintptr(hdc), BKMODE_TRANSPARENT)
 	procSetTextColor.Call(uintptr(hdc), uintptr(ColorTextHint))
@@ -901,6 +938,7 @@ func paintSelect(hdc windows.Handle, w, h int32) {
 	drawButton(hdc, &ui.btnAdv, ui.font16)
 }
 
+// paintProgress 函数。
 func paintProgress(hdc windows.Handle, w, h int32) {
 	p := ui.statusPtr.Load()
 	status := "正在准备..."
@@ -1044,10 +1082,12 @@ func layoutSelect(w, h int32) {
 	}
 }
 
+// layoutProgress 函数。
 func layoutProgress() {
 	ui.btn7.Visible, ui.btn10.Visible, ui.btn11.Visible, ui.btnAdv.Visible = false, false, false, false
 }
 
+// updateHover 函数。
 func updateHover(x, y int32) bool {
 	changed := false
 	for _, b := range getAllButtons() {
@@ -1066,6 +1106,8 @@ func updateHover(x, y int32) bool {
 	}
 	return changed
 }
+
+// hitButton 函数。
 func hitButton(x, y int32) *Button {
 	for _, b := range getAllButtons() {
 		if b.Visible && b.Enabled && b.R.contains(x, y) {
@@ -1075,6 +1117,7 @@ func hitButton(x, y int32) *Button {
 	return nil
 }
 
+// trackLeave 函数。
 func trackLeave() {
 	var t TRACKMOUSEEVENT
 	t.CbSize = uint32(unsafe.Sizeof(t))
@@ -1212,6 +1255,7 @@ var wndProc = windows.NewCallback(func(hwnd uintptr, msg uint32, wParam, lParam 
 	return ret
 })
 
+// Uiinit 函数。
 func Uiinit() {
 	runtime.LockOSThread()
 	initDPI()
@@ -1308,6 +1352,7 @@ func Uiinit() {
 	procUpdateWindow.Call(hwnd)
 }
 
+// UiRun 函数。
 func UiRun() {
 	var msg MSG
 	for {
