@@ -17,6 +17,8 @@ import (
 	"time"
 	"unicode"
 	"unsafe"
+
+	"github.com/kdomanski/iso9660"
 )
 
 func hresultFailed(hr uintptr) bool {
@@ -231,25 +233,30 @@ func Findimg() ([]string, error) {
 		return true
 	}
 	validateISO := func(isoPath string) bool {
-		isoRoot, err := MountISO(isoPath, 30*time.Second)
+		f, err := os.Open(isoPath)
 		if err != nil {
 			return false
 		}
-		found, err := FindFile(isoRoot, "install.wim|install.esd", 3)
-		if err != nil || len(found) == 0 {
+		defer f.Close()
+
+		format, err := detectISOFormat(f)
+		if err != nil {
 			return false
 		}
-		sort.Strings(found)
-		for _, candidate := range found {
-			fi, err := os.Stat(candidate)
-			if err != nil || fi.IsDir() || fi.Size() < minSize {
-				continue
-			}
-			if validateImage(candidate) {
-				return true
-			}
+		if format != "iso9660" {
+			return false
 		}
-		return false
+		img, err := iso9660.OpenImage(f)
+		if err != nil {
+			return false
+		}
+
+		root, err := img.RootDir()
+		if err != nil {
+			return false
+		}
+
+		return hasISOInstallImage(root, "")
 	}
 
 	for _, root := range drives {
@@ -408,6 +415,49 @@ func FindFileAll(pattern string, maxDepth int) []string {
 	}
 	sort.Strings(dedup)
 	return dedup
+}
+func detectISOFormat(r io.ReaderAt) (string, error) {
+	const sectorSize = 2048
+	header := make([]byte, sectorSize)
+	if _, err := r.ReadAt(header, int64(16*sectorSize)); err != nil {
+		return "", err
+	}
+
+	identifier := string(header[1:6])
+	switch identifier {
+	case "CD001":
+		return "iso9660", nil
+	case "BEA01":
+		return "udf", nil
+	default:
+		return "", fmt.Errorf("unknown iso format: %s", identifier)
+	}
+}
+
+func hasISOInstallImage(entry *iso9660.File, base string) bool {
+	name := strings.ToLower(entry.Name())
+	path := name
+	if base != "" {
+		path = base + "/" + name
+	}
+
+	if !entry.IsDir() {
+		if path == "sources/install.wim" || path == "sources/install.esd" {
+			return true
+		}
+		return false
+	}
+
+	children, err := entry.GetChildren()
+	if err != nil {
+		return false
+	}
+	for _, child := range children {
+		if hasISOInstallImage(child, path) {
+			return true
+		}
+	}
+	return false
 }
 
 // 写入重装文件
