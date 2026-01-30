@@ -155,7 +155,7 @@ func StartInstall(target string) {
 	uiSetProgress(100)
 	uiSetStatus("即将重启进入PE...")
 	logWrite("准备完成，重启进入PE")
-	Shutdown(true)
+	//Shutdown(true)
 }
 
 // 优先本地找镜像，找不到再下载。
