@@ -614,7 +614,6 @@ func PE() int {
 
 // main 函数。
 func main() {
-	fmt.Println(GetBitLockerState("C:"))
 	if dism == "" {
 		dism = "dism.exe"
 	}
