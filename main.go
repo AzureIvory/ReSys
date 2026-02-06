@@ -600,6 +600,7 @@ func PE() int {
 }
 
 func main() {
+	fmt.Println(GetBitLockerState("C:"))
 	if dism == "" {
 		dism = "dism.exe"
 	}

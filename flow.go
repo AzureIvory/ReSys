@@ -48,15 +48,16 @@ func isFailedLink(link string) bool {
 // - <4GB 使用 32 位
 // - >=4GB 使用 64 位
 // - 获取失败默认 64 位
+// - win11 强制 64 位
 func desiredArch() string {
-	mem, err := GetMemory()
-	if err != nil {
+	version, _, _ := GetCurrentWinVersion()
+	if version == 11 {
 		return "64"
 	}
-	if mem < 4 {
-		return "32"
+	if systemArch() == "64" {
+		return "64"
 	}
-	return "64"
+	return "32"
 }
 
 // 从 UI 入口启动安装流程。
@@ -77,14 +78,10 @@ func StartInstall(target string) {
 		return
 	}
 
-	// 单分区场景：如果镜像在系统盘(C)，必须在进PE前把镜像移到 TEMP，否则PE格式化目标分区会丢镜像
+	// 如果镜像在系统盘(C)，必须在进PE前把镜像移到 TEMP，否则PE格式化目标分区会丢镜像
+	// 只要镜像在目标盘/系统盘上（通常是 C 盘），就优先搬到其它固定盘卷；
+	// 如果不存在其它固定盘卷（或空间不足），再考虑创建 TEMP（未分配/拆分）来存放。
 	if !retryLoop("准备镜像存放分区", func() error {
-		parts := Findpart()
-		// 只有一个可用分区（或 Findpart 为空，视为单分区/空间紧张）
-		if len(parts) > 1 {
-			return nil
-		}
-
 		sysRoot, _ := NormalizeDrive(systemDriveRoot(), 0)
 		imgRoot, _ := NormalizeDrive(imgPath, 2)
 		if sysRoot == "" || imgRoot == "" || !strings.EqualFold(sysRoot, imgRoot) {
@@ -97,18 +94,57 @@ func StartInstall(target string) {
 		}
 		need := uint64(st.Size())
 
-		// 先尝试用未分配创建 TEMP（或最后拆分），然后把镜像 copy 过去
-		uiSetStatus("单分区：正在创建TEMP分区并转移镜像...")
+		// 1) 优先搬到其它“固定盘卷”（例如 D/E 盘）
+		var (
+			bestRoot string
+			bestFree uint64
+		)
+		const extra uint64 = 512 * 1024 * 1024
+		for _, r := range otherInstallVolumes(sysRoot) {
+			freeBytes, err := GetFreeSize(r)
+			if err != nil {
+				continue
+			}
+			if freeBytes >= need+extra && freeBytes > bestFree {
+				bestFree = freeBytes
+				bestRoot = r
+			}
+		}
+
+		if bestRoot != "" {
+			uiSetStatus("镜像在系统盘：正在转移到其它分区...")
+			dstDir := filepath.Join(bestRoot, "镜像")
+			_ = os.MkdirAll(dstDir, 0o755)
+			dstPath := filepath.Join(dstDir, filepath.Base(imgPath))
+
+			logWrite("转移镜像到其它分区：%s -> %s", imgPath, dstPath)
+			if err := Copy(imgPath, dstPath, true, true); err != nil {
+				return err
+			}
+			if _, err := os.Stat(dstPath); err != nil {
+				return err
+			}
+			if !strings.EqualFold(imgPath, dstPath) {
+				if err := Remove(imgPath, false); err != nil {
+					return err
+				}
+				logWrite("已删除原镜像：%s", imgPath)
+			}
+			imgPath = dstPath
+			logWrite("镜像已转移到其它分区，更新路径：%s", imgPath)
+			return nil
+		}
+
+		// 2) 没有其它固定盘卷（或空间不足）：创建 TEMP（未分配优先，最后才拆分 C）
+		uiSetStatus("镜像在系统盘：正在创建TEMP分区并转移镜像...")
 		tmpRoot, err := ensureTempVolumeForBytes(need)
 		if err != nil {
 			return err
 		}
-
 		dstDir := filepath.Join(tmpRoot, "镜像")
 		_ = os.MkdirAll(dstDir, 0o755)
 		dstPath := filepath.Join(dstDir, filepath.Base(imgPath))
-
-		logWrite("单分区：转移镜像到TEMP：%s -> %s", imgPath, dstPath)
+		logWrite("转移镜像到TEMP：%s -> %s", imgPath, dstPath)
 		if err := Copy(imgPath, dstPath, true, true); err != nil {
 			return err
 		}
@@ -119,11 +155,10 @@ func StartInstall(target string) {
 			if err := Remove(imgPath, false); err != nil {
 				return err
 			}
-			logWrite("单分区：已删除原镜像：%s", imgPath)
+			logWrite("已删除原镜像：%s", imgPath)
 		}
-
 		imgPath = dstPath
-		logWrite("单分区：镜像已转移到TEMP，更新路径：%s", imgPath)
+		logWrite("镜像已转移到TEMP，更新路径：%s", imgPath)
 		return nil
 	}) {
 		return
@@ -1461,15 +1496,15 @@ func RunPEInstall() error {
 	switch strings.ToLower(filepath.Ext(imagePath)) {
 	case ".esd":
 		if err := ApplyEsdImage(imagePath, index, targetRoot); err != nil {
-			logWrite(err.Error())
+			logWrite("flow ApplyEsdImage1失败" + err.Error())
 		}
 	case ".wim":
 		if err := ApplyWimImage(imagePath, index, targetRoot); err != nil {
-			logWrite(err.Error())
+			logWrite("flow ApplyWimImage2失败" + err.Error())
 		}
 	case ".iso":
 		if err := ApplyISOImage(imagePath, index, targetRoot); err != nil {
-			logWrite(err.Error())
+			logWrite("flow ApplyISOImage3失败" + err.Error())
 		}
 	default:
 		return fmt.Errorf("不支持的镜像类型: %s", imagePath)

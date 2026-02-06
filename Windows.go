@@ -618,6 +618,58 @@ func isWinXP() bool {
 	return currentVersion == "5.1" || currentVersion == "5.2"
 }
 
+// GetCurrentWinVersion 返回当前系统版本号与架构文本。
+// version: 5=XP, 6=Vista, 7=Win7, 8=Win8, 9=Win8.1, 10=Win10, 11=Win11
+// arch: "32" 或 "64"
+func GetCurrentWinVersion() (int, string, error) {
+	h, err := RegOpenKey(HKEY_LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows NT\CurrentVersion`)
+	if err != nil {
+		return 0, "", err
+	}
+	defer RegCloseKey(h)
+
+	currentVersion, err := RegGetString(h, "CurrentVersion")
+	if err != nil {
+		return 0, "", err
+	}
+	productName, _ := RegGetString(h, "ProductName")
+	buildStr, _ := RegGetString(h, "CurrentBuildNumber")
+
+	version := 0
+	switch currentVersion {
+	case "5.1", "5.2":
+		version = 5
+	case "6.0":
+		version = 6
+	case "6.1":
+		version = 7
+	case "6.2":
+		version = 8
+	case "6.3":
+		version = 9
+	case "10.0":
+		version = 10
+		upperPN := strings.ToUpper(productName)
+		if strings.Contains(upperPN, "WINDOWS 11") {
+			version = 11
+		} else if !strings.Contains(upperPN, "WINDOWS 10") {
+			if b, err := strconv.Atoi(buildStr); err == nil && b >= 22000 {
+				version = 11
+			}
+		}
+	}
+
+	if version == 0 {
+		return 0, "", fmt.Errorf("unsupported Windows version: %s", currentVersion)
+	}
+
+	arch := "32"
+	if systemArch() == "64" {
+		arch = "64"
+	}
+	return version, arch, nil
+}
+
 // 清除文件只读属性
 func clearReadonly(path string) error {
 	p, err := syscall.UTF16PtrFromString(path)
