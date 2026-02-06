@@ -37,6 +37,7 @@ const fallbackTrackerURL = "https://api.ttraw.com/trackers.txt"
 func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)) error {
 	magnet = strings.TrimSpace(magnet)
 	if !strings.HasPrefix(strings.ToLower(magnet), "magnet:?xt=urn:btih:") {
+		logWrite("DownloadBT 磁力链接非法: %s", magnet)
 		return fmt.Errorf("不是合法的 BT 磁力链接: %s", magnet)
 	}
 
@@ -45,15 +46,18 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 	}
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
+		logWrite("DownloadBT 解析目录失败: dir=%s err=%v", dir, err)
 		return fmt.Errorf("解析目录失败: %w", err)
 	}
 	if err := os.MkdirAll(absDir, 0o755); err != nil {
+		logWrite("DownloadBT 创建目录失败: dir=%s err=%v", absDir, err)
 		return fmt.Errorf("创建下载目录失败: %w", err)
 	}
 
 	// 用来存放 BT 元数据 / piece completion 的缓存目录
 	cacheDir := filepath.Join(absDir, ".btcache")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		logWrite("DownloadBT 创建缓存目录失败: dir=%s err=%v", cacheDir, err)
 		return fmt.Errorf("创建 BT 缓存目录失败: %w", err)
 	}
 
@@ -69,6 +73,7 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 
 	pc, err := storage.NewDefaultPieceCompletionForDir(cacheDir)
 	if err != nil {
+		logWrite("DownloadBT 初始化 PieceCompletion 失败: err=%v", err)
 		return fmt.Errorf("创建 PieceCompletion 失败: %w", err)
 	}
 
@@ -134,12 +139,14 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 
 	cl, err := torrent.NewClient(cfg)
 	if err != nil {
+		logWrite("DownloadBT 创建客户端失败: err=%v", err)
 		return fmt.Errorf("创建 BT 客户端失败: %w", err)
 	}
 	defer cl.Close()
 
 	spec, err := torrent.TorrentSpecFromMagnetUri(magnet)
 	if err != nil {
+		logWrite("DownloadBT 解析磁力失败: err=%v", err)
 		return fmt.Errorf("解析 magnet 失败: %w", err)
 	}
 	if len(trackers) > 0 {
@@ -148,6 +155,7 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 
 	t, _, err := cl.AddTorrentSpec(spec)
 	if err != nil {
+		logWrite("DownloadBT 添加 torrent 失败: err=%v", err)
 		return fmt.Errorf("添加 torrent 失败: %w", err)
 	}
 
@@ -220,6 +228,7 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 	return nil
 }
 
+// loadTrackersWithFallback 函数。
 func loadTrackersWithFallback(urls []string, fallbackURL, localPath string) ([]string, error) {
 	httpClient := &http.Client{
 		Timeout: 8 * time.Second,
@@ -290,6 +299,7 @@ func loadTrackersWithFallback(urls []string, fallbackURL, localPath string) ([]s
 	return uniqueStrings(all), nil
 }
 
+// fetchTrackersOne 函数。
 func fetchTrackersOne(c *http.Client, url string) ([]string, error) {
 	resp, err := c.Get(url)
 	if err != nil {
@@ -319,6 +329,7 @@ func fetchTrackersOne(c *http.Client, url string) ([]string, error) {
 	return res, nil
 }
 
+// uniqueStrings 函数。
 func uniqueStrings(in []string) []string {
 	m := make(map[string]struct{})
 	var out []string
@@ -336,6 +347,7 @@ func uniqueStrings(in []string) []string {
 	return out
 }
 
+// findCurl 函数。
 func findCurl() (string, error) {
 	// PATH
 	if p, err := exec.LookPath("curl"); err == nil {
@@ -365,6 +377,7 @@ func findCurl() (string, error) {
 // - 若 .part 已存在，会尝试用 curl 的 -C - 续传；若服务器不支持 Range，会自动从头下载。
 func DownloadFile(ctx context.Context, url, dstPath string, progressCallback func(float64, int64)) error {
 	if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
+		logWrite("DownloadFile 创建目录失败: path=%s err=%v", dstPath, err)
 		return fmt.Errorf("create dir: %w", err)
 	}
 	if progressCallback == nil {
@@ -375,6 +388,7 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 
 	curlPath, err := findCurl()
 	if err != nil {
+		logWrite("DownloadFile 未找到 curl: err=%v", err)
 		return err
 	}
 
@@ -523,11 +537,13 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 	for {
 		attempts++
 		if attempts > maxAttempts {
+			logWrite("DownloadFile 超过最大尝试次数: url=%s dst=%s", url, dstPath)
 			return fmt.Errorf("下载失败: 超过最大尝试次数")
 		}
 
 		err := runCurl(withResume)
 		if err != nil {
+			logWrite("DownloadFile curl失败: url=%s dst=%s err=%v", url, dstPath, err)
 			if withResume {
 				_ = os.Remove(tmpPath)
 			}
@@ -545,6 +561,7 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 		// 从头下载
 		st, statErr := os.Stat(dstPath)
 		if statErr != nil {
+			logWrite("DownloadFile Stat失败: path=%s err=%v", dstPath, statErr)
 			return fmt.Errorf("stat %s 失败: %w", dstPath, statErr)
 		}
 
@@ -554,11 +571,13 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 
 		if st.Size() > total {
 			_ = Remove(dstPath, false)
+			logWrite("DownloadFile 大小异常: got=%d expect=%d url=%s", st.Size(), total, url)
 			return fmt.Errorf("下载文件大小异常: got=%d expect=%d", st.Size(), total)
 		}
 
 		// 小于预期大小，尝试继续下载
 		if err := os.Rename(dstPath, tmpPath); err != nil {
+			logWrite("DownloadFile 续传准备失败: path=%s err=%v", dstPath, err)
 			return fmt.Errorf("续传准备失败: %w", err)
 		}
 		hasPart = true

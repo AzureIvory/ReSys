@@ -21,6 +21,7 @@ import (
 	"github.com/kdomanski/iso9660"
 )
 
+// hresultFailed 函数。
 func hresultFailed(hr uintptr) bool {
 	return int32(hr) < 0
 }
@@ -416,6 +417,8 @@ func FindFileAll(pattern string, maxDepth int) []string {
 	sort.Strings(dedup)
 	return dedup
 }
+
+// detectISOFormat 函数。
 func detectISOFormat(r io.ReaderAt) (string, error) {
 	const sectorSize = 2048
 	header := make([]byte, sectorSize)
@@ -434,6 +437,7 @@ func detectISOFormat(r io.ReaderAt) (string, error) {
 	}
 }
 
+// hasISOInstallImage 函数。
 func hasISOInstallImage(entry *iso9660.File, base string) bool {
 	name := strings.ToLower(entry.Name())
 	path := name
@@ -850,6 +854,7 @@ type peCand struct {
 	sPat string // opts.s（用于缺 SDI 时决定复制到哪里）
 }
 
+// parseGoToPEArgs 函数。
 func parseGoToPEArgs(paths []string) (string, string, error) {
 	if len(paths) == 0 {
 		return "", "", nil
@@ -865,6 +870,7 @@ func parseGoToPEArgs(paths []string) (string, string, error) {
 	return customSdi, customWim, nil
 }
 
+// collectPECands 函数。
 func collectPECands(dvs []string, opts []peOpt, wantArch, customSdi, customWim string) (map[string]peCand, []string, error) {
 	hasGlob := func(s string) bool { return strings.ContainsAny(s, "*?[") }
 	hasDrivePrefix := func(p string) bool { return len(p) >= 2 && p[1] == ':' }
@@ -1160,6 +1166,7 @@ func ensureSdiByCopy(root string, sPatRel string, wAbs string) (sAbs string, sRe
 	return dstAbs, toRel(root, dstAbs), nil
 }
 
+// applyPEBoot 函数。
 func applyPEBoot(best peCand) error {
 	lt, sdi, wim, nm := best.lt, best.sRel, best.wRel, best.nm
 	logWrite("PE:", nm, "DRV:", lt, "SDI:", sdi, "WIM:", wim)
@@ -1323,7 +1330,7 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 
 	candByWim, allWims, err := collectPECands(dvs, opts, wantArch, customSdi, customWim)
 	if err != nil {
-		logWrite("GoToPE collectPECands失败：" + err.Error())
+		logWrite("GoToPE collectPECands失败: err=%v", err)
 		if scan {
 			return false, "", "", err
 		}
@@ -1344,6 +1351,7 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 		if scan {
 			return false, "", "", nil
 		}
+		logWrite("GoToPE 选优失败: bestWim=%s wantArch=%s", bestWim, wantArch)
 		return false, "", "", fmt.Errorf("chooseBestWim 选优失败")
 	}
 
@@ -1354,6 +1362,7 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 			best.sRel = sRel
 			candByWim[best.wAbs] = best
 		} else if !scan {
+			logWrite("GoToPE 自动补齐SDI失败: wim=%s err=%v", best.wAbs, e)
 			return true, best.wAbs, "", e
 		}
 	}
@@ -1363,10 +1372,12 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 	}
 
 	if best.sRel == "" {
+		logWrite("GoToPE 缺少SDI无法设置引导: wim=%s", best.wAbs)
 		return true, best.wAbs, best.sAbs, fmt.Errorf("找到WIM但仍缺少SDI，无法设置ramdisk引导：WIM=%s", best.wAbs)
 	}
 
 	if err := applyPEBoot(best); err != nil {
+		logWrite("GoToPE 设置引导失败: wim=%s sdi=%s err=%v", best.wAbs, best.sAbs, err)
 		return false, "", "", err
 	}
 	return false, "", "", nil
@@ -1611,6 +1622,7 @@ func findTempRootByMarker() string {
 	return ""
 }
 
+// boolToUintptr 函数。
 func boolToUintptr(v bool) uintptr {
 	if v {
 		return 1

@@ -34,17 +34,22 @@ type WinImg struct {
 	File  string  `json:"file"`
 }
 
+// getb 函数。
 func getb(u string) ([]byte, error) {
 	rp, err := hc.Get(u)
 	if err != nil {
+		logWrite("getb 请求失败: url=%s err=%v", u, err)
 		return nil, err
 	}
 	defer rp.Body.Close()
 	if rp.StatusCode != http.StatusOK {
+		logWrite("getb HTTP状态异常: url=%s status=%s", u, rp.Status)
 		return nil, fmt.Errorf("http: %s", rp.Status)
 	}
 	return io.ReadAll(rp.Body)
 }
+
+// localDataPath 函数。
 func localDataPath(name string) string {
 	exe, err := os.Executable()
 	if err != nil {
@@ -53,6 +58,7 @@ func localDataPath(name string) string {
 	return filepath.Join(filepath.Dir(exe), name)
 }
 
+// getbWithFallback 函数。
 func getbWithFallback(url, localPath string) ([]byte, error) {
 	if strings.TrimSpace(url) != "" {
 		if b, err := getb(url); err == nil {
@@ -60,48 +66,59 @@ func getbWithFallback(url, localPath string) ([]byte, error) {
 		}
 	}
 	if strings.TrimSpace(localPath) == "" {
+		logWrite("getbWithFallback 本地路径为空: url=%s", url)
 		return nil, fmt.Errorf("获取数据失败，且未提供本地文件")
 	}
 	b, err := os.ReadFile(localPath)
 	if err != nil {
+		logWrite("getbWithFallback 读取本地失败: path=%s err=%v", localPath, err)
 		return nil, err
 	}
 	return b, nil
 }
 
+// GetWinImgs 函数。
 func GetWinImgs(key string) ([]WinImg, error) {
 	b, err := getbWithFallback(winImgURL, localDataPath("Windows.json"))
 	if err != nil {
+		logWrite("GetWinImgs 获取数据失败: err=%v", err)
 		return nil, fmt.Errorf("获取镜像信息失败: %w", err)
 	}
 
 	var top map[string]json.RawMessage
 	if err := json.Unmarshal(b, &top); err != nil {
+		logWrite("GetWinImgs 解析JSON失败: err=%v", err)
 		return nil, fmt.Errorf("解析镜像信息失败: %w", err)
 	}
 
 	raw, ok := top[key]
 	if !ok {
+		logWrite("GetWinImgs 未找到系统类型: key=%s", key)
 		return nil, fmt.Errorf("未找到系统类型: %s", key)
 	}
 
 	ent, err := parseImgs(raw)
 	if err != nil {
+		logWrite("GetWinImgs 解析镜像列表失败: err=%v", err)
 		return nil, err
 	}
 	if len(ent) == 0 {
+		logWrite("GetWinImgs 镜像列表为空: key=%s", key)
 		return nil, fmt.Errorf("未找到可用镜像")
 	}
 	return ent, nil
 }
 
+// parseImgs 函数。
 func parseImgs(raw json.RawMessage) ([]WinImg, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	tk, err := dec.Token()
 	if err != nil {
+		logWrite("parseImgs 解析失败: err=%v", err)
 		return nil, fmt.Errorf("解析镜像列表失败: %w", err)
 	}
 	if d, ok := tk.(json.Delim); !ok || d != '{' {
+		logWrite("parseImgs 镜像列表格式异常")
 		return nil, fmt.Errorf("镜像列表格式异常")
 	}
 
@@ -109,13 +126,16 @@ func parseImgs(raw json.RawMessage) ([]WinImg, error) {
 	for dec.More() {
 		tk, err := dec.Token()
 		if err != nil {
+			logWrite("parseImgs 解析键失败: err=%v", err)
 			return nil, fmt.Errorf("解析镜像列表失败: %w", err)
 		}
 		if _, ok := tk.(string); !ok {
+			logWrite("parseImgs 键类型异常")
 			return nil, fmt.Errorf("镜像列表键格式异常")
 		}
 		var it WinImg
 		if err := dec.Decode(&it); err != nil {
+			logWrite("parseImgs 解析镜像详情失败: err=%v", err)
 			return nil, fmt.Errorf("解析镜像详情失败: %w", err)
 		}
 		ent = append(ent, it)
@@ -126,6 +146,7 @@ func parseImgs(raw json.RawMessage) ([]WinImg, error) {
 	return ent, nil
 }
 
+// PickImage 函数。
 func PickImage(ent []WinImg) (*WinImg, error) {
 	if len(ent) == 0 {
 		return nil, fmt.Errorf("未找到可用镜像")
@@ -143,17 +164,20 @@ func PickImage(ent []WinImg) (*WinImg, error) {
 	return &ent[0], nil
 }
 
+// ImgLink 函数。
 func ImgLink(it WinImg) (string, error) {
 	ln := strings.TrimSpace(it.Link)
 	if ln == "" {
 		ln = strings.TrimSpace(it.Link2)
 	}
 	if ln == "" {
+		logWrite("ImgLink 镜像链接为空: file=%s arch=%s", it.File, it.Arch)
 		return "", fmt.Errorf("镜像链接为空")
 	}
 	return ln, nil
 }
 
+// ImgName 函数。
 func ImgName(it WinImg, ln string) string {
 	if strings.TrimSpace(it.File) != "" {
 		return it.File
@@ -221,6 +245,7 @@ func splitPipeList(s string) []string {
 	return out
 }
 
+// parseOffsetRange 函数。
 func parseOffsetRange(s string) (start, end int64, ok bool, err error) {
 	ps := splitPipeList(s)
 	if len(ps) < 2 {
@@ -237,14 +262,17 @@ func parseOffsetRange(s string) (start, end int64, ok bool, err error) {
 	return st, ed, true, nil
 }
 
+// GetWinPE 函数。
 func GetWinPE() ([]WinPEImg, error) {
 	b, err := getbWithFallback(winPEURL, localDataPath("WinPE.json"))
 	if err != nil {
+		logWrite("GetWinPE 获取PE数据失败: err=%v", err)
 		return nil, fmt.Errorf("获取 PE 镜像信息失败: %w", err)
 	}
 
 	var top map[string]json.RawMessage
 	if err := json.Unmarshal(b, &top); err != nil {
+		logWrite("GetWinPE 解析PE JSON失败: err=%v", err)
 		return nil, fmt.Errorf("解析 PE 镜像信息失败: %w", err)
 	}
 
@@ -253,9 +281,11 @@ func GetWinPE() ([]WinPEImg, error) {
 		dec := json.NewDecoder(bytes.NewReader(raw))
 		tk, err := dec.Token()
 		if err != nil {
+			logWrite("GetWinPE 解析列表失败: err=%v", err)
 			return nil, fmt.Errorf("解析 PE 镜像列表失败: %w", err)
 		}
 		if d, ok := tk.(json.Delim); !ok || d != '{' {
+			logWrite("GetWinPE 列表格式异常")
 			return nil, fmt.Errorf("PE 镜像列表格式异常")
 		}
 
@@ -346,6 +376,7 @@ func GetWinPE() ([]WinPEImg, error) {
 	return out, nil
 }
 
+// parsePELinks 函数。
 func parsePELinks(txt string) (string, float64, []string, bool, error) {
 	up := strings.ToUpper(txt)
 	p1 := strings.Index(up, "[PEX64]")

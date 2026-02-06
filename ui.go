@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	_ "embed"
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -172,6 +173,26 @@ const (
 // 原自绘标题栏高度（现在由系统标题栏负责了），用于把旧布局整体上移保持观感一致
 const oldTitleBarH int32 = 44
 
+var gScale float32 = 1.0 // 全局缩放系数
+// 初始化 DPI 缩放比例
+func initScale() {
+	hdc, _, _ := user32.NewProc("GetDC").Call(0)
+	// LOGPIXELSX = 88
+	logPixelsX, _, _ := gdi32.NewProc("GetDeviceCaps").Call(hdc, 88)
+	user32.NewProc("ReleaseDC").Call(0, hdc)
+
+	if logPixelsX > 0 {
+		gScale = float32(logPixelsX) / 96.0
+	}
+}
+
+// dp (Density-independent Pixel) 辅助函数
+// 将设计稿的像素值转换为当前屏幕的实际像素值
+func dp(v int32) int32 {
+	return int32(float32(v) * gScale)
+}
+
+// yFromOld 函数。
 func yFromOld(oldY int32) int32 { return oldY - oldTitleBarH }
 
 // 辅助函数：Win32 COLORREF 是 0x00BBGGRR，和通常的 RGB 相反
@@ -361,6 +382,7 @@ func initDPI() {
 	procSetProcessDPIAware.Call()
 }
 
+// getHInstance 函数。
 func getHInstance() windows.Handle {
 	var h windows.Handle
 	r, _, _ := procGetModuleHandleExW.Call(
@@ -387,6 +409,7 @@ const (
 
 type Rect struct{ X, Y, W, H int32 }
 
+// contains 函数。
 func (r Rect) contains(x, y int32) bool {
 	return x >= r.X && y >= r.Y && x < r.X+r.W && y < r.Y+r.H
 }
@@ -432,6 +455,7 @@ type UI struct {
 
 var ui UI
 
+// uiSetProgress 函数。
 func uiSetProgress(pos int32) {
 	if ui.hwnd == 0 {
 		return
@@ -440,6 +464,7 @@ func uiSetProgress(pos int32) {
 	procPostMessageW.Call(uintptr(ui.hwnd), WM_APP_SET_PROGRESS, uintptr(pos), 0)
 }
 
+// uiSetStatus 函数。
 func uiSetStatus(s string) {
 	if ui.hwnd == 0 {
 		return
@@ -448,11 +473,13 @@ func uiSetStatus(s string) {
 	procPostMessageW.Call(uintptr(ui.hwnd), WM_APP_SET_STATUS, p, 0)
 }
 
+// uiShowError 函数。
 func uiShowError(title, text string) {
 	procMessageBeep.Call(0)
 	Message(title, text)
 }
 
+// uiSwitchToProgress 函数。
 func uiSwitchToProgress() {
 	if ui.hwnd == 0 {
 		return
@@ -460,6 +487,7 @@ func uiSwitchToProgress() {
 	procPostMessageW.Call(uintptr(ui.hwnd), WM_APP_SWITCH_MODE, uintptr(ModeProgress), 0)
 }
 
+// win2 函数。
 func win2() {
 	uiSwitchToProgress()
 }
@@ -507,12 +535,15 @@ func MessageRetryExit(title, text string) bool {
 	return ret == IDRETRY
 }
 
+// icoToHICON 函数。
 func icoToHICON(ico []byte, want int32) (windows.Handle, error) {
 	if len(ico) < 6 {
+		logWrite("icoToHICON ico长度不足: len=%d", len(ico))
 		return 0, syscall.EINVAL
 	}
 	count := int(*(*uint16)(unsafe.Pointer(&ico[4])))
 	if count <= 0 {
+		logWrite("icoToHICON 图标数量异常: count=%d", count)
 		return 0, syscall.EINVAL
 	}
 	type entry struct {
@@ -556,12 +587,14 @@ func icoToHICON(ico []byte, want int32) (windows.Handle, error) {
 		}
 	}
 	if best < 0 {
+		logWrite("icoToHICON 未找到合适的图标尺寸")
 		return 0, syscall.EINVAL
 	}
 	e := (*entry)(unsafe.Pointer(&ico[entriesOff+best*16]))
 	start := int(e.ImageOffset)
 	end := start + int(e.BytesInRes)
 	if start < 0 || end > len(ico) || start >= end {
+		logWrite("icoToHICON 图标数据越界: start=%d end=%d len=%d", start, end, len(ico))
 		return 0, syscall.EINVAL
 	}
 	imgBits := ico[start:end]
@@ -578,14 +611,17 @@ func icoToHICON(ico []byte, want int32) (windows.Handle, error) {
 		LR_DEFAULTCOLOR,
 	)
 	if h == 0 {
+		logWrite("icoToHICON CreateIconFromResourceEx失败: err=%v", err)
 		return 0, err
 	}
 	return windows.Handle(h), nil
 }
 
+// decodeGIFFrames 函数。
 func decodeGIFFrames(gifBytes []byte) ([]Frame, error) {
 	g, err := gif.DecodeAll(bytes.NewReader(gifBytes))
 	if err != nil {
+		logWrite("decodeGIFFrames 解析GIF失败: err=%v", err)
 		return nil, err
 	}
 
@@ -602,6 +638,7 @@ func decodeGIFFrames(gifBytes []byte) ([]Frame, error) {
 
 		hbmp, w, h, err := rgbaToDIB(out)
 		if err != nil {
+			logWrite("decodeGIFFrames 转换DIB失败: err=%v", err)
 			return nil, err
 		}
 
@@ -618,6 +655,7 @@ func decodeGIFFrames(gifBytes []byte) ([]Frame, error) {
 	return frames, nil
 }
 
+// rgbaToDIB 函数。
 func rgbaToDIB(img *image.RGBA) (windows.Handle, int32, int32, error) {
 	type BITMAPINFOHEADER struct {
 		Size          uint32
@@ -639,6 +677,10 @@ func rgbaToDIB(img *image.RGBA) (windows.Handle, int32, int32, error) {
 	const BI_RGB = 0
 	w := int32(img.Bounds().Dx())
 	h := int32(img.Bounds().Dy())
+	if w <= 0 || h <= 0 {
+		logWrite("rgbaToDIB 图像尺寸异常: w=%d h=%d", w, h)
+		return 0, 0, 0, fmt.Errorf("invalid image size")
+	}
 
 	var bi BITMAPINFO
 	bi.Header.Size = uint32(unsafe.Sizeof(bi.Header))
@@ -661,6 +703,7 @@ func rgbaToDIB(img *image.RGBA) (windows.Handle, int32, int32, error) {
 		0,
 	)
 	if hbmp == 0 {
+		logWrite("rgbaToDIB CreateDIBSection失败: err=%v", err)
 		return 0, 0, 0, err
 	}
 
@@ -682,11 +725,13 @@ func rgbaToDIB(img *image.RGBA) (windows.Handle, int32, int32, error) {
 	return windows.Handle(hbmp), w, h, nil
 }
 
+// mustUTF16 函数。
 func mustUTF16(s string) *uint16 {
 	p, _ := windows.UTF16PtrFromString(s)
 	return p
 }
 
+// allocUTF16 函数。
 func allocUTF16(s string) uintptr {
 	u16, _ := windows.UTF16FromString(s)
 	nbytes := uintptr(len(u16) * 2)
@@ -699,12 +744,15 @@ func allocUTF16(s string) uintptr {
 	copy(dst, u16)
 	return mem
 }
+
+// freeUTF16 函数。
 func freeUTF16(p uintptr) {
 	if p != 0 {
 		procLocalFree.Call(p)
 	}
 }
 
+// makeFont 函数。
 func makeFont(height int32, weight int32, _ string) windows.Handle {
 	faceName := "Microsoft YaHei UI"
 
@@ -723,10 +771,12 @@ func makeFont(height int32, weight int32, _ string) windows.Handle {
 	return windows.Handle(h)
 }
 
+// setLayerAlpha 函数。
 func setLayerAlpha(hwnd windows.Handle, alpha byte) {
 	procSetLayeredWindowAttribs.Call(uintptr(hwnd), 0, uintptr(alpha), LWA_ALPHA)
 }
 
+// paint 函数。
 func paint() {
 	var ps PAINTSTRUCT
 	hdc, _, _ := procBeginPaint.Call(uintptr(ui.hwnd), uintptr(unsafe.Pointer(&ps)))
@@ -786,9 +836,13 @@ type BITMAPINFOHEADER struct {
 
 type RGBA struct{ R, G, B, A byte }
 
+// colorRGBA 函数。
 func colorRGBA(r, g, b, a byte) *image.Uniform { return image.NewUniform(imageRGBA(r, g, b, a)) }
-func imageRGBA(r, g, b, a byte) color.RGBA     { return color.RGBA{R: r, G: g, B: b, A: a} }
 
+// imageRGBA 函数。
+func imageRGBA(r, g, b, a byte) color.RGBA { return color.RGBA{R: r, G: g, B: b, A: a} }
+
+// drawButton 函数。
 func drawButton(hdc windows.Handle, b *Button, font windows.Handle) {
 	if !b.Visible {
 		return
@@ -813,10 +867,11 @@ func drawButton(hdc windows.Handle, b *Button, font windows.Handle) {
 	oldBrush, _, _ := procSelectObject.Call(uintptr(hdc), brush)
 	oldPen, _, _ := procSelectObject.Call(uintptr(hdc), pen)
 
+	radius := dp(8)
 	procRoundRect.Call(uintptr(hdc),
 		uintptr(b.R.X), uintptr(b.R.Y),
 		uintptr(b.R.X+b.R.W), uintptr(b.R.Y+b.R.H),
-		8, 8)
+		uintptr(radius), uintptr(radius)) // 使用缩放后的圆角
 
 	procSelectObject.Call(uintptr(hdc), oldBrush)
 	procSelectObject.Call(uintptr(hdc), oldPen)
@@ -824,10 +879,15 @@ func drawButton(hdc windows.Handle, b *Button, font windows.Handle) {
 	procDeleteObject.Call(pen)
 
 	if b.Icon != 0 {
-		ix := b.R.X + (b.R.W-48)/2
-		iy := b.R.Y + (b.R.H-48)/2 - 10
+		iconSize := dp(48) // 图标显示大小也需要缩放
+
+		// 重新计算居中位置
+		ix := b.R.X + (b.R.W-iconSize)/2
+		// 图标稍微往上提一点，给文字留位置
+		iy := b.R.Y + (b.R.H-iconSize)/2 - dp(10)
+
 		if b.Text == "" {
-			iy = b.R.Y + (b.R.H-48)/2
+			iy = b.R.Y + (b.R.H-iconSize)/2
 		}
 
 		if b.Down {
@@ -835,7 +895,8 @@ func drawButton(hdc windows.Handle, b *Button, font windows.Handle) {
 			ix += 1
 		}
 
-		procDrawIconEx.Call(uintptr(hdc), uintptr(ix), uintptr(iy), uintptr(b.Icon), 48, 48, 0, 0, DI_NORMAL)
+		procDrawIconEx.Call(uintptr(hdc), uintptr(ix), uintptr(iy), uintptr(b.Icon),
+			uintptr(iconSize), uintptr(iconSize), 0, 0, DI_NORMAL)
 	}
 
 	if b.Text != "" {
@@ -846,7 +907,7 @@ func drawButton(hdc windows.Handle, b *Button, font windows.Handle) {
 
 		rectText := RECT{b.R.X, b.R.Y, b.R.X + b.R.W, b.R.Y + b.R.H}
 		if b.Icon != 0 {
-			rectText.Top = b.R.Y + b.R.H - 35
+			rectText.Top = b.R.Y + b.R.H - dp(35)
 		}
 
 		if b.Down {
@@ -867,11 +928,13 @@ func drawButton(hdc windows.Handle, b *Button, font windows.Handle) {
 	}
 }
 
+// fillRect 函数。
 func fillRect(hdc windows.Handle, rc *RECT, hbr windows.Handle) {
 	fill := user32.NewProc("FillRect")
 	fill.Call(uintptr(hdc), uintptr(unsafe.Pointer(rc)), uintptr(hbr))
 }
 
+// getAllButtons 函数。
 func getAllButtons() []*Button {
 	if ui.mode.Load() == int32(ModeSelect) {
 		return []*Button{&ui.btn7, &ui.btn10, &ui.btn11, &ui.btnAdv}
@@ -879,14 +942,21 @@ func getAllButtons() []*Button {
 	return nil
 }
 
+// paintSelect 函数。
 func paintSelect(hdc windows.Handle, w, h int32) {
 	procSetBkMode.Call(uintptr(hdc), BKMODE_TRANSPARENT)
 	procSetTextColor.Call(uintptr(hdc), uintptr(ColorTextHint))
 	oldF, _, _ := procSelectObject.Call(uintptr(hdc), uintptr(ui.font20))
 	defer procSelectObject.Call(uintptr(hdc), oldF)
 
-	rt := RECT{0, yFromOld(60), w, yFromOld(100)}
+	// 计算标题位置：在按钮上方
+	// 按钮中心大概在 h/2，文字放在 h/2 - dp(100) 的位置
+	titleH := dp(40)
+	titleY := h/2 - dp(120)
+
+	rt := RECT{0, titleY, w, titleY + titleH}
 	text := "请选择要安装的操作系统"
+
 	procDrawTextW.Call(
 		uintptr(hdc),
 		uintptr(unsafe.Pointer(mustUTF16(text))),
@@ -901,30 +971,43 @@ func paintSelect(hdc windows.Handle, w, h int32) {
 	drawButton(hdc, &ui.btnAdv, ui.font16)
 }
 
+// paintProgress 绘制进度界面
 func paintProgress(hdc windows.Handle, w, h int32) {
+	// 1. 获取当前状态文字和进度
 	p := ui.statusPtr.Load()
 	status := "正在准备..."
 	if p != 0 {
 		status = windows.UTF16PtrToString((*uint16)(unsafe.Pointer(p)))
 	}
+
+	pct := ui.progress.Load()
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 100 {
+		pct = 100
+	}
+
+	// 2. 准备绘制环境
 	procSetBkMode.Call(uintptr(hdc), BKMODE_TRANSPARENT)
 	procSetTextColor.Call(uintptr(hdc), uintptr(ColorText))
+
+	// 使用大号字体绘制状态
 	oldF, _, _ := procSelectObject.Call(uintptr(hdc), uintptr(ui.font20))
 	defer procSelectObject.Call(uintptr(hdc), oldF)
 
-	rt := RECT{20, yFromOld(60), w - 20, yFromOld(96)}
-	procDrawTextW.Call(
-		uintptr(hdc),
-		uintptr(unsafe.Pointer(mustUTF16(status))),
-		drawTextAutoLen,
-		uintptr(unsafe.Pointer(&rt)),
-		uintptr(DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS),
-	)
-
+	// 3. 绘制 GIF 动画 (保持原逻辑，位置微调)
+	gifBottomY := int32(0) // 用于记录GIF底部位置，方便下面布局
 	if len(ui.frames) > 0 {
 		f := ui.frames[ui.frameIdx%len(ui.frames)]
-		x := (w - f.W) / 2
-		y := yFromOld(110)
+		gifW := dp(f.W)
+		gifH := dp(f.H)
+
+		// 居中显示 GIF (使用缩放后的尺寸计算)
+		x := (w - gifW) / 2
+		// 将 GIF 放在垂直中心偏上一点的位置
+		y := h/2 - gifH/2 - dp(40)
+		gifBottomY = y + gifH
 
 		srcDC, _, _ := procCreateCompatibleDC.Call(uintptr(hdc))
 		defer procDeleteDC.Call(srcDC)
@@ -936,54 +1019,73 @@ func paintProgress(hdc windows.Handle, w, h int32) {
 
 		procAlphaBlend.Call(
 			uintptr(hdc),
-			uintptr(x), uintptr(y), uintptr(f.W), uintptr(f.H),
+			uintptr(x), uintptr(y), uintptr(gifW), uintptr(gifH), // 目标区域：使用缩放后的宽高
 			srcDC,
-			0, 0, uintptr(f.W), uintptr(f.H),
+			0, 0, uintptr(f.W), uintptr(f.H), // 源区域：保持原始图片宽高
 			uintptr(blendVal),
 		)
+	} else {
+		gifBottomY = h / 2 // 如果没有GIF，基准线在中间
 	}
 
-	pct := ui.progress.Load()
-	if pct < 0 {
-		pct = 0
-	}
-	if pct > 100 {
-		pct = 100
-	}
+	// 4. 绘制状态文字 (在 GIF 下方)
+	textY := gifBottomY + 20
+	rt := RECT{20, textY, w - 20, textY + 30}
+	procDrawTextW.Call(
+		uintptr(hdc),
+		uintptr(unsafe.Pointer(mustUTF16(status))),
+		drawTextAutoLen,
+		uintptr(unsafe.Pointer(&rt)),
+		uintptr(DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS),
+	)
 
-	barW := int32(300)
-	barH := int32(6)
+	// 5. 绘制现代化进度条
+	// 参数设定
+	barH := int32(10)               // 高度增加到 10px (看起来更精致)
+	barW := int32(float64(w) * 0.7) // 宽度占窗口 70%
 	barX := (w - barW) / 2
-	barY := yFromOld(280)
+	barY := textY + 45 // 在文字下方 45px 处
 
-	// 背景条
-	bgBr, _, _ := procCreateSolidBrush.Call(0x00333333)
-	bgPen, _, _ := procCreatePen.Call(PS_SOLID, 1, 0x00333333)
+	// 5.1 绘制进度条背景 (浅灰色)
+	// 颜色注意：Win32 是 BGR 格式。0xEBEBEB 是很淡的灰色
+	bgColor := uintptr(0x00EBEBEB)
+	bgBr, _, _ := procCreateSolidBrush.Call(bgColor)
+	bgPen, _, _ := procCreatePen.Call(PS_SOLID, 1, bgColor) // 边框同色，消除锯齿感
+
 	oldBr, _, _ := procSelectObject.Call(uintptr(hdc), bgBr)
 	oldPen, _, _ := procSelectObject.Call(uintptr(hdc), bgPen)
 
+	// 使用圆角矩形，圆角半径为高度的一半，形成胶囊状
 	procRoundRect.Call(uintptr(hdc),
 		uintptr(barX), uintptr(barY),
 		uintptr(barX+barW), uintptr(barY+barH),
-		3, 3)
+		uintptr(barH), uintptr(barH)) // 圆角半径
 
 	procSelectObject.Call(uintptr(hdc), oldBr)
 	procSelectObject.Call(uintptr(hdc), oldPen)
 	procDeleteObject.Call(bgBr)
 	procDeleteObject.Call(bgPen)
 
-	// 前景填充
+	// 5.2 绘制进度条前景 (高亮色)
 	fillW := barW * pct / 100
+	// 只有进度大于0才绘制，避免绘制出奇怪的圆点
 	if fillW > 0 {
+		// 最小绘制宽度要保证圆角不畸形，至少等于高度
+		if fillW < barH {
+			fillW = barH
+		}
+
+		// 你的 ColorHighlight (0x0078D7) 是很好的Win10蓝
 		fBr, _, _ := procCreateSolidBrush.Call(uintptr(ColorHighlight))
 		fPen, _, _ := procCreatePen.Call(PS_SOLID, 1, uintptr(ColorHighlight))
+
 		oldBr2, _, _ := procSelectObject.Call(uintptr(hdc), fBr)
 		oldPen2, _, _ := procSelectObject.Call(uintptr(hdc), fPen)
 
 		procRoundRect.Call(uintptr(hdc),
 			uintptr(barX), uintptr(barY),
 			uintptr(barX+fillW), uintptr(barY+barH),
-			3, 3)
+			uintptr(barH), uintptr(barH))
 
 		procSelectObject.Call(uintptr(hdc), oldBr2)
 		procSelectObject.Call(uintptr(hdc), oldPen2)
@@ -991,24 +1093,48 @@ func paintProgress(hdc windows.Handle, w, h int32) {
 		procDeleteObject.Call(fPen)
 	}
 
+	// 6. 绘制百分比文字 (在进度条右侧 或者 居中悬浮)
+	// 方案：在进度条右侧显示一个小小的百分比，显得比较精致
+	pctText := fmt.Sprintf("%d%%", pct)
+
+	// 切换回小字体
 	oldF2, _, _ := procSelectObject.Call(uintptr(hdc), uintptr(ui.font16))
 	defer procSelectObject.Call(uintptr(hdc), oldF2)
-	procSetTextColor.Call(uintptr(hdc), 0x00FFFFFF)
-	tr := RECT{barX, barY - 28, barX + barW, barY}
+
+	// 设置灰色字体用于显示百分比
+	procSetTextColor.Call(uintptr(hdc), uintptr(0x00999999))
+
+	// 计算位置：进度条右边 + 10px
+	pctX := barX + barW + 10
+	tr := RECT{pctX, barY - 5, pctX + 50, barY + barH + 5} // 稍微加宽高度以便垂直居中
+
 	procDrawTextW.Call(
 		uintptr(hdc),
-		uintptr(unsafe.Pointer(mustUTF16("进度说明"))),
+		uintptr(unsafe.Pointer(mustUTF16(pctText))),
 		drawTextAutoLen,
 		uintptr(unsafe.Pointer(&tr)),
-		uintptr(DT_CENTER|DT_VCENTER|DT_SINGLELINE),
+		uintptr(DT_VCENTER|DT_SINGLELINE), // 左对齐+垂直居中
 	)
 }
 
 // -------------------- layout --------------------
 
 func layoutSelect(w, h int32) {
+	// 1. 定义基础尺寸 (使用 dp 函数进行缩放)
+	btnSize := dp(120)               // 按钮大小
+	gap := dp(50)                    // 按钮间距
+	btnY := h/2 - btnSize/2 + dp(20) // 垂直居中稍微偏下一点
+
+	// 2. 计算三个按钮的总宽度，用于水平居中
+	// 3个按钮 + 2个间距
+	totalWidth := btnSize*3 + gap*2
+
+	// 起始 X 坐标 = (窗口宽 - 总宽) / 2
+	startX := (w - totalWidth) / 2
+
+	// 3. 布局按钮 (动态计算 X 坐标)
 	ui.btn7 = Button{
-		R:    Rect{X: 50, Y: yFromOld(200), W: 120, H: 120},
+		R:    Rect{X: startX, Y: btnY, W: btnSize, H: btnSize},
 		Text: "重装 win7", Icon: ui.icon7, Visible: true, Enabled: true,
 		OnClick: func() {
 			if Message("提示", "重装系统将会清除C盘数据,是否继续?") {
@@ -1017,8 +1143,9 @@ func layoutSelect(w, h int32) {
 			}
 		},
 	}
+
 	ui.btn10 = Button{
-		R:    Rect{X: 240, Y: yFromOld(200), W: 120, H: 120},
+		R:    Rect{X: startX + btnSize + gap, Y: btnY, W: btnSize, H: btnSize},
 		Text: "重装 win10", Icon: ui.icon10, Visible: true, Enabled: true,
 		OnClick: func() {
 			if Message("提示", "重装系统将会清除C盘数据,是否继续?") {
@@ -1027,8 +1154,9 @@ func layoutSelect(w, h int32) {
 			}
 		},
 	}
+
 	ui.btn11 = Button{
-		R:    Rect{X: 430, Y: yFromOld(200), W: 120, H: 120},
+		R:    Rect{X: startX + (btnSize+gap)*2, Y: btnY, W: btnSize, H: btnSize},
 		Text: "重装 win11", Icon: ui.icon11, Visible: true, Enabled: true,
 		OnClick: func() {
 			if Message("提示", "重装系统将会清除C盘数据,是否继续?") {
@@ -1037,17 +1165,22 @@ func layoutSelect(w, h int32) {
 			}
 		},
 	}
+
+	// 4. 高级模式按钮 (右上角定位)
+	advW, advH := dp(90), dp(34)
 	ui.btnAdv = Button{
-		R:    Rect{X: 10, Y: yFromOld(50), W: 90, H: 34},
+		R:    Rect{X: w - advW - dp(20), Y: dp(20), W: advW, H: advH},
 		Text: "高级模式", Icon: 0, Visible: true, Enabled: true,
 		OnClick: func() { uiSetStatus("高级模式：TODO") },
 	}
 }
 
+// layoutProgress 函数。
 func layoutProgress() {
 	ui.btn7.Visible, ui.btn10.Visible, ui.btn11.Visible, ui.btnAdv.Visible = false, false, false, false
 }
 
+// updateHover 函数。
 func updateHover(x, y int32) bool {
 	changed := false
 	for _, b := range getAllButtons() {
@@ -1066,6 +1199,8 @@ func updateHover(x, y int32) bool {
 	}
 	return changed
 }
+
+// hitButton 函数。
 func hitButton(x, y int32) *Button {
 	for _, b := range getAllButtons() {
 		if b.Visible && b.Enabled && b.R.contains(x, y) {
@@ -1075,6 +1210,7 @@ func hitButton(x, y int32) *Button {
 	return nil
 }
 
+// trackLeave 函数。
 func trackLeave() {
 	var t TRACKMOUSEEVENT
 	t.CbSize = uint32(unsafe.Sizeof(t))
@@ -1212,9 +1348,11 @@ var wndProc = windows.NewCallback(func(hwnd uintptr, msg uint32, wParam, lParam 
 	return ret
 })
 
+// Uiinit 函数。
 func Uiinit() {
 	runtime.LockOSThread()
 	initDPI()
+	initScale() // 计算缩放比例
 	procSetProcessDPIAware.Call()
 	initFontSmoothing()
 
@@ -1255,8 +1393,6 @@ func Uiinit() {
 		panic(err2)
 	}
 
-	// ✅ 改成系统原生标题栏样式（关闭/最小化由系统提供）
-	// - 不加 WS_THICKFRAME/WS_MAXIMIZEBOX：窗口不可拖拽改变大小（更接近原来的固定窗口）
 	style := uintptr(WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN | WS_CLIPSIBLINGS)
 	exStyle := uintptr(WS_EX_APPWINDOW)
 
@@ -1290,7 +1426,7 @@ func Uiinit() {
 	}
 	ui.hwnd = windows.Handle(hwnd)
 
-	// 你原来“去掉透明”的逻辑保留
+	// 设置透明度
 	// setLayerAlpha(ui.hwnd, 240)
 
 	const WM_SETICON = 0x0080
@@ -1308,6 +1444,7 @@ func Uiinit() {
 	procUpdateWindow.Call(hwnd)
 }
 
+// UiRun 函数。
 func UiRun() {
 	var msg MSG
 	for {

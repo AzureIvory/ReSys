@@ -19,9 +19,10 @@ import (
 	"unicode/utf16"
 )
 
-// 读取WIM/ESD中所有的信息（Index/Name/Description/Flags）。
+// ListImageInfos 读取WIM/ESD中所有的信息（Index/Name/Description/Flags）。
 func ListImageInfos(imagePath string) ([]ImageMeta, error) {
 	if _, err := os.Stat(imagePath); err != nil {
+		logWrite("ListImageInfos 镜像不存在: path=%s err=%v", imagePath, err)
 		return nil, fmt.Errorf("image not found: %w", err)
 	}
 
@@ -36,14 +37,13 @@ func ListImageInfos(imagePath string) ([]ImageMeta, error) {
 		"/WimFile:"+imagePath,
 	); err == nil {
 		if imgs, perr := parseImageInfoText(out); perr == nil && len(imgs) > 0 {
-			fmt.Println("[ListImageInfos] use DISM result")
+			logWrite("ListImageInfos 使用 DISM 结果")
 			return imgs, nil
 		} else {
-			fmt.Println("[ListImageInfos] DISM output parse failed, fallback to wimlib")
-			fmt.Println(perr)
+			logWrite("ListImageInfos DISM 解析失败，回退 wimlib: err=%v", perr)
 		}
 	} else {
-		fmt.Println("[ListImageInfos] DISM failed, fallback to wimlib:", err)
+		logWrite("ListImageInfos DISM 失败，回退 wimlib: err=%v", err)
 	}
 
 	// wimlib-imagex
@@ -51,13 +51,14 @@ func ListImageInfos(imagePath string) ([]ImageMeta, error) {
 	exePath = filepath.Join(filepath.Dir(exePath), "tools\\wimlib-imagex.exe")
 	if out, err := runCmd(exePath, nil, nil, "", "info", imagePath); err == nil {
 		if imgs, perr := parseImageInfoText(out); perr == nil && len(imgs) > 0 {
-			fmt.Println("[ListImageInfos] use wimlib-imagex result")
+			logWrite("ListImageInfos 使用 wimlib 结果")
 			return imgs, nil
 		} else {
-			fmt.Println("[ListImageInfos] wimlib output parse failed:", perr)
+			logWrite("ListImageInfos wimlib 解析失败: err=%v", perr)
 			return nil, perr
 		}
 	} else {
+		logWrite("ListImageInfos DISM/WIMLIB 均失败: err=%v", err)
 		return nil, fmt.Errorf("both DISM and wimlib-imagex failed: %w", err)
 	}
 }
@@ -187,10 +188,11 @@ func ApplyImage(imagePath string, index int, targetVol string) error {
 	}
 }
 
-// 确保 WIM 文件可写
+// ensureWimWritable 确保 WIM 文件可写。
 func ensureWimWritable(wim string) error {
 	st, err := os.Stat(wim)
 	if err != nil {
+		logWrite("ensureWimWritable Stat失败: wim=%s err=%v", wim, err)
 		return fmt.Errorf("WIM不存在或不可访问: %w", err)
 	}
 	if st.IsDir() {
@@ -208,9 +210,11 @@ func ensureWimWritable(wim string) error {
 
 	if err := tryOpenRW(); err != nil {
 		if e2 := clearReadonly(wim); e2 != nil {
+			logWrite("ensureWimWritable 去只读失败: wim=%s err=%v", wim, e2)
 			return fmt.Errorf("WIM不可写(打开失败): %v；去只读失败: %v", err, e2)
 		}
 		if err2 := tryOpenRW(); err2 != nil {
+			logWrite("ensureWimWritable 仍不可写: wim=%s err=%v", wim, err2)
 			return fmt.Errorf("WIM仍不可写(已去只读): %v", err2)
 		}
 	}
@@ -218,6 +222,7 @@ func ensureWimWritable(wim string) error {
 	dir := filepath.Dir(wim)
 	tf, err := os.CreateTemp(dir, "wimwrite_*")
 	if err != nil {
+		logWrite("ensureWimWritable 创建临时文件失败: dir=%s err=%v", dir, err)
 		return fmt.Errorf("WIM所在目录不可写: %s: %w", dir, err)
 	}
 	name := tf.Name()
@@ -227,6 +232,7 @@ func ensureWimWritable(wim string) error {
 	return nil
 }
 
+// findTool 查找工具路径（优先 PATH，失败使用 fallback）。
 func findTool(name, fallback string) string {
 	if p, err := exec.LookPath(name); err == nil {
 		return p
@@ -239,6 +245,7 @@ func findTool(name, fallback string) string {
 	return ""
 }
 
+// runCmdWithTimeout 执行命令并设置超时。
 func runCmdWithTimeout(exe string, args []string, stdinText string, to time.Duration) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), to)
 	defer cancel()
@@ -253,12 +260,14 @@ func runCmdWithTimeout(exe string, args []string, stdinText string, to time.Dura
 	err := cmd.Run()
 	out := buf.String()
 	if ctx.Err() == context.DeadlineExceeded {
+		logWrite("runCmdWithTimeout 超时: exe=%s args=%v", exe, args)
 		return out, fmt.Errorf("超时: %s %s", exe, strings.Join(args, " "))
 	}
 	return out, err
 }
 
 // 插入启动项
+// appendExecLine 向 Pecmd.ini 追加启动项。
 func appendExecLine(b []byte, line string) ([]byte, error) {
 	pickNLBytes := func(src []byte) []byte {
 		if bytes.Contains(src, []byte("\r\n")) {
@@ -408,23 +417,32 @@ func appendExecLine(b []byte, line string) ([]byte, error) {
 	return applyOnBytes(b), nil
 }
 
-// 修改wim文件，将自身及对应文件写入到wim中，并修改ini
+// wimRes 记录需要写入 WIM 的资源。
+type wimRes struct {
+	src   string
+	dst   string
+	isDir bool
+}
+
+// Patwim 修改wim文件，将自身及对应文件写入到wim中，并修改ini。
 func Patwim(wim string) error {
 	if wim == "" {
 		return fmt.Errorf("wim为空")
 	}
 	wimAbs, err := filepath.Abs(wim)
 	if err != nil {
+		logWrite("Patwim 获取绝对路径失败: wim=%s err=%v", wim, err)
 		return err
 	}
 	wim = wimAbs
 	if err := ensureWimWritable(wim); err != nil {
-		logWrite("Patwim ensureWimWritable失败：" + err.Error())
+		logWrite("Patwim ensureWimWritable失败: wim=%s err=%v", wim, err)
 		return err
 	}
 
 	selfExe, err := os.Executable()
 	if err != nil {
+		logWrite("Patwim 获取自身路径失败: err=%v", err)
 		return err
 	}
 	selfExe, _ = filepath.Abs(selfExe)
@@ -441,14 +459,10 @@ func Patwim(wim string) error {
 
 	wimlib := findTool("wimlib-imagex.exe", filepath.Join(dir, "tools", "wimlib-imagex.exe"))
 	if wimlib == "" {
+		logWrite("Patwim 未找到 wimlib-imagex.exe: dir=%s", dir)
 		return fmt.Errorf("找不到 wimlib-imagex.exe（PATH 或 %s）", filepath.Join(dir, "tools", "wimlib-imagex.exe"))
 	}
 
-	type wimRes struct {
-		src   string
-		dst   string
-		isDir bool
-	}
 	resList := []wimRes{
 		{src: selfExe, dst: `\Windows\` + selfName, isDir: false},
 		{src: filepath.Join(dir, "Windows.json"), dst: `\Windows\Windows.json`, isDir: false},
@@ -462,15 +476,15 @@ func Patwim(wim string) error {
 	for _, r := range resList {
 		st, e := os.Stat(r.src)
 		if e != nil {
-			fmt.Fprintf(os.Stderr, "WARN: 跳过缺少资源: %s (%v)\n", r.src, e)
+			logWrite("Patwim 资源缺失，跳过: %s err=%v", r.src, e)
 			continue
 		}
 		if r.isDir && !st.IsDir() {
-			fmt.Fprintf(os.Stderr, "WARN: 跳过资源(应为目录但不是): %s\n", r.src)
+			logWrite("Patwim 资源类型错误(应为目录): %s", r.src)
 			continue
 		}
 		if !r.isDir && st.IsDir() {
-			fmt.Fprintf(os.Stderr, "WARN: 跳过资源(应为文件但却是目录): %s\n", r.src)
+			logWrite("Patwim 资源类型错误(应为文件): %s", r.src)
 			continue
 		}
 		keep = append(keep, r)
@@ -504,6 +518,7 @@ func Patwim(wim string) error {
 	getIdxs := func() ([]int, error) {
 		out, err := runCmdWithTimeout(wimlib, []string{"info", wim}, "", 2*time.Minute)
 		if err != nil {
+			logWrite("Patwim wimlib info失败: wim=%s err=%v", wim, err)
 			return nil, fmt.Errorf("wimlib info失败: %w\n%s", err, out)
 		}
 
@@ -585,6 +600,7 @@ func Patwim(wim string) error {
 	for _, idx := range idxs {
 		dout, de := runCmdWithTimeout(wimlib, []string{"dir", wim, strconv.Itoa(idx), `--path=\Windows`}, "", 2*time.Minute)
 		if de != nil {
+			logWrite("Patwim dir失败: wim=%s idx=%d err=%v", wim, idx, de)
 			return fmt.Errorf("dir失败 idx=%d: %v\n%s", idx, de, dout)
 		}
 
@@ -624,7 +640,7 @@ func Patwim(wim string) error {
 
 		uout, ue := runCmdWithTimeout(wimlib, []string{"update", wim, strconv.Itoa(idx)}, script, 10*time.Minute)
 		if ue != nil {
-			logWrite("Patwim runCmdWithTimeout update失败：" + err.Error())
+			logWrite("Patwim update失败: wim=%s idx=%d err=%v", wim, idx, ue)
 			return fmt.Errorf("写入资源失败 idx=%d: %v\n%s", idx, ue, uout)
 		}
 
@@ -640,7 +656,7 @@ func Patwim(wim string) error {
 			5*time.Minute,
 		)
 		if err != nil {
-			logWrite("Patwim runCmdWithTimeout extract失败：" + err.Error())
+			logWrite("Patwim extract失败: wim=%s idx=%d err=%v", wim, idx, err)
 		}
 
 		p1 := filepath.Join(tmp, "Windows", iniName)
@@ -658,12 +674,12 @@ func Patwim(wim string) error {
 		b, _ := os.ReadFile(inip)
 		updated, err := appendExecLine(b, line)
 		if err != nil {
-			logWrite("Patwim appendExecLine插入启动项失败："+err.Error()+"idx=%d", idx)
+			logWrite("Patwim appendExecLine失败: idx=%d err=%v", idx, err)
 			_ = Remove(tmp, true)
 			return fmt.Errorf("修改ini失败 idx=%d: %w", idx, err)
 		}
 		if err := os.WriteFile(inip, updated, 0o644); err != nil {
-			logWrite("Patwim 写入ini失败："+err.Error()+"idx=%d", idx)
+			logWrite("Patwim 写入ini失败: idx=%d err=%v", idx, err)
 			_ = Remove(tmp, true)
 			return fmt.Errorf("写入ini失败 idx=%d: %w", idx, err)
 		}
@@ -677,10 +693,53 @@ func Patwim(wim string) error {
 		iout, ie := runCmdWithTimeout(wimlib, []string{"update", wim, strconv.Itoa(idx)}, iniScript, 10*time.Minute)
 		_ = Remove(tmp, true)
 		if ie != nil {
+			logWrite("Patwim update ini失败: wim=%s idx=%d err=%v", wim, idx, ie)
 			return fmt.Errorf("写ini失败 idx=%d: %v\n%s", idx, ie, iout)
+		}
+		if err := verifyPatwimWrite(wimlib, wim, idx, resList, line); err != nil {
+			logWrite("Patwim 校验失败: wim=%s idx=%d err=%v", wim, idx, err)
+			return err
 		}
 	}
 
+	return nil
+}
+
+// verifyPatwimWrite 校验写入成功。
+func verifyPatwimWrite(wimlib, wim string, idx int, resList []wimRes, line string) error {
+	if wimlib == "" || wim == "" {
+		return fmt.Errorf("wimlib/wim 不能为空")
+	}
+	for _, r := range resList {
+		out, err := runCmdWithTimeout(wimlib, []string{"dir", wim, strconv.Itoa(idx), "--path=" + r.dst}, "", 2*time.Minute)
+		if err != nil {
+			return fmt.Errorf("校验资源失败: path=%s err=%w\n%s", r.dst, err, out)
+		}
+	}
+
+	tmp, err := os.MkdirTemp("", "wim_verify_")
+	if err != nil {
+		return fmt.Errorf("创建临时目录失败: %w", err)
+	}
+	defer func() {
+		_ = Remove(tmp, true)
+	}()
+
+	iniPath := `\Windows\Pecmd.ini`
+	if _, err := runCmdWithTimeout(wimlib, []string{"extract", wim, strconv.Itoa(idx), iniPath, "--dest-dir=" + tmp}, "", 3*time.Minute); err != nil {
+		return fmt.Errorf("校验ini提取失败: %w", err)
+	}
+	cand := filepath.Join(tmp, "Windows", "Pecmd.ini")
+	if _, err := os.Stat(cand); err != nil {
+		cand = filepath.Join(tmp, "Pecmd.ini")
+	}
+	b, err := os.ReadFile(cand)
+	if err != nil {
+		return fmt.Errorf("校验ini读取失败: %w", err)
+	}
+	if !strings.Contains(strings.ToLower(string(b)), strings.ToLower(line)) {
+		return fmt.Errorf("校验ini失败: 启动项未写入")
+	}
 	return nil
 }
 
