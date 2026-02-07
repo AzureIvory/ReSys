@@ -336,13 +336,16 @@ func downloadImage(target, arch string) (string, error) {
 
 	var errs []string
 
-	// URL
+	// =========================
+	// URL 下载
+	// =========================
 	for _, it := range candidates {
 		if !strings.EqualFold(strings.TrimSpace(it.Type), "url") {
 			continue
 		}
 		links := []string{strings.TrimSpace(it.Link), strings.TrimSpace(it.Link2)}
 		triedLink := false
+
 		for _, link := range links {
 			if link == "" || isFailedLink(link) {
 				continue
@@ -359,6 +362,7 @@ func downloadImage(target, arch string) (string, error) {
 			}
 			dstPath := filepath.Join(dstDir, name)
 
+			// 已存在则校验
 			if st, err := os.Stat(dstPath); err == nil && !st.IsDir() && st.Size() > 0 {
 				if err := validateImageFile(it, dstPath); err != nil {
 					logWrite("镜像校验失败，删除重下：%s err=%v", dstPath, err)
@@ -414,7 +418,9 @@ func downloadImage(target, arch string) (string, error) {
 		}
 	}
 
-	// BT
+	// =========================
+	// BT 下载（返回真实落盘路径 realPath）
+	// =========================
 	for _, it := range candidates {
 		if strings.EqualFold(strings.TrimSpace(it.Type), "url") {
 			continue
@@ -430,31 +436,35 @@ func downloadImage(target, arch string) (string, error) {
 			continue
 		}
 
+		// 期望落在 dstDir 的“规范文件名”
 		name := ImgName(it, link)
 		if strings.TrimSpace(it.File) != "" {
 			name = strings.TrimSpace(it.File)
 		}
 		dstPath := filepath.Join(dstDir, name)
 
+		// 已存在则校验
 		if st, err := os.Stat(dstPath); err == nil && !st.IsDir() && st.Size() > 0 {
-			logWrite("镜像已存在：%s", dstPath)
-			uiSetProgress(60)
-			return dstPath, nil
+			if err := validateImageFile(it, dstPath); err != nil {
+				logWrite("镜像校验失败，删除重下：%s err=%v", dstPath, err)
+				_ = Remove(dstPath, false)
+			} else {
+				logWrite("镜像已存在：%s", dstPath)
+				uiSetProgress(60)
+				return dstPath, nil
+			}
 		}
 
 		logWrite("开始下载镜像(BT)：%s -> %s", link, dstDir)
 
-		// BT 回调是 int pct：映射到 0~60
 		lastLog := time.Time{}
 		lastUI := time.Time{}
 
-		err := DownloadBT(link, dstDir, func(pct int, speed, done, total int64) {
+		realPath, err := DownloadBT(link, dstDir, func(pct int, speed, done, total int64) {
 			now := time.Now()
-			p := float64(pct)
-
 			if lastUI.IsZero() || now.Sub(lastUI) >= 1*time.Second || pct >= 100 {
 				uiSetStatus(fmt.Sprintf("正在下载镜像... %d%% 速度: %.2f MB/s", pct, float64(speed)/1024/1024))
-				uiSetProgress(mapPct(0, 60, p))
+				uiSetProgress(mapPct(0, 60, float64(pct)))
 				lastUI = now
 			}
 			if lastLog.IsZero() || now.Sub(lastLog) >= 1*time.Second || pct >= 100 {
@@ -464,16 +474,41 @@ func downloadImage(target, arch string) (string, error) {
 		})
 
 		if err == nil {
-			if vErr := validateImageFile(it, dstPath); vErr != nil {
-				markFailedLink(link)
+			finalPath := realPath
+
+			// 如果 BT 真实落盘不等于你期望的 dstPath，就整理到 dstPath（更利于后续统一处理）
+			if realPath != "" && !strings.EqualFold(realPath, dstPath) {
 				_ = Remove(dstPath, false)
-				logWrite("镜像校验失败，删除重下：%s err=%v", dstPath, vErr)
+
+				// 同卷优先 rename（快且不占双份空间）
+				if rErr := os.Rename(realPath, dstPath); rErr == nil {
+					finalPath = dstPath
+				} else {
+					// rename 失败再 copy（跨卷/权限等）
+					if cErr := Copy(realPath, dstPath, true, true); cErr == nil {
+						finalPath = dstPath
+						// copy 成功后可选择删除 realPath（可留作断点或日志，此处默认删除避免占空间）
+						_ = Remove(realPath, false)
+					} else {
+						// 整理失败：至少还能用 realPath
+						logWrite("BT下载后整理路径失败：real=%s dst=%s err=%v", realPath, dstPath, cErr)
+						finalPath = realPath
+					}
+				}
+			}
+
+			// 校验用最终路径（realPath 或 dstPath）
+			if vErr := validateImageFile(it, finalPath); vErr != nil {
+				markFailedLink(link)
+				_ = Remove(finalPath, false)
+				logWrite("镜像校验失败，删除重下：%s err=%v", finalPath, vErr)
 				errs = append(errs, fmt.Sprintf("BT校验失败 link=%s err=%v", link, vErr))
 				continue
 			}
-			logWrite("镜像下载完成(BT)：%s", dstPath)
+
+			logWrite("镜像下载完成(BT)：%s", finalPath)
 			uiSetProgress(60)
-			return dstPath, nil
+			return finalPath, nil
 		}
 
 		markFailedLink(link)

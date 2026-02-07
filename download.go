@@ -31,14 +31,93 @@ var trackerTxtURLs = []string{
 
 const fallbackTrackerURL = "https://api.ttraw.com/trackers.txt"
 
+func magnetInfoHash(magnet string) (string, error) {
+	s := strings.TrimSpace(magnet)
+	low := strings.ToLower(s)
+	key := "xt=urn:btih:"
+	i := strings.Index(low, key)
+	if i < 0 {
+		return "", fmt.Errorf("magnet 缺少 btih: %s", magnet)
+	}
+	i += len(key)
+	j := i
+	for j < len(s) {
+		if s[j] == '&' || s[j] == '#' {
+			break
+		}
+		j++
+	}
+	h := strings.TrimSpace(s[i:j])
+	if h == "" {
+		return "", fmt.Errorf("无法解析 infohash: %s", magnet)
+	}
+	return strings.ToLower(h), nil
+}
+
+func pickBTOutputFile(root string) (string, error) {
+	// 优先挑这些扩展名
+	priority := map[string]int{
+		".iso":  1,
+		".wim":  2,
+		".esd":  3,
+		".swm":  4,
+		".img":  5,
+		".vhd":  6,
+		".vhdx": 7,
+	}
+
+	type cand struct {
+		path string
+		ext  string
+		size int64
+		pr   int
+	}
+
+	var best *cand
+
+	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		st, e := os.Stat(p)
+		if e != nil || st.Size() <= 0 {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(p))
+		pr, ok := priority[ext]
+		if !ok {
+			pr = 999 // 非目标扩展名排后
+		}
+		c := cand{path: p, ext: ext, size: st.Size(), pr: pr}
+		if best == nil {
+			best = &c
+			return nil
+		}
+		// 先比 pr（越小越优先），再比 size（越大越优先）
+		if c.pr < best.pr || (c.pr == best.pr && c.size > best.size) {
+			best = &c
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	if best == nil {
+		return "", fmt.Errorf("BT 下载目录中找不到任何文件: %s", root)
+	}
+	return best.path, nil
+}
+
 // 下载bt
 // dir:    下载保存目录，空字符串则使用当前目录
 // prog:   进度回调（0~100，speed 为 B/s，done/total 为字节数）
-func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)) error {
+func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)) (string, error) {
 	magnet = strings.TrimSpace(magnet)
 	if !strings.HasPrefix(strings.ToLower(magnet), "magnet:?xt=urn:btih:") {
-		logWrite("DownloadBT 磁力链接非法: %s", magnet)
-		return fmt.Errorf("不是合法的 BT 磁力链接: %s", magnet)
+		return "", fmt.Errorf("不是合法的 BT 磁力链接: %s", magnet)
 	}
 
 	if dir == "" {
@@ -46,19 +125,33 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 	}
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
-		logWrite("DownloadBT 解析目录失败: dir=%s err=%v", dir, err)
-		return fmt.Errorf("解析目录失败: %w", err)
+		return "", fmt.Errorf("解析目录失败: %w", err)
 	}
 	if err := os.MkdirAll(absDir, 0o755); err != nil {
-		logWrite("DownloadBT 创建目录失败: dir=%s err=%v", absDir, err)
-		return fmt.Errorf("创建下载目录失败: %w", err)
+		return "", fmt.Errorf("创建下载目录失败: %w", err)
 	}
 
-	// 用来存放 BT 元数据 / piece completion 的缓存目录
-	cacheDir := filepath.Join(absDir, ".btcache")
+	// 用 infohash 隔离本次下载内容（避免目录里有其他旧文件被误判）
+	ih, err := magnetInfoHash(magnet)
+	if err != nil {
+		return "", err
+	}
+	// 截短一下目录名，足够区分即可
+	tag := ih
+	if len(tag) > 12 {
+		tag = tag[:12]
+	}
+
+	// BT 数据输出目录（真正的文件落盘位置）
+	dataDir := filepath.Join(absDir, ".btdata", tag)
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		return "", fmt.Errorf("创建 BT 数据目录失败: %w", err)
+	}
+
+	// BT 缓存目录（元数据、piece completion 等）
+	cacheDir := filepath.Join(absDir, ".btcache", tag)
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
-		logWrite("DownloadBT 创建缓存目录失败: dir=%s err=%v", cacheDir, err)
-		return fmt.Errorf("创建 BT 缓存目录失败: %w", err)
+		return "", fmt.Errorf("创建 BT 缓存目录失败: %w", err)
 	}
 
 	// 运行目录下的本地 trackers.txt
@@ -73,8 +166,7 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 
 	pc, err := storage.NewDefaultPieceCompletionForDir(cacheDir)
 	if err != nil {
-		logWrite("DownloadBT 初始化 PieceCompletion 失败: err=%v", err)
-		return fmt.Errorf("创建 PieceCompletion 失败: %w", err)
+		return "", fmt.Errorf("创建 PieceCompletion 失败: %w", err)
 	}
 
 	cfg := torrent.NewDefaultClientConfig()
@@ -83,8 +175,9 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 	cfg.NoUpload = false          // 按需上传
 	cfg.DownloadRateLimiter = nil // 不限速
 
+	// 关键：DefaultStorage 的 ClientBaseDir 指向 dataDir（真实落盘目录）
 	cfg.DefaultStorage = storage.NewFileOpts(storage.NewFileClientOpts{
-		ClientBaseDir: absDir,
+		ClientBaseDir: dataDir,
 
 		FilePathMaker: func(opts storage.FilePathMakerOpts) string {
 			info := opts.Info
@@ -115,9 +208,8 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 			if fi != nil {
 				comps := append([]string{info.BestName()}, fi.BestPath()...)
 				// 防止 .. 之类逃出目录
-				safe, err := storage.ToSafeFilePath(comps...)
-				if err != nil {
-					// 出问题就退回普通拼接
+				safe, e := storage.ToSafeFilePath(comps...)
+				if e != nil {
 					return filepath.Join(comps...)
 				}
 				return safe
@@ -126,6 +218,7 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 			return info.BestName()
 		},
 
+		// 不额外创建子目录（因为我们已经用 infohash 隔离了 dataDir）
 		TorrentDirMaker: func(baseDir string, info *metainfo.Info, ih metainfo.Hash) string {
 			return baseDir
 		},
@@ -139,15 +232,13 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 
 	cl, err := torrent.NewClient(cfg)
 	if err != nil {
-		logWrite("DownloadBT 创建客户端失败: err=%v", err)
-		return fmt.Errorf("创建 BT 客户端失败: %w", err)
+		return "", fmt.Errorf("创建 BT 客户端失败: %w", err)
 	}
 	defer cl.Close()
 
 	spec, err := torrent.TorrentSpecFromMagnetUri(magnet)
 	if err != nil {
-		logWrite("DownloadBT 解析磁力失败: err=%v", err)
-		return fmt.Errorf("解析 magnet 失败: %w", err)
+		return "", fmt.Errorf("解析 magnet 失败: %w", err)
 	}
 	if len(trackers) > 0 {
 		spec.Trackers = [][]string{trackers} // 所有 tracker 放在同一 tier
@@ -155,14 +246,13 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 
 	t, _, err := cl.AddTorrentSpec(spec)
 	if err != nil {
-		logWrite("DownloadBT 添加 torrent 失败: err=%v", err)
-		return fmt.Errorf("添加 torrent 失败: %w", err)
+		return "", fmt.Errorf("添加 torrent 失败: %w", err)
 	}
 
-	// 等待获取种子信息
+	// 等待获取种子信息（GotInfo 后才能确定文件结构/长度）
 	<-t.GotInfo()
 
-	// 并发连接数
+	// 并发连接数（可按需调优）
 	t.SetMaxEstablishedConns(512)
 
 	// 整个种子都下载
@@ -194,11 +284,11 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 			delta := done - lastDone
 			dt := now.Sub(lastTime).Seconds()
 			if dt > 0 && delta >= 0 {
-				bps := float64(delta) / dt // bytes per second
+				bps := float64(delta) / dt
 				if bps < 0 {
 					bps = 0
 				}
-				speed = int64(bps + 0.5) //B/s
+				speed = int64(bps + 0.5)
 			}
 		}
 		lastTime = now
@@ -213,7 +303,7 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 			break
 		}
 
-		time.Sleep(1000 * time.Millisecond) // 1000ms 回调
+		time.Sleep(1000 * time.Millisecond)
 	}
 
 	// 补100%
@@ -225,8 +315,15 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 		prog(100, 0, total, total)
 	}
 
-	return nil
+	// 关键：从 dataDir 中选出真正的输出文件路径并返回（不要猜 dstPath）
+	realPath, err := pickBTOutputFile(dataDir)
+	if err != nil {
+		return "", err
+	}
+	return realPath, nil
 }
+
+
 
 // loadTrackersWithFallback 函数。
 func loadTrackersWithFallback(urls []string, fallbackURL, localPath string) ([]string, error) {
