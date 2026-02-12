@@ -948,6 +948,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 			return "", id, fmt.Errorf("PE链接为空")
 		}
 
+		triedLink := false
 		for _, link := range it.Links {
 			link = strings.TrimSpace(link)
 			if link == "" {
@@ -1041,6 +1042,10 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 				}
 
 			} else {
+				if triedLink {
+					_ = Remove(wimPath+".part", false) // ✅切换链接清理
+				}
+				triedLink = true
 				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 				err := DownloadFile(ctx, link, wimPath, func(pct float64, speed int64) {
 					pr.Update(pct, speed)
@@ -1123,12 +1128,18 @@ func downloadPEFromLinks(links []string) (string, error) {
 		true,
 	)
 
+	triedLink := false
 	for _, link := range out {
 		if !httpStatus(link) {
 			logWrite("PE链接不可用：%s", link)
 			continue
 		}
 		logWrite("PE链接：%s\n", link)
+
+		if triedLink {
+			_ = Remove(wimPath+".part", false)
+		}
+		triedLink = true
 
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 		err := DownloadFile(ctx, link, wimPath, func(pct float64, speed int64) {

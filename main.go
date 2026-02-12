@@ -576,7 +576,7 @@ func GetBootMode() (int, int) {
 	if dirExists("tools\\BootMode.exe") != true {
 		return -1, -1
 	}
-	text, err := runCmd("tools\\BootMode.exe", nil, nil, "", "")
+	text, err := runCmd("tools\\BootMode.exe", nil, nil, "","")
 	if err != nil {
 		return -1, -1
 	}
