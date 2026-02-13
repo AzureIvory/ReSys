@@ -168,7 +168,11 @@ func StartInstall(target string) {
 	uiSetStatus("正在写入重装信息...")
 
 	if !retryLoop("写入重装信息", func() error {
-		return writeResFile(imgPath)
+		preferIndex := 0
+		if infos, err := detectImageInfos(imgPath); err == nil {
+			preferIndex = selectInstallIndex(infos)
+		}
+		return writeResFile(imgPath, target, imgArch, preferIndex)
 	}) {
 		return
 	}
@@ -186,7 +190,8 @@ func StartInstall(target string) {
 	uiSetProgress(100)
 	uiSetStatus("即将重启进入PE...")
 	logWrite("准备完成，重启进入PE")
-	Shutdown(true)
+	Message("准备进入pe,测试模式", "请查看日志确定无误后手动重启")
+	//Shutdown(true)
 }
 
 // 优先本地找镜像，找不到再下载。
@@ -1339,7 +1344,7 @@ func RunPEInstall() error {
 		}
 	}
 
-	targetRoot, diskPath, imagePath, volumeGuid, diskUniqueID, imageRel, err := loadResData()
+	targetRoot, diskPath, imagePath, volumeGuid, diskUniqueID, imageRel, savedTarget, savedArch, savedIndex, err := loadResData()
 	if err != nil {
 		logWrite("读取重装信息失败：%v", err)
 		targetRoot, diskPath, imagePath = "", "", ""
@@ -1352,18 +1357,25 @@ func RunPEInstall() error {
 			imagePath = resolved
 		}
 	}
-
+	t := strings.TrimSpace(savedTarget)
+	a := strings.TrimSpace(savedArch)
 	if imagePath == "" {
 		uiSetStatus("未找到重装镜像，尝试本地搜索...")
 		logWrite("尝试本地搜索镜像")
-		if local, lerr := findLocalImage("", ""); lerr == nil {
+		if local, lerr := findLocalImage(t, a); lerr == nil {
 			imagePath = local
 		}
 	}
 	if imagePath == "" {
+		if t == "" {
+			t = targetWin10
+		}
+		if a == "" {
+			a = "64"
+		}
 		uiSetStatus("未找到本地镜像，尝试下载Win10...")
 		logWrite("本地无镜像，尝试下载Win10")
-		if dl, derr := downloadImage(targetWin10, "64"); derr == nil {
+		if dl, derr := downloadImage(t, a); derr == nil {
 			imagePath = dl
 		} else {
 			return fmt.Errorf("未找到镜像且下载失败: %w", derr)
@@ -1511,7 +1523,9 @@ func RunPEInstall() error {
 	uiSetStatus("正在解析镜像...")
 	infos, err := detectImageInfos(imagePath)
 	index := 1
-	if err == nil {
+	if savedIndex > 0 {
+		index = savedIndex
+	} else if err == nil {
 		index = selectInstallIndex(infos)
 		logWrite("镜像索引列表：%s", formatImageInfos(infos))
 	}
@@ -1563,7 +1577,10 @@ func RunPEInstall() error {
 	}
 	logWrite("引导修复完成")
 
-	targetOS := detectTargetFromInfos(infos)
+	targetOS := strings.TrimSpace(savedTarget)
+	if targetOS == "" {
+		targetOS = detectTargetFromInfos(infos)
+	}
 	if targetOS == "" {
 		targetOS = targetWin10
 	}
@@ -1607,7 +1624,7 @@ func RunPEInstall() error {
 	uiSetStatus("安装完成，正在重启...")
 	uiSetProgress(100)
 	logWrite("PE安装流程完成，准备重启")
-	Message("安装完成,测试模式", "信息")
+	Message("安装完成,测试模式", "请查看日志确定无误后手动重启")
 	//Shutdown(true)
 	return nil
 }

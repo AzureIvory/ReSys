@@ -465,7 +465,7 @@ func hasISOInstallImage(entry *iso9660.File, base string) bool {
 }
 
 // 写入重装文件
-func writeResFile(imagePath string) error {
+func writeResFile(imagePath string, target, arch string, index int) error {
 	imagePath, _ = filepath.Abs(imagePath)
 	imageRoot, _ := NormalizeDrive(imagePath, 2)
 	var (
@@ -517,6 +517,16 @@ func writeResFile(imagePath string) error {
 	if imageRel != "" {
 		content += fmt.Sprintf("image_rel=%s\n", imageRel)
 	}
+
+	if target != "" {
+		content += fmt.Sprintf("target=%s\n", target)
+	}
+	if arch != "" {
+		content += fmt.Sprintf("arch=%s\n", arch)
+	}
+	if index > 0 {
+		content += fmt.Sprintf("index=%d\n", index)
+	}
 	if err := os.WriteFile(restallPath, []byte(content), 0o644); err != nil {
 		return err
 	}
@@ -530,42 +540,116 @@ func writeResFile(imagePath string) error {
 
 // 从所有盘符读取 restall_win.dat。
 // 返回：目标盘符、物理磁盘路径、镜像路径、卷 GUID、磁盘唯一 ID、镜像相对路径。
-func loadResData() (targetRoot string, diskPath string, imagePath string, volumeGuid string, diskUniqueID string, imageRel string, err error) {
+func loadResData() (targetRoot string, diskPath string, imagePath string, volumeGuid string, diskUniqueID string, imageRel string, targetOS string, arch string, index int, err error) {
 	drives, err := ListDrive()
 	if err != nil {
-		return "", "", "", "", "", "", err
+		return "", "", "", "", "", "", "", "", 0, err
 	}
-	for _, root := range drives {
-		cand := filepath.Join(root, "restall_win.dat")
-		if _, err := os.Stat(cand); err == nil {
-			targetRoot, _ = NormalizeDrive(root, 0)
-			b, err := os.ReadFile(cand)
-			if err != nil {
-				return targetRoot, "", "", "", "", "", err
-			}
-			lines := strings.Split(string(b), "\n")
-			for _, ln := range lines {
-				ln = strings.TrimSpace(ln)
-				if strings.HasPrefix(ln, "disk=") {
-					diskPath = strings.TrimSpace(strings.TrimPrefix(ln, "disk="))
-				}
-				if strings.HasPrefix(ln, "image=") {
-					imagePath = strings.TrimSpace(strings.TrimPrefix(ln, "image="))
-				}
-				if strings.HasPrefix(ln, "volume_guid=") {
-					volumeGuid = strings.TrimSpace(strings.TrimPrefix(ln, "volume_guid="))
-				}
-				if strings.HasPrefix(ln, "disk_unique_id=") {
-					diskUniqueID = strings.TrimSpace(strings.TrimPrefix(ln, "disk_unique_id="))
-				}
-				if strings.HasPrefix(ln, "image_rel=") {
-					imageRel = strings.TrimSpace(strings.TrimPrefix(ln, "image_rel="))
-				}
-			}
-			return targetRoot, diskPath, imagePath, volumeGuid, diskUniqueID, imageRel, nil
+
+	type hit struct {
+		root  string
+		path  string
+		score int
+	}
+
+	var hits []hit
+	for _, d := range drives {
+		root, _ := NormalizeDrive(d, 0)
+		if root == "" {
+			continue
 		}
+		if strings.HasPrefix(strings.ToUpper(root), "X:") {
+			continue
+		}
+
+		cand := filepath.Join(root, "restall_win.dat")
+		if _, err := os.Stat(cand); err != nil {
+			continue
+		}
+
+		score := 0
+
+		// 固定盘更可信
+		if GetDriveType(root) == driveFixed {
+			score += 10
+		}
+
+		kind, _ := GetDiskKind(root)
+		if kind == "SSD" {
+			score += 30
+		} else if kind == "HDD" {
+			score += 20
+		} else if kind == "Removable" {
+			score -= 50
+		}
+
+		// 有离线Windows说明这盘更可能就是要重装的系统盘
+		if _, werr := DetectWin(root); werr == nil {
+			score += 100
+		}
+
+		hits = append(hits, hit{root: root, path: cand, score: score})
 	}
-	return "", "", "", "", "", "", fmt.Errorf("未找到 restall_win.dat")
+
+	if len(hits) == 0 {
+		return "", "", "", "", "", "", "", "", 0, fmt.Errorf("未找到 restall_win.dat")
+	}
+
+	// 选 score 最大的那个；如果读失败再尝试下一个
+	for {
+		bestIdx := -1
+		bestScore := -1
+		for i := range hits {
+			if hits[i].score > bestScore {
+				bestScore = hits[i].score
+				bestIdx = i
+			}
+		}
+		if bestIdx < 0 {
+			break
+		}
+		h := hits[bestIdx]
+		// 从列表移除，避免死循环
+		hits = append(hits[:bestIdx], hits[bestIdx+1:]...)
+
+		b, rerr := os.ReadFile(h.path)
+		if rerr != nil {
+			logWrite("读取 %s 失败：%v，尝试下一个", h.path, rerr)
+			if len(hits) == 0 {
+				return "", "", "", "", "", "", "", "", 0, rerr
+			}
+			continue
+		}
+
+		targetRoot = h.root
+
+		for _, ln := range strings.Split(string(b), "\n") {
+			ln = strings.TrimSpace(ln)
+			if strings.HasPrefix(ln, "disk=") {
+				diskPath = strings.TrimSpace(strings.TrimPrefix(ln, "disk="))
+			} else if strings.HasPrefix(ln, "image=") {
+				imagePath = strings.TrimSpace(strings.TrimPrefix(ln, "image="))
+			} else if strings.HasPrefix(ln, "volume_guid=") {
+				volumeGuid = strings.TrimSpace(strings.TrimPrefix(ln, "volume_guid="))
+			} else if strings.HasPrefix(ln, "disk_unique_id=") {
+				diskUniqueID = strings.TrimSpace(strings.TrimPrefix(ln, "disk_unique_id="))
+			} else if strings.HasPrefix(ln, "image_rel=") {
+				imageRel = strings.TrimSpace(strings.TrimPrefix(ln, "image_rel="))
+			} else if strings.HasPrefix(ln, "target=") {
+				targetOS = strings.TrimSpace(strings.TrimPrefix(ln, "target="))
+			} else if strings.HasPrefix(ln, "arch=") {
+				arch = strings.TrimSpace(strings.TrimPrefix(ln, "arch="))
+			} else if strings.HasPrefix(ln, "index=") {
+				if v, e := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(ln, "index="))); e == nil {
+					index = v
+				}
+			}
+		}
+
+		return targetRoot, diskPath, imagePath, volumeGuid, diskUniqueID, imageRel, targetOS, arch, index, nil
+	}
+
+	return "", "", "", "", "", "", "", "", 0, fmt.Errorf("读取 restall_win.dat 失败")
 }
 
 // 根据 restall 信息定位镜像：
@@ -1246,8 +1330,10 @@ func applyPEBoot(best peCand) error {
 	out, er2 := runCmd(regPath, nil, nil, "", "query", `HKLM\SYSTEM\CurrentControlSet\Control`, "/v", "PEFirmwareType")
 	if er2 != nil && (errors.Is(er2, os.ErrNotExist) || errors.Is(er2, exec.ErrNotFound)) {
 		if exe, e := os.Executable(); e == nil {
+			//todo 这个写入注册表容易报错
 			out, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "reg"), nil, nil, "", "query",
 				`HKLM\SYSTEM\CurrentControlSet\Control`, "/v", "PEFirmwareType")
+			logWrite("tools applyPEBoot():HKLM\\SYSTEM\\CurrentControlSet\\Control:" + err.Error())
 		}
 	}
 	if er2 == nil {
