@@ -1317,32 +1317,63 @@ func applyPEBoot(best peCand) error {
 	}
 
 	// BIOS/UEFI
-	fw := 0
-	windir = os.Getenv("SystemRoot")
-	if windir == "" {
-		windir = os.Getenv("WINDIR")
+	fw := 0 // 1=BIOS 2=UEFI
+
+	if t, e := GetFwType(); e == nil {
+		// 1=BIOS 2=UEFI 0=Unknown
+		if t == 1 || t == 2 {
+			fw = int(t)
+		}
+	} else {
+		logWrite("applyPEBoot: GetFwType 失败，走其他方案: %v", e)
 	}
-	isWow64 = runtime.GOARCH == "386" && os.Getenv("PROCESSOR_ARCHITEW6432") != ""
-	regPath := filepath.Join(windir, "System32", "reg.exe")
-	if isWow64 {
-		regPath = filepath.Join(windir, "Sysnative", "reg.exe")
-	}
-	out, er2 := runCmd(regPath, nil, nil, "", "query", `HKLM\SYSTEM\CurrentControlSet\Control`, "/v", "PEFirmwareType")
-	if er2 != nil && (errors.Is(er2, os.ErrNotExist) || errors.Is(er2, exec.ErrNotFound)) {
-		if exe, e := os.Executable(); e == nil {
-			//todo 这个写入注册表容易报错
-			out, err = runCmd(filepath.Join(filepath.Dir(exe), "tools", "reg"), nil, nil, "", "query",
-				`HKLM\SYSTEM\CurrentControlSet\Control`, "/v", "PEFirmwareType")
-			logWrite("tools applyPEBoot():HKLM\\SYSTEM\\CurrentControlSet\\Control:" + err.Error())
+
+	// WinPE 注册表 PEFirmwareType（可能不存在；不存在时 reg 会 exit 1）
+	if fw == 0 {
+		windir = os.Getenv("SystemRoot")
+		if windir == "" {
+			windir = os.Getenv("WINDIR")
+		}
+		isWow64 = runtime.GOARCH == "386" && os.Getenv("PROCESSOR_ARCHITEW6432") != ""
+
+		regPath := filepath.Join(windir, "System32", "reg.exe")
+		if isWow64 {
+			regPath = filepath.Join(windir, "Sysnative", "reg.exe")
+		}
+
+		// 有些 WinPE 需要先 UpdateBootInfo 才会写出 PEFirmwareType
+		wpeutilPath := filepath.Join(windir, "System32", "wpeutil.exe")
+		if isWow64 {
+			wpeutilPath = filepath.Join(windir, "Sysnative", "wpeutil.exe")
+		}
+		if _, stErr := os.Stat(wpeutilPath); stErr == nil {
+			_, _ = runCmd(wpeutilPath, nil, nil, "", "UpdateBootInfo")
+		}
+
+		regOut, er2 := runCmd(regPath, nil, nil, "", "query",
+			`HKLM\SYSTEM\CurrentControlSet\Control`, "/v", "PEFirmwareType")
+
+		if er2 == nil {
+			r2 := regexp.MustCompile(`(?i)0x([0-9a-f]+)`)
+			m3 := r2.FindStringSubmatch(regOut)
+			if len(m3) >= 2 {
+				if v, e3 := strconv.ParseInt(m3[1], 16, 32); e3 == nil {
+					if v == 1 || v == 2 {
+						fw = int(v)
+					}
+				}
+			}
+		} else {
+			logWrite("applyPEBoot: PEFirmwareType 不可用(忽略): %v", er2)
 		}
 	}
-	if er2 == nil {
-		r2 := regexp.MustCompile(`(?i)0x([0-9a-f]+)`)
-		m3 := r2.FindStringSubmatch(out)
-		if len(m3) >= 2 {
-			if v, e3 := strconv.ParseInt(m3[1], 16, 32); e3 == nil {
-				fw = int(v) // 1=BIOS 2=UEFI
-			}
+
+	// 用 bcdedit 判断 {fwbootmgr}（UEFI 通常存在）
+	if fw == 0 {
+		if _, e := runCmd(bcdeditPath, nil, nil, "", "/enum", "{fwbootmgr}"); e == nil {
+			fw = 2
+		} else {
+			fw = 1
 		}
 	}
 
