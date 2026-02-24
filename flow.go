@@ -54,10 +54,19 @@ func desiredArch() string {
 	if version == 11 {
 		return "64"
 	}
-	if systemArch() == "64" {
-		return "64"
+
+	// 调用 tools.go 中的 GetMemory 获取物理内存
+	mem, err := GetMemory()
+	if err == nil {
+		// 判断是否小于 4GB
+		if mem < 4294967296 {
+			return "32"
+		}
+		return "64" // >= 4GB
 	}
-	return "32"
+
+	// 获取失败默认 64 位
+	return "64"
 }
 
 // 从 UI 入口启动安装流程。
@@ -119,6 +128,7 @@ func StartInstall(target string) {
 
 			logWrite("转移镜像到其它分区：%s -> %s", imgPath, dstPath)
 			if err := Copy(imgPath, dstPath, true, true); err != nil {
+				os.Remove(dstPath)
 				return err
 			}
 			if _, err := os.Stat(dstPath); err != nil {
@@ -146,6 +156,7 @@ func StartInstall(target string) {
 		dstPath := filepath.Join(dstDir, filepath.Base(imgPath))
 		logWrite("转移镜像到TEMP：%s -> %s", imgPath, dstPath)
 		if err := Copy(imgPath, dstPath, true, true); err != nil {
+			os.Remove(dstPath)
 			return err
 		}
 		if _, err := os.Stat(dstPath); err != nil {
@@ -191,7 +202,7 @@ func StartInstall(target string) {
 	uiSetStatus("即将重启进入PE...")
 	logWrite("准备完成，重启进入PE")
 	Message("准备进入pe,测试模式", "请查看日志确定无误后手动重启")
-	//Shutdown(true)
+	Shutdown(true)
 }
 
 // 优先本地找镜像，找不到再下载。
