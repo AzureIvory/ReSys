@@ -32,7 +32,9 @@ var icoWin11 []byte
 var waitGIF []byte
 
 const drawTextAutoLen = uintptr(^uint32(0)) // 0xFFFFFFFF，相当于 int32(-1)
-
+const LOGPIXELSY = 90                       // 用于获取垂直方向的逻辑 DPI
+// 全局缩放比例
+var dpiScale float64 = 1.0
 var (
 	user32  = windows.NewLazySystemDLL("user32.dll")
 	gdi32   = windows.NewLazySystemDLL("gdi32.dll")
@@ -101,9 +103,11 @@ var (
 
 	procSystemParametersInfoW = user32.NewProc("SystemParametersInfoW")
 
+	//dpi
 	shcore                            = windows.NewLazySystemDLL("shcore.dll")          // 设置显示 Dpi
 	procSetProcessDpiAwarenessContext = user32.NewProc("SetProcessDpiAwarenessContext") // Win10 1607+
 	procSetProcessDpiAwareness        = shcore.NewProc("SetProcessDpiAwareness")        // Win8.1+
+	procGetDeviceCaps                 = gdi32.NewProc("GetDeviceCaps")
 )
 
 const (
@@ -369,17 +373,30 @@ func initFontSmoothing() {
 
 // DPI
 func initDPI() {
-	// 尝试 Win10/11 的 Per-Monitor V2 (最清晰)
-	// DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4
-	r, _, _ := procSetProcessDpiAwarenessContext.Call(uintptr(uint32(0xFFFFFFFC)))
-	if r != 0 {
-		return
-	}
-	// 降级尝试 Win8.1
-	// PROCESS_PER_MONITOR_DPI_AWARE = 2
-	procSetProcessDpiAwareness.Call(2)
-	// 最后尝试老式 API
+	// 不要强制拉伸界面导致模糊
 	procSetProcessDPIAware.Call()
+
+	// 获取屏幕设备上下文
+	hdc, _, _ := procGetDC.Call(0)
+	if hdc != 0 {
+		// 获取当前系统的 DPI 值（标准为 96，175% 时为 168）
+		dpi, _, _ := procGetDeviceCaps.Call(hdc, uintptr(LOGPIXELSY))
+		if dpi > 0 {
+			dpiScale = float64(dpi) / 96.0
+		}
+		// 释放设备上下文
+		procReleaseDC.Call(0, hdc)
+	}
+}
+
+// 将设计像素转换为实际物理像素
+func scale(v int) int {
+	return int(float64(v) * dpiScale)
+}
+
+// int32
+func scale32(v int32) int32 {
+	return int32(float64(v) * dpiScale)
 }
 
 // getHInstance 函数。
@@ -757,11 +774,10 @@ func makeFont(height int32, weight int32, _ string) windows.Handle {
 	faceName := "Microsoft YaHei UI"
 
 	var lf LOGFONTW
-	lf.Height = -height
+	lf.Height = -scale32(height)
 	lf.Weight = weight
 	lf.CharSet = 1 // DEFAULT_CHARSET
 
-	// 这里保持原逻辑（强制 5），不改动你的风格
 	lf.Quality = 5
 
 	f := windows.StringToUTF16(faceName)
@@ -1352,18 +1368,16 @@ var wndProc = windows.NewCallback(func(hwnd uintptr, msg uint32, wParam, lParam 
 func Uiinit() {
 	runtime.LockOSThread()
 	initDPI()
-	initScale() // 计算缩放比例
-	procSetProcessDPIAware.Call()
 	initFontSmoothing()
 
 	var err error
-	ui.iconApp, err = icoToHICON(icoApp, 32)
+	ui.iconApp, err = icoToHICON(icoApp, scale32(32))
 	if err != nil {
 		ui.iconApp = 0
 	}
-	ui.icon7, _ = icoToHICON(icoWin7, 48)
-	ui.icon10, _ = icoToHICON(icoWin10, 48)
-	ui.icon11, _ = icoToHICON(icoWin11, 48)
+	ui.icon7, _ = icoToHICON(icoWin7, scale32(48))
+	ui.icon10, _ = icoToHICON(icoWin10, scale32(48))
+	ui.icon11, _ = icoToHICON(icoWin11, scale32(48))
 
 	ui.frames, _ = decodeGIFFrames(waitGIF)
 
@@ -1401,8 +1415,7 @@ func Uiinit() {
 	var wa RECT
 	procSystemParametersInfoW.Call(SPI_GETWORKAREA, 0, uintptr(unsafe.Pointer(&wa)), 0)
 
-	// 目标客户区大小仍然是 600x400
-	clientW, clientH := int32(600), int32(400)
+	clientW, clientH := scale32(600), scale32(400)
 
 	// 把客户区尺寸换算成窗口外框尺寸（包含标题栏/边框）
 	rc := RECT{Left: 0, Top: 0, Right: clientW, Bottom: clientH}
@@ -1410,6 +1423,7 @@ func Uiinit() {
 	winW := rc.Right - rc.Left
 	winH := rc.Bottom - rc.Top
 
+	// 屏幕居中计算
 	x := wa.Left + (wa.Right-wa.Left-winW)/2
 	y := wa.Top + (wa.Bottom-wa.Top-winH)/2
 
@@ -1438,6 +1452,7 @@ func Uiinit() {
 	}
 
 	ui.mode.Store(int32(ModeSelect))
+
 	layoutSelect(clientW, clientH)
 
 	procShowWindow.Call(hwnd, SW_SHOW)

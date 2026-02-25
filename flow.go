@@ -202,7 +202,7 @@ func StartInstall(target string) {
 	uiSetStatus("即将重启进入PE...")
 	logWrite("准备完成，重启进入PE")
 	Message("准备进入pe,测试模式", "请查看日志确定无误后手动重启")
-	Shutdown(true)
+	//Shutdown(true)
 }
 
 // 优先本地找镜像，找不到再下载。
