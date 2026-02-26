@@ -13,7 +13,7 @@ ListImageInfos需要淘汰，换为GetNtdllVer实现
 显卡驱动卸载：https://github.com/Wagnard/display-drivers-uninstaller
 
 xp系列号：MRX3F-47B9T-2487J-KWKMF-RPWBY
-
+3BHMCUXNJVWZLJBA5I8LHF7YD1OM79EF
 set GOOS=windows
 
 set GOARCH=386

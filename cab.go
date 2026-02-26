@@ -1,3 +1,5 @@
+package main
+
 //! Windows Cabinet (.cab) 文件解压模块
 //!
 //! 使用 Windows SetupAPI (setupapi.dll) 的 SetupIterateCabinet 函数实现 .cab 文件解压。

@@ -614,9 +614,8 @@ func PE() int {
 
 // main 函数。
 func main() {
-	fmt.Println(GetMemory())
-	fmt.Println("asudh1")
-	os.Exit(1)
+	
+
 	if dism == "" {
 		dism = "dism.exe"
 	}

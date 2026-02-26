@@ -16,19 +16,19 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-//go:embed icon.ico
+//go:embed res/icon.ico
 var icoApp []byte
 
-//go:embed win7.ico
+//go:embed res/win7.ico
 var icoWin7 []byte
 
-//go:embed win10.ico
+//go:embed res/win10.ico
 var icoWin10 []byte
 
-//go:embed win11.ico
+//go:embed res/win11.ico
 var icoWin11 []byte
 
-//go:embed wait.gif
+//go:embed res/wait.gif
 var waitGIF []byte
 
 const drawTextAutoLen = uintptr(^uint32(0)) // 0xFFFFFFFF，相当于 int32(-1)
