@@ -323,8 +323,6 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 	return realPath, nil
 }
 
-
-
 // loadTrackersWithFallback 函数。
 func loadTrackersWithFallback(urls []string, fallbackURL, localPath string) ([]string, error) {
 	httpClient := &http.Client{
@@ -474,7 +472,7 @@ func findCurl() (string, error) {
 // - 若 .part 已存在，会尝试用 curl 的 -C - 续传；若服务器不支持 Range，会自动从头下载。
 func DownloadFile(ctx context.Context, url, dstPath string, progressCallback func(float64, int64)) error {
 	if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
-		logWrite("DownloadFile 创建目录失败: path=%s err=%v", dstPath, err)
+		logWrite(0, "[DownloadFile]DownloadFile 创建目录失败: path=%s err=%v", dstPath, err)
 		return fmt.Errorf("create dir: %w", err)
 	}
 	if progressCallback == nil {
@@ -485,7 +483,7 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 
 	curlPath, err := findCurl()
 	if err != nil {
-		logWrite("DownloadFile 未找到 curl: err=%v", err)
+		logWrite(0, "[DownloadFile]DownloadFile 未找到 curl: err=%v", err)
 		return err
 	}
 
@@ -634,13 +632,13 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 	for {
 		attempts++
 		if attempts > maxAttempts {
-			logWrite("DownloadFile 超过最大尝试次数: url=%s dst=%s", url, dstPath)
+			logWrite(0, "[DownloadFile]DownloadFile 超过最大尝试次数: url=%s dst=%s", url, dstPath)
 			return fmt.Errorf("下载失败: 超过最大尝试次数")
 		}
 
 		err := runCurl(withResume)
 		if err != nil {
-			logWrite("DownloadFile curl失败: url=%s dst=%s err=%v", url, dstPath, err)
+			logWrite(0, "[DownloadFile]DownloadFile curl失败: url=%s dst=%s err=%v", url, dstPath, err)
 			if withResume {
 				_ = os.Remove(tmpPath)
 			}
@@ -658,7 +656,7 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 		// 从头下载
 		st, statErr := os.Stat(dstPath)
 		if statErr != nil {
-			logWrite("DownloadFile Stat失败: path=%s err=%v", dstPath, statErr)
+			logWrite(0, "[DownloadFile]DownloadFile Stat失败: path=%s err=%v", dstPath, statErr)
 			return fmt.Errorf("stat %s 失败: %w", dstPath, statErr)
 		}
 
@@ -668,13 +666,13 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 
 		if st.Size() > total {
 			_ = Remove(dstPath, false)
-			logWrite("DownloadFile 大小异常: got=%d expect=%d url=%s", st.Size(), total, url)
+			logWrite(0, "[DownloadFile]DownloadFile 大小异常: got=%d expect=%d url=%s", st.Size(), total, url)
 			return fmt.Errorf("下载文件大小异常: got=%d expect=%d", st.Size(), total)
 		}
 
 		// 小于预期大小，尝试继续下载
 		if err := os.Rename(dstPath, tmpPath); err != nil {
-			logWrite("DownloadFile 续传准备失败: path=%s err=%v", dstPath, err)
+			logWrite(0, "[DownloadFile]DownloadFile 续传准备失败: path=%s err=%v", dstPath, err)
 			return fmt.Errorf("续传准备失败: %w", err)
 		}
 		hasPart = true

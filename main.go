@@ -26,12 +26,12 @@ var ImageProgress func(phase string, percent float64, raw string)
 func shellExecuteVerb(path string, verb string) error {
 	pPath, err := syscall.UTF16PtrFromString(path)
 	if err != nil {
-		logWrite("shellExecuteVerb 路径编码失败: path=%s err=%v", path, err)
+		logWrite(0, "[shellExecuteVerb]shellExecuteVerb 路径编码失败: path=%s err=%v", path, err)
 		return err
 	}
 	pVerb, err := syscall.UTF16PtrFromString(verb)
 	if err != nil {
-		logWrite("shellExecuteVerb 动作编码失败: verb=%s err=%v", verb, err)
+		logWrite(0, "[shellExecuteVerb]shellExecuteVerb 动作编码失败: verb=%s err=%v", verb, err)
 		return err
 	}
 
@@ -46,10 +46,10 @@ func shellExecuteVerb(path string, verb string) error {
 	// 返回值 <= 32 代表失败
 	if r <= 32 {
 		if callErr != nil && callErr != syscall.Errno(0) {
-			logWrite("shellExecuteVerb 调用失败: path=%s verb=%s err=%v", path, verb, callErr)
+			logWrite(0, "[shellExecuteVerb]shellExecuteVerb 调用失败: path=%s verb=%s err=%v", path, verb, callErr)
 			return fmt.Errorf("ShellExecuteW failed: ret=%d err=%w", r, callErr)
 		}
-		logWrite("shellExecuteVerb 调用失败: path=%s verb=%s ret=%d", path, verb, r)
+		logWrite(0, "[shellExecuteVerb]shellExecuteVerb 调用失败: path=%s verb=%s ret=%d", path, verb, r)
 		return fmt.Errorf("ShellExecuteW failed: ret=%d", r)
 	}
 	return nil
@@ -58,14 +58,14 @@ func shellExecuteVerb(path string, verb string) error {
 // 使用ShellExecute挂载ISO，返回新挂载的光驱盘符
 func MountISO(isoPath string, wait time.Duration) (string, error) {
 	if _, err := os.Stat(isoPath); err != nil {
-		logWrite("MountISO ISO不存在: path=%s err=%v", isoPath, err)
+		logWrite(0, "[MountISO]MountISO ISO不存在: path=%s err=%v", isoPath, err)
 		return "", fmt.Errorf("iso not found: %w", err)
 	}
 
 	// 记录现有CD盘符
 	before, err := ListCD()
 	if err != nil {
-		logWrite("MountISO 获取CD盘符失败: err=%v", err)
+		logWrite(0, "[MountISO]MountISO 获取CD盘符失败: err=%v", err)
 		return "", fmt.Errorf("list cdrom before mount: %w", err)
 	}
 	beforeSet := make(map[string]struct{}, len(before))
@@ -75,7 +75,7 @@ func MountISO(isoPath string, wait time.Duration) (string, error) {
 
 	if err := shellExecuteVerb(isoPath, "mount"); err != nil {
 		if err2 := shellExecuteVerb(isoPath, "open"); err2 != nil {
-			logWrite("MountISO 执行挂载失败: mountErr=%v openErr=%v", err, err2)
+			logWrite(0, "[MountISO]MountISO 执行挂载失败: mountErr=%v openErr=%v", err, err2)
 			return "", fmt.Errorf("mount/open iso failed: %v / %v", err, err2)
 		}
 	}
@@ -87,7 +87,7 @@ func MountISO(isoPath string, wait time.Duration) (string, error) {
 
 		now, err := ListCD()
 		if err != nil {
-			logWrite("MountISO 获取CD盘符失败: err=%v", err)
+			logWrite(0, "[MountISO]MountISO 获取CD盘符失败: err=%v", err)
 			continue
 		}
 		for _, d := range now {
@@ -103,19 +103,19 @@ func MountISO(isoPath string, wait time.Duration) (string, error) {
 // 将ISO的内容解包到指定目录
 func UnpackISO(isoPath, dstDir string) error {
 	if err := os.MkdirAll(dstDir, 0755); err != nil {
-		logWrite("UnpackISO 创建目录失败: dir=%s err=%v", dstDir, err)
+		logWrite(0, "[UnpackISO]UnpackISO 创建目录失败: dir=%s err=%v", dstDir, err)
 		return fmt.Errorf("create dst dir: %w", err)
 	}
 
 	f, err := os.Open(isoPath)
 	if err != nil {
-		logWrite("UnpackISO 打开ISO失败: path=%s err=%v", isoPath, err)
+		logWrite(0, "[UnpackISO]UnpackISO 打开ISO失败: path=%s err=%v", isoPath, err)
 		return fmt.Errorf("open iso: %w", err)
 	}
 	defer f.Close()
 
 	if err := util.ExtractImageToDirectory(f, dstDir); err != nil {
-		logWrite("UnpackISO 解包失败: path=%s dir=%s err=%v", isoPath, dstDir, err)
+		logWrite(0, "[UnpackISO]UnpackISO 解包失败: path=%s dir=%s err=%v", isoPath, dstDir, err)
 		return fmt.Errorf("extract iso: %w", err)
 	}
 	return nil
@@ -231,7 +231,7 @@ func runCmd(bin string, input []byte, onLine func(string), dir string, args ...s
 	}
 
 	if err != nil {
-		logWrite("runCmd 执行失败: bin=%s args=%v err=%v", bin, args, err)
+		logWrite(0, "[runCmd]runCmd 执行失败: bin=%s args=%v err=%v", bin, args, err)
 		return out, fmt.Errorf("%s %v failed: %w\n%s", bin, args, err, out)
 	}
 	return out, nil
@@ -614,7 +614,6 @@ func PE() int {
 
 // main 函数。
 func main() {
-	
 
 	if dism == "" {
 		dism = "dism.exe"
@@ -624,6 +623,6 @@ func main() {
 	if strings.ToUpper(os.Getenv("SystemRoot")) == `X:\WINDOWS` {
 		go PE()
 	}
-	logWrite("Run\n")
+	logWrite(0, "[main]Run\n")
 	UiRun()
 }

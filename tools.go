@@ -46,7 +46,7 @@ func GetDism() (string, error) {
 
 	localPath := filepath.Join(baseDir, "tools", subDir, "dism.exe")
 	if fileExists(localPath) {
-		logWrite("[GetDism] 找到本地 DISM: %s\n", localPath)
+		logWrite(0, "[GetDism] 找到本地 DISM: %s\n", localPath)
 		return localPath, nil
 	}
 
@@ -59,14 +59,14 @@ func GetDism() (string, error) {
 		}
 		for _, p := range pePaths {
 			if fileExists(p) {
-				logWrite("[GetDism] 找到 PE 环境 DISM: %s\n", p)
+				logWrite(0, "[GetDism] 找到 PE 环境 DISM: %s\n", p)
 				return p, nil
 			}
 		}
 	}
 
 	if sysDism, err := exec.LookPath("dism.exe"); err == nil {
-		logWrite("[GetDism] 使用系统 PATH 中的 DISM: %s\n", sysDism)
+		logWrite(0, "[GetDism] 使用系统 PATH 中的 DISM: %s\n", sysDism)
 		return sysDism, nil
 	}
 
@@ -89,7 +89,7 @@ func GetDism() (string, error) {
 
 		for _, p := range sysPaths {
 			if fileExists(p) {
-				logWrite("[GetDism] 找到系统 DISM: %s\n", p)
+				logWrite(0, "[GetDism] 找到系统 DISM: %s\n", p)
 				return p, nil
 			}
 		}
@@ -668,7 +668,7 @@ func loadResData() (targetRoot string, diskPath string, imagePath string, volume
 
 		b, rerr := os.ReadFile(h.path)
 		if rerr != nil {
-			logWrite("读取 %s 失败：%v，尝试下一个", h.path, rerr)
+			logWrite(0, "[loadResData]读取 %s 失败：%v，尝试下一个", h.path, rerr)
 			if len(hits) == 0 {
 				return "", "", "", "", "", "", "", "", 0, rerr
 			}
@@ -713,7 +713,7 @@ func resolveImagePath(diskPath, volumeGuid, diskUniqueID, imagePath, imageRel st
 		if _, err := os.Stat(imagePath); err == nil {
 			return imagePath, nil
 		}
-		logWrite("restall镜像路径不可用：%s", imagePath)
+		logWrite(0, "[resolveImagePath]restall镜像路径不可用：%s", imagePath)
 	}
 
 	base := filepath.Base(imagePath)
@@ -755,7 +755,7 @@ func resolveImagePath(diskPath, volumeGuid, diskUniqueID, imagePath, imageRel st
 	if volumeGuid != "" {
 		vols, err := ListVolumes()
 		if err != nil {
-			logWrite("读取卷GUID失败：%v", err)
+			logWrite(0, "[resolveImagePath]读取卷GUID失败：%v", err)
 		} else {
 			for _, v := range vols {
 				if strings.EqualFold(strings.TrimRight(v.VolumeGuidPath, `\`), strings.TrimRight(volumeGuid, `\`)) {
@@ -766,7 +766,7 @@ func resolveImagePath(diskPath, volumeGuid, diskUniqueID, imagePath, imageRel st
 					if cand, ok := tryRoot(root); ok {
 						return cand, nil
 					}
-					logWrite("卷GUID匹配但未找到镜像：%s", volumeGuid)
+					logWrite(0, "[resolveImagePath]卷GUID匹配但未找到镜像：%s", volumeGuid)
 					break
 				}
 			}
@@ -778,7 +778,7 @@ func resolveImagePath(diskPath, volumeGuid, diskUniqueID, imagePath, imageRel st
 
 		disks, err := ListPhysicalDisks()
 		if err != nil {
-			logWrite("读取物理磁盘唯一ID失败：%v", err)
+			logWrite(0, "[resolveImagePath]读取物理磁盘唯一ID失败：%v", err)
 		} else {
 			for _, d := range disks {
 				if strings.EqualFold(strings.TrimSpace(d.UniqueId), diskUniqueID) {
@@ -788,9 +788,9 @@ func resolveImagePath(diskPath, volumeGuid, diskUniqueID, imagePath, imageRel st
 								return cand, nil
 							}
 						}
-						logWrite("物理磁盘唯一ID匹配但未找到镜像：%s", diskUniqueID)
+						logWrite(0, "[resolveImagePath]物理磁盘唯一ID匹配但未找到镜像：%s", diskUniqueID)
 					} else {
-						logWrite("物理磁盘唯一ID匹配但分区读取失败：%s err=%v", diskUniqueID, err)
+						logWrite(0, "[resolveImagePath]物理磁盘唯一ID匹配但分区读取失败：%s err=%v", diskUniqueID, err)
 					}
 					break
 				}
@@ -806,9 +806,9 @@ func resolveImagePath(diskPath, volumeGuid, diskUniqueID, imagePath, imageRel st
 					return cand, nil
 				}
 			}
-			logWrite("根据物理磁盘路径未找到镜像：%s", diskPath)
+			logWrite(0, "[resolveImagePath]根据物理磁盘路径未找到镜像：%s", diskPath)
 		} else if err != nil {
-			logWrite("读取物理磁盘路径失败：%s err=%v", diskPath, err)
+			logWrite(0, "[resolveImagePath]读取物理磁盘路径失败：%s err=%v", diskPath, err)
 		}
 	}
 
@@ -919,7 +919,7 @@ func Findpart() []string {
 	for _, c := range cs {
 		part = append(part, c.path)
 	}
-	logWrite("Findpart: %v", part)
+	logWrite(0, "[Findpart]Findpart: %v", part)
 	return part
 }
 
@@ -1297,7 +1297,7 @@ func ensureSdiByCopy(root string, sPatRel string, wAbs string) (sAbs string, sRe
 // applyPEBoot 函数。
 func applyPEBoot(best peCand) error {
 	lt, sdi, wim, nm := best.lt, best.sRel, best.wRel, best.nm
-	logWrite("PE:", nm, "DRV:", lt, "SDI:", sdi, "WIM:", wim)
+	logWrite(0, "[applyPEBoot]PE:", nm, "DRV:", lt, "SDI:", sdi, "WIM:", wim)
 
 	windir := os.Getenv("SystemRoot")
 	if windir == "" {
@@ -1369,7 +1369,7 @@ func applyPEBoot(best peCand) error {
 			fw = int(t)
 		}
 	} else {
-		logWrite("applyPEBoot: GetFwType 失败，走其他方案: %v", e)
+		logWrite(0, "[applyPEBoot]applyPEBoot: GetFwType 失败，走其他方案: %v", e)
 	}
 
 	// WinPE 注册表 PEFirmwareType（可能不存在；不存在时 reg 会 exit 1）
@@ -1408,7 +1408,7 @@ func applyPEBoot(best peCand) error {
 				}
 			}
 		} else {
-			logWrite("applyPEBoot: PEFirmwareType 不可用(忽略): %v", er2)
+			logWrite(0, "[applyPEBoot]applyPEBoot: PEFirmwareType 不可用(忽略): %v", er2)
 		}
 	}
 
@@ -1462,13 +1462,13 @@ func applyPEBoot(best peCand) error {
 func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 	customSdi, customWim, err := parseGoToPEArgs(paths)
 	if err != nil {
-		logWrite("GoToPE 参数解析失败：" + err.Error())
+		logWrite(0, "[GoToPE]GoToPE 参数解析失败："+err.Error())
 		return false, "", "", err
 	}
 
 	dvs, err := ListDrive()
 	if err != nil {
-		logWrite("GoToPE ListDrive失败：" + err.Error())
+		logWrite(0, "[GoToPE]GoToPE ListDrive失败："+err.Error())
 		return false, "", "", err
 	}
 
@@ -1491,7 +1491,7 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 
 	candByWim, allWims, err := collectPECands(dvs, opts, wantArch, customSdi, customWim)
 	if err != nil {
-		logWrite("GoToPE collectPECands失败: err=%v", err)
+		logWrite(0, "[GoToPE]GoToPE collectPECands失败: err=%v", err)
 		if scan {
 			return false, "", "", err
 		}
@@ -1502,7 +1502,7 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 		if scan {
 			return false, "", "", nil
 		}
-		logWrite("GoToPE 未找到PE引导文件")
+		logWrite(0, "[GoToPE]GoToPE 未找到PE引导文件")
 		return false, "", "", fmt.Errorf("未找到PE引导文件")
 	}
 
@@ -1512,7 +1512,7 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 		if scan {
 			return false, "", "", nil
 		}
-		logWrite("GoToPE 选优失败: bestWim=%s wantArch=%s", bestWim, wantArch)
+		logWrite(0, "[GoToPE]GoToPE 选优失败: bestWim=%s wantArch=%s", bestWim, wantArch)
 		return false, "", "", fmt.Errorf("chooseBestWim 选优失败")
 	}
 
@@ -1523,7 +1523,7 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 			best.sRel = sRel
 			candByWim[best.wAbs] = best
 		} else if !scan {
-			logWrite("GoToPE 自动补齐SDI失败: wim=%s err=%v", best.wAbs, e)
+			logWrite(0, "[GoToPE]GoToPE 自动补齐SDI失败: wim=%s err=%v", best.wAbs, e)
 			return true, best.wAbs, "", e
 		}
 	}
@@ -1533,12 +1533,12 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 	}
 
 	if best.sRel == "" {
-		logWrite("GoToPE 缺少SDI无法设置引导: wim=%s", best.wAbs)
+		logWrite(0, "[GoToPE]GoToPE 缺少SDI无法设置引导: wim=%s", best.wAbs)
 		return true, best.wAbs, best.sAbs, fmt.Errorf("找到WIM但仍缺少SDI，无法设置ramdisk引导：WIM=%s", best.wAbs)
 	}
 
 	if err := applyPEBoot(best); err != nil {
-		logWrite("GoToPE 设置引导失败: wim=%s sdi=%s err=%v", best.wAbs, best.sAbs, err)
+		logWrite(0, "[GoToPE]GoToPE 设置引导失败: wim=%s sdi=%s err=%v", best.wAbs, best.sAbs, err)
 		return false, "", "", err
 	}
 	return false, "", "", nil
@@ -1724,15 +1724,15 @@ func ensureTempVolumeForBytes(needBytes uint64) (string, error) {
 				marker := filepath.Join(root, tempMarkerRel)
 				_ = os.MkdirAll(filepath.Dir(marker), 0o755)
 				_ = os.WriteFile(marker, []byte(time.Now().Format(time.RFC3339)), 0o644)
-				logWrite("已使用未分配空间创建 TEMP 分区：%s", root)
+				logWrite(0, "[ensureTempVolumeForBytes]已使用未分配空间创建 TEMP 分区：%s", root)
 				return root, nil
 			}
 		} else {
-			logWrite("CreatePartitionFromFreeExtent失败：%v", err2)
+			logWrite(0, "[ensureTempVolumeForBytes]CreatePartitionFromFreeExtent失败：%v", err2)
 		}
 	} else {
 		if err != nil {
-			logWrite("PickFreeExtent未找到足够大的未分配段：%v", err)
+			logWrite(0, "[ensureTempVolumeForBytes]PickFreeExtent未找到足够大的未分配段：%v", err)
 		}
 	}
 
@@ -1760,7 +1760,7 @@ func ensureTempVolumeForBytes(needBytes uint64) (string, error) {
 	_ = os.MkdirAll(filepath.Dir(marker), 0o755)
 	_ = os.WriteFile(marker, []byte(time.Now().Format(time.RFC3339)), 0o644)
 
-	logWrite("已通过拆分C盘创建 TEMP 分区：%s", root)
+	logWrite(0, "[ensureTempVolumeForBytes]已通过拆分C盘创建 TEMP 分区：%s", root)
 	return root, nil
 }
 
