@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v3" manifestVersion="1.0">
+  <assemblyIdentity name="a90bcc3d5ba472b72fc640a71ec8c1e6" version="6.1.7601.23172" processorArchitecture="amd64" language="neutral" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+  <deployment />
+  <dependency discoverable="false">
+    <dependentAssembly dependencyType="install">
+      <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="ko-KR" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+    </dependentAssembly>
+  </dependency>
+</assembly>

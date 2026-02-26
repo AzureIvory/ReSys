@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v3" manifestVersion="1.0" description="Fix for KB2990941" displayName="default" company="Microsoft Corporation" copyright="Microsoft Corporation" supportInformation="http://support.microsoft.com/?kbid=2990941" creationTimeStamp="2014-09-29T18:42:49Z" lastUpdateTimeStamp="2014-09-29T18:42:49Z">
+  <assemblyIdentity name="Package_for_KB2990941_RTM" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+  <package identifier="KB2990941" applicabilityEvaluation="deep" releaseType="Hotfix" restart="possible">
+    <parent buildCompare="EQ" serviceCompare="EQ" integrate="separate" disposition="detect">
+      <assemblyIdentity name="Microsoft-Windows-WinPE-Package" version="6.1.7601.17514" processorArchitecture="amd64" language="neutral" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+      <assemblyIdentity name="WinPE-Setup-Package" language="neutral" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+    </parent>
+    <installerAssembly name="Microsoft-Windows-ServicingStack" version="6.0.0.0" language="neutral" processorArchitecture="amd64" versionScope="nonSxS" publicKeyToken="31bf3856ad364e35" />
+    <update name="2990941-250_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_1_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-251_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_2_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+  </package>
+</assembly>

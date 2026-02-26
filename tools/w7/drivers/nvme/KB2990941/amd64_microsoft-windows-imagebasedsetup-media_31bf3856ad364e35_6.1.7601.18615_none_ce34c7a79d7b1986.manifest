@@ -1,0 +1,290 @@
+﻿<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v3" manifestVersion="1.0" copyright="Copyright (c) Microsoft Corporation. All Rights Reserved.">
+  <assemblyIdentity name="Microsoft-Windows-ImageBasedSetup-Media" version="6.1.7601.18615" processorArchitecture="amd64" language="neutral" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS"></assemblyIdentity>
+  <dependency discoverable="no" resourceType="Resources">
+    <dependentAssembly dependencyType="prerequisite">
+      <assemblyIdentity name="Microsoft-Windows-ImageBasedSetup-Media.Resources" version="6.1.7601.18615" processorArchitecture="amd64" language="*" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS"></assemblyIdentity>
+    </dependentAssembly>
+  </dependency>
+  <file name="alert.gif" destinationPath="$(runtime.bootDrive)\sources\" sourceName="alert.gif" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>mcFkFqYi2vRgs9FaszJFBEbvmhuG2F1O3Utix3DELP0=</dsig:DigestValue></asmv2:hash></file>
+  <file name="appcompat.xsl" destinationPath="$(runtime.bootDrive)\sources\" sourceName="appcompat.xsl" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>0vcA2uMxndAece/L0DoREFNRs9sNF/XqSbgPfaIilxY=</dsig:DigestValue></asmv2:hash></file>
+  <file name="appcompat_bidi.xsl" destinationPath="$(runtime.bootDrive)\sources\" sourceName="appcompat_bidi.xsl" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>3Cv9DBrmjbONT0KzehjdsJFcUldk7N9Vlz5ZQwss2RI=</dsig:DigestValue></asmv2:hash></file>
+  <file name="appcompat_detailed_txt.xsl" destinationPath="$(runtime.bootDrive)\sources\" sourceName="appcompat_detailed_txt.xsl" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>dkODpDbgGduoL8oHxVsXz/S/tI0nNghLHHcFx1fwGaI=</dsig:DigestValue></asmv2:hash></file>
+  <file name="appcompat_detailed_bidi_txt.xsl" destinationPath="$(runtime.bootDrive)\sources\" sourceName="appcompat_detailed_bidi_txt.xsl" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>e2X+X3bRT60ZDCRDzYgPOoQtlm+oJnlgpo64LOLqr50=</dsig:DigestValue></asmv2:hash></file>
+  <file name="autorun.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="autorun.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>4qIzvjKNHBqfMqQbhSJ8Z9rngRHZZuh2j83o3Yj4lvU=</dsig:DigestValue></asmv2:hash></file>
+  <file name="arunres.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="arunres.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>QcSr5ZDrG7vVN2vrmv7yLNgS6OsmqvGdFWabC54eNUM=</dsig:DigestValue></asmv2:hash></file>
+  <file name="cmisetup.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="cmisetup.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>k/IBg4R1o27i4iwBe/BuetujRR1O/vAtq3pw5sQjJbM=</dsig:DigestValue></asmv2:hash></file>
+  <file name="compliance.ini" destinationPath="$(runtime.bootDrive)\sources\" sourceName="compliance.ini" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>kaXEai9aHbekJVPS3eZEIxB8Ksq3117hI9uaIYWe6Jc=</dsig:DigestValue></asmv2:hash></file>
+  <file name="diager.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="diager.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>M9HMaUFeS0QYyMmQkfKPIfeinlZs+S3Ey3YgdOq9Ubg=</dsig:DigestValue></asmv2:hash></file>
+  <file name="diagnostic.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="diagnostic.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>LtL7hoG1BizDh2OBIvfNyxnhZ7OLtPIkSsBjBWWS48U=</dsig:DigestValue></asmv2:hash></file>
+  <file name="dism.exe" destinationPath="$(runtime.bootDrive)\sources\" sourceName="dism.exe" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>5yUbUCJEFm26mEK+rpCso2KMGjlSLYh+ytknOOdaFZ8=</dsig:DigestValue></asmv2:hash></file>
+  <file name="dismcore.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="dismcore.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>756ghR50Lt7hGPX/FKHeKLodqGlhlJuI6m/fgH7trd0=</dsig:DigestValue></asmv2:hash></file>
+  <file name="dismcoreps.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="dismcoreps.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>KGLH5NQTmrh/zFoHpwmbQAB2hZuaNT7/rLXv4b9quSM=</dsig:DigestValue></asmv2:hash></file>
+  <file name="dismhost.exe" destinationPath="$(runtime.bootDrive)\sources\" sourceName="dismhost.exe" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>GVOuxccg2GuDk6qiWs9bNlLs9s1tGNtPLwy97U382dA=</dsig:DigestValue></asmv2:hash></file>
+  <file name="dismprov.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="dismprov.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>1oHBrNW+3u3gE6ArM0QlBvipahPWmbgU+DCUQKMbKk0=</dsig:DigestValue></asmv2:hash></file>
+  <file name="compatprovider.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="compatprovider.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>+NvGaK0W1L2NQE+JcSlM4vMyxN/ybQTDPKvFYwIqx4Q=</dsig:DigestValue></asmv2:hash></file>
+  <file name="ssshim.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="ssshim.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>XWF+LPtVKjlA7x+Vf/RX87XtgZKykzKWR4Wkb7zmiE8=</dsig:DigestValue></asmv2:hash></file>
+  <file name="drvmgrtn.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="drvmgrtn.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>i+hF7vtrJ3Hv7k7oLgVWg9gnbFQEpMKTA05okpBxLrA=</dsig:DigestValue></asmv2:hash></file>
+  <file name="du.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="du.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>+aRSaxxxRuTBJPyG8tc/nuMIcrC0RwbEZUneJ3KgTdU=</dsig:DigestValue></asmv2:hash></file>
+  <file name="folderprovider.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="folderprovider.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>+xVM3WVs5Gd/XxHCFBUVhn/mxFfn7Gfr40tcgdmaO+M=</dsig:DigestValue></asmv2:hash></file>
+  <file name="hwcompat.txt" destinationPath="$(runtime.bootDrive)\sources\" sourceName="hwcompat.txt" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>pmoqQA6OykH6OwZQj6SlRICO/XNVOtj5a86d4PihFds=</dsig:DigestValue></asmv2:hash></file>
+  <file name="hwexclude.txt" destinationPath="$(runtime.bootDrive)\sources\" sourceName="hwexclude.txt" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>2Ozn+INelDu0NSzWHWwhnuY7x15UfnTP+NFscT8QQ+E=</dsig:DigestValue></asmv2:hash></file>
+  <file name="idwbinfo.txt" destinationPath="$(runtime.bootDrive)\sources\" sourceName="idwbinfo.txt" importPath="$(build.nttree)\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>sUmf2jXr6o/z456B/R69clDIn8FS++FtgL36MSRM7qU=</dsig:DigestValue></asmv2:hash></file>
+  <file name="input.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="input.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>hPmFPa3z5tLLJp0XJcPrDIjv9EkG5hSBoRhHFsBE9g4=</dsig:DigestValue></asmv2:hash></file>
+  <file name="locale.nls" destinationPath="$(runtime.bootDrive)\sources\" sourceName="locale.nls" importPath="$(build.nttree)\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>iovCfgQZdY1Wbh4a3Ot0WKijGcXJPZF0bEHo5tcJ0CU=</dsig:DigestValue></asmv2:hash></file>
+  <file name="logprovider.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="logprovider.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>A3WhTD/MC8SQgiPr4lAkl8wjPVdNBLCozQbiXGJPyEk=</dsig:DigestValue></asmv2:hash></file>
+  <file name="msxml6.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="msxml6.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>eaLpRkg4M1ZRdlVph9QK061kUm9FOQVwra6JNOl7kUw=</dsig:DigestValue></asmv2:hash></file>
+  <file name="msxml6r.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="msxml6r.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>CyvTT4V31VFaTirudQxPRedYOTwKuanUMF0IoxjDNYg=</dsig:DigestValue></asmv2:hash></file>
+  <file name="ndiscompl.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="ndiscompl.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>0sXBqrqHtp6sUe2r36e9siuLy4qVz0ULsKUTx8aLCaQ=</dsig:DigestValue></asmv2:hash></file>
+  <file name="nlsbres.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="nlsbres.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>V2YI4fiPuMkA7XOHidL/bCWTM9I2cHNq0ytw8i6lIes=</dsig:DigestValue></asmv2:hash></file>
+  <file name="offline.xml" destinationPath="$(runtime.bootDrive)\sources\" sourceName="offline.xml" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>L7ZWyOi++0aGAixR3k/y8zJnnNXlLlvozMqhNEU/b+8=</dsig:DigestValue></asmv2:hash></file>
+  <file name="pidgenx.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="pidgenx.dll" importPath="$(build.nttree)\spp\bin\platform\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>4DtOXynPC5/rseWmmPLzCmez6jfGMUIB+EyfjydRc1E=</dsig:DigestValue></asmv2:hash></file>
+  <file name="pkeyconfig.xrm-ms" destinationPath="$(runtime.bootDrive)\sources\" sourceName="pkeyconfig.xrm-ms" importPath="$(build.nttree)\spp\tokens.raw\pkeyconfig\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>u5zVUHHvkI8x7fHlT5WxeqjvQ83qi+eIHAPKDHBe/e4=</dsig:DigestValue></asmv2:hash></file>
+  <file name="pnpibs.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="pnpibs.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>SMeFidzg2u7Q5v/ZLM8wIABEOBYriny0iqhamM5CuE8=</dsig:DigestValue></asmv2:hash></file>
+  <file name="rollback.exe" destinationPath="$(runtime.bootDrive)\sources\" sourceName="rollback.exe" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>oz9hXqroseMcaZ4EYE+ISEgEPl739QB1uXONuCOdedc=</dsig:DigestValue></asmv2:hash></file>
+  <file name="schema.dat" destinationPath="$(runtime.bootDrive)\sources\" sourceName="schema.dat" importPath="$(build.nttree)\WinPE_SMI_Manifests\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>fAm2VxzRKbGKggAZao+kJhaEvHThtTw2zzkqEvKbt/g=</dsig:DigestValue></asmv2:hash></file>
+  <file name="segoeui.ttf" destinationPath="$(runtime.bootDrive)\sources\" sourceName="segoeui.ttf" importPath="$(build.nttree)\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>gWmk/dK8WeHikLr+Fxaorqzl5zTQ42el5/dGKMNKiwg=</dsig:DigestValue></asmv2:hash></file>
+  <file name="setup.exe" destinationPath="$(runtime.bootDrive)\sources\" sourceName="setup.exe" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>d1TtO07W4GXJzpOiOAY397FiXSSMuP9sBELZ4/abTjI=</dsig:DigestValue></asmv2:hash></file>
+  <file name="hwcompat.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="hwcompat.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>WliwQNZIQQWm93OBdmDuVMhdth8RJc1IztMyaSi0HDs=</dsig:DigestValue></asmv2:hash></file>
+  <file name="sdbapiu.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="sdbapiu.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>JZT6Rk/soXeEiIk0+5KTGiOLC0+dxsW4W2l6tVRr4/U=</dsig:DigestValue></asmv2:hash></file>
+  <file name="upgreport.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="upgreport.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>SGEReTbQWmDIWDBRvKJ+vdjq9ydNpOL3q9WEtENYnoY=</dsig:DigestValue></asmv2:hash></file>
+  <file name="ntdsupg.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="ntdsupg.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>G/4eOVNIJ3hTOw9UPIZNa1rGCKr0G9drf2Ljy60ykSE=</dsig:DigestValue></asmv2:hash></file>
+  <file name="SmiEngine.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="SmiEngine.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>TfntjAER3/SmsJhwlFyE2243i29jI8J6jp0URRyHwKM=</dsig:DigestValue></asmv2:hash></file>
+  <file name="spflvrnt.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="spflvrnt.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>BKanlrkfe0Xt7dum2vVHEcQXg20W2KaK074EcjEKENo=</dsig:DigestValue></asmv2:hash></file>
+  <file name="spprgrss.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="spprgrss.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>djF+r/quA9SkICZtuhopkp/8/tkTRO2SFgriWMR8XPI=</dsig:DigestValue></asmv2:hash></file>
+  <file name="spwizeng.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="spwizeng.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>BOkaORiZ1U2m7IZrKNjJUUoZ96Ned+IX+IoYdDue7TM=</dsig:DigestValue></asmv2:hash></file>
+  <file name="spwizres.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="spwizres.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>onMvg7ukczf036SdV+2vOrfgbNS88Vr5vQjTNTdy5JU=</dsig:DigestValue></asmv2:hash></file>
+  <file name="sqmapi.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="sqmapi.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>WV7+4fmMZS/q06ZRcloSimF10SHXYcpjgZ9PBxX0wgs=</dsig:DigestValue></asmv2:hash></file>
+  <file name="unattend.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="unattend.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>lbQ/kG6hXweMxi0VCcpWI8nKSb21lklcH9aYppdLuo4=</dsig:DigestValue></asmv2:hash></file>
+  <file name="unbcl.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="unbcl.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>FHp7sWOVj6z3OZqoMyHcgS18VA+jCiuA/Cd1ciIh0zY=</dsig:DigestValue></asmv2:hash></file>
+  <file name="upgloader.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="upgloader.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>/DPMpdUhHTpU6PFcXfjo85WRTXW2E0jolKMyqLIzgMI=</dsig:DigestValue></asmv2:hash></file>
+  <file name="uxlib.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="uxlib.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>MbiKI9a5wzzhZAYRJMdPRTQhOSVjXqq8FXWMQTJEZSE=</dsig:DigestValue></asmv2:hash></file>
+  <file name="uxlibres.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="uxlibres.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>feECJe9a2p1xKTkSzWL2bicMiph23qiCuHJWmbuY9mY=</dsig:DigestValue></asmv2:hash></file>
+  <file name="w32uiimg.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="w32uiimg.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>/eIfnvSCMw/SClXZS7eVlWyeFviiwnGTbrWgTmV0Htk=</dsig:DigestValue></asmv2:hash></file>
+  <file name="w32uires.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="w32uires.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>Dj4jM5ee6TXSUS1mjd2CNI03nsoJ0ReFXo0aIJ5iXAM=</dsig:DigestValue></asmv2:hash></file>
+  <file name="warning.gif" destinationPath="$(runtime.bootDrive)\sources\" sourceName="warning.gif" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>QdVNIjQC1S4Mt3jtDhRO9rlluF1odKIyIt1JOYYWgHA=</dsig:DigestValue></asmv2:hash></file>
+  <file name="wdsclient.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="wdsclient.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>Hd7RpF9kOkxTGYLEikMBzLwFlnXiJ2Mi9bXWvUQZ+YU=</dsig:DigestValue></asmv2:hash></file>
+  <file name="wdsclientapi.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="wdsclientapi.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>RyC1fLe4kFFtMizMexWCcaD/+IjX3cY2KuLCDOq3xjQ=</dsig:DigestValue></asmv2:hash></file>
+  <file name="wdscore.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="wdscore.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>9sr05P5txvj2NgWIZzMOUbZbKFPipRSWEohtad8wOXg=</dsig:DigestValue></asmv2:hash></file>
+  <file name="wdscsl.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="wdscsl.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>Clho5i/SF0ML13C4BabNm2iEhGjcYQ3i1znHOHZsPcg=</dsig:DigestValue></asmv2:hash></file>
+  <file name="wdsimage.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="wdsimage.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>AA/eXR7GdUsZrWBI2PgIEl4ZPSv1DP5WwHFucPdQ2KM=</dsig:DigestValue></asmv2:hash></file>
+  <file name="wdstptc.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="wdstptc.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>HI2PBjepEppV8wjMq5/hmpS3hGlWLjVZB1sRW/qMG2g=</dsig:DigestValue></asmv2:hash></file>
+  <file name="wdsutil.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="wdsutil.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>WVZviVtAcvYvrT3OPj7c7pzN8FZDlE1fxNWKyx1wA50=</dsig:DigestValue></asmv2:hash></file>
+  <file name="win32ui.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="win32ui.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>sdA/ppUSQnZAoCavzISyIc7ysbnDroQnCL4f2drbYXc=</dsig:DigestValue></asmv2:hash></file>
+  <file name="winsetup.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="winsetup.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>dCWt0qACtRrH4aMxI0JfSAXGji5YjQaC70OsjyE3pe8=</dsig:DigestValue></asmv2:hash></file>
+  <file name="xmllite.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="xmllite.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>8pHEl2QwjtVJN+0RDUqQeLhkp/ehVV/O1j+thAuSONA=</dsig:DigestValue></asmv2:hash></file>
+  <file name="cryptosetup.dll" destinationPath="$(runtime.bootDrive)\sources\" sourceName="cryptosetup.dll" importPath="$(build.nttree)\setup\sources\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL"></securityDescriptor>
+    
+  <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><dsig:Transforms><dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity"></dsig:Transform></dsig:Transforms><dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256"></dsig:DigestMethod><dsig:DigestValue>AI8nryPuGR/IfZXs3YoXd9srnnZZOB9ebSNy9GqT/Uw=</dsig:DigestValue></asmv2:hash></file>
+  <trustInfo>
+    <security>
+      <accessControl>
+        <securityDescriptorDefinitions>
+          <securityDescriptorDefinition name="WRP_FILE_DEFAULT_SDDL" sddl="O:S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464G:S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464D:P(A;;FA;;;S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464)(A;;GRGX;;;BA)(A;;GRGX;;;SY)(A;;GRGX;;;BU)S:(AU;FASA;0x000D0116;;;WD)" operationHint="replace" description="Default SDDL for Windows Resource Protected file"></securityDescriptorDefinition>
+        </securityDescriptorDefinitions>
+      </accessControl>
+    </security>
+  </trustInfo>
+</assembly>

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v3" manifestVersion="1.0" description="Fix for KB3087873" displayName="default" company="Microsoft Corporation" copyright="Microsoft Corporation" supportInformation="http://support.microsoft.com/?kbid=3087873" creationTimeStamp="2015-08-14T17:42:02Z" lastUpdateTimeStamp="2015-08-14T17:42:02Z">
+	<assemblyIdentity name="Package_27_for_KB3087873_BF" version="6.1.2.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35"/>
+	<package identifier="KB3087873_BF" releaseType="Hotfix" restart="possible">
+		<parent buildCompare="EQ" serviceCompare="EQ" integrate="separate" disposition="detect">
+			<assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="bg-BG" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+			<assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="en-US" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+			<assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="et-EE" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+			<assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="hr-HR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+			<assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="lt-LT" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+			<assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="lv-LV" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+			<assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="ro-RO" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+			<assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="sk-SK" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+			<assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="sl-SI" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+			<assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="sr-Latn-CS" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+			<assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="th-TH" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+			<assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="uk-UA" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+			<assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="bg-BG" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+			<assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="en-US" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+			<assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="et-EE" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+			<assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="hr-HR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+			<assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="lt-LT" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+			<assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="lv-LV" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+			<assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="ro-RO" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+			<assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="sk-SK" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+			<assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="sl-SI" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+			<assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="sr-Latn-CS" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+			<assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="th-TH" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+			<assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="uk-UA" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+		</parent>
+		<installerAssembly name="Microsoft-Windows-ServicingStack" version="6.0.0.0" language="neutral" processorArchitecture="amd64" versionScope="nonSxS" publicKeyToken="31bf3856ad364e35"/>
+		<update name="3087873-27_neutral_LDR">
+			<applicable disposition="staged">
+				<updateComponent elevate="serviceLevel">
+					<assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="en-US" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS"/>
+				</updateComponent>
+			</applicable>
+			<component>
+				<assemblyIdentity name="1dd47c5846f0f64a8fc669f19b7e6812" version="6.1.7601.23172" processorArchitecture="amd64" language="neutral" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS"/>
+			</component>
+		</update>
+	</package>
+</assembly>

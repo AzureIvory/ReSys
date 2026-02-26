@@ -1,0 +1,114 @@
+;
+; usb3hcs.inf -- HCS3 compliance driver inf
+;
+; Copyright (c) Microsoft Corporation. All rights reserved.
+;
+
+[Version]
+Signature="$Windows NT$"
+Class=System
+ClassGuid={4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider=%Msft%
+DriverVer=09/22/2010,6.1.7850.0
+CatalogFile=usb3hcs.cat
+
+[PackageInfo]
+Name=usb3hcs
+
+[SourceDisksNames]
+1 = %DISKID2%
+
+[SourceDisksFiles]
+usb3hcs.sys = 1,
+
+[DestinationDirs]
+DefaultDestDir = 12
+Usb3Hcs.CopyFiles = 12
+
+[Manufacturer]
+%Generic% = Generic,NTamd64
+
+;
+; ---------------------- HCS3 Controllers ----------------------
+;
+
+[Generic.NTamd64]
+%Usb3Hcs.DeviceDesc2% = Usb3Hcs, *PNP0A08
+
+[DefaultInstall.NTamd64]
+CopyINF = usb3hcs.inf
+
+[Usb3Hcs]
+Include   = machine.inf
+Needs     = PCI_DRV
+CopyFiles = Usb3Hcs.CopyFiles
+
+[Usb3Hcs.CopyFiles]
+usb3hcs.sys
+
+[Usb3Hcs.HW]
+AddReg = Usb3Hcs.AddReg.HW
+
+[Usb3Hcs.AddReg.HW]
+HKR,,"LowerFilters", 0x00010000, usb3hcs
+
+[Usb3Hcs.Services]
+Include    = machine.inf
+Needs      = PCI_DRV.Services
+AddService = usb3hcs,,Usb3Hcs.AddService, Usb3Hcs.EventLog
+
+[Usb3Hcs.WdfCoInstallers]
+CopyFiles      = WdfCoInstaller.CopyFiles
+AddReg         = WdfCoInstaller.AddReg
+
+[SourceDisksFiles]
+WdfCoInstaller01009.dll=1
+
+[DestinationDirs]
+WdfCoInstaller.CopyFiles = 11
+
+[WdfCoInstaller.CopyFiles]
+WdfCoInstaller01009.dll
+
+[WdfCoInstaller.AddReg]
+HKR,,CoInstallers32,0x00010000, "WdfCoInstaller01009.dll,WdfCoInstaller"
+
+[Usb3Hcs.Wdf]
+KmdfService    = usb3hcs, Usb3Hcs.WdfSect
+
+[Usb3Hcs.WdfSect]
+KmdfLibraryVersion = 1.9
+
+[Usb3Hcs.AddService]
+DisplayName    = %usb3hcs_SvcDesc2%
+ServiceType    = 1                 ; SERVICE_KERNEL_DRIVER
+StartType      = 3                 ; SERVICE_DEMAND_START
+ErrorControl   = 1                 ; SERVICE_ERROR_NORMAL
+ServiceBinary  = %12%\usb3hcs.sys
+LoadOrderGroup = Boot Bus Extender
+AddReg = BootSpecific
+
+[Usb3Hcs.EventLog]
+AddReg = Usb3Hcs.EventLog.AddReg
+
+[Usb3Hcs.EventLog.AddReg]
+HKR,,"EventMessageFile",0x00020000,"%11%\IoLogMsg.dll;%12%\usb3hcs.sys"
+HKR,,"TypesSupported",0x00010001,7
+
+[BootSpecific]
+HKR, ,BootFlags, 0x00010003, 0x4
+
+;
+; --------------------------- Strings --------------------------
+;
+
+[Strings]
+Msft = "Microsoft"
+Generic = "Microsoft Corporation"
+DISKID = "Generic USB 3.0 HCS Device Driver Installation Disk"
+DISKID2 = "Generic USB 3.1 HCS Device Driver Installation Disk"
+Usb3Hcs.DeviceDesc = "Generic USB 3.0 Host Controller Switch Driver"
+Usb3Hcs.DeviceDesc2 = "Generic USB 3.1 Host Controller Switch Driver"
+usb3hcs_SvcDesc = "Generic USB 3.0 Host Controller Switch Driver"
+usb3hcs_SvcDesc2 = "Generic USB 3.1 Host Controller Switch Driver"
+SPSVCINST_ASSOCSERVICE = 0x00000002

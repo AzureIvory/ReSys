@@ -244,3 +244,20 @@ type shFileOpStructW struct {
 	hNameMappings         uintptr
 	lpszProgressTitle     *uint16
 }
+
+// Windows 版本信息结构体
+type VS_FIXEDFILEINFO struct {
+	DwSignature        uint32
+	DwStrucVersion     uint32
+	DwFileVersionMS    uint32 // 高16位是Major，低16位是Minor
+	DwFileVersionLS    uint32 // 高16位是Build，低16位是Revision
+	DwProductVersionMS uint32
+	DwProductVersionLS uint32
+	DwFileFlagsMask    uint32
+	DwFileFlags        uint32
+	DwFileOS           uint32
+	DwFileType         uint32
+	DwFileSubtype      uint32
+	DwFileDateMS       uint32
+	DwFileDateLS       uint32
+}

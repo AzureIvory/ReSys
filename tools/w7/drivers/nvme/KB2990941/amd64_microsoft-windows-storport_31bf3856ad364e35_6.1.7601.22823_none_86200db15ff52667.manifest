@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v3" manifestVersion="1.0" copyright="Copyright (c) Microsoft Corporation. All Rights Reserved.">
+  <assemblyIdentity name="Microsoft-Windows-StorPort" version="6.1.7601.22823" processorArchitecture="amd64" language="neutral" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+  <file name="storport.sys" destinationPath="$(runtime.drivers)\" sourceName="storport.sys" sourcePath=".\" importPath="$(build.nttree)\">
+    <securityDescriptor name="WRP_FILE_DEFAULT_SDDL" />
+    <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2">
+      <dsig:Transforms xmlns:dsig="http://www.w3.org/2000/09/xmldsig#">
+        <dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity" />
+      </dsig:Transforms>
+      <dsig:DigestMethod xmlns:dsig="http://www.w3.org/2000/09/xmldsig#" Algorithm="http://www.w3.org/2000/09/xmldsig#sha256" />
+      <dsig:DigestValue xmlns:dsig="http://www.w3.org/2000/09/xmldsig#">k8VjzmzOu3ne946Q4XkPwyrqK/kQsQJ7+z+fMY8oUV4=</dsig:DigestValue>
+    </asmv2:hash>
+  </file>
+  <trustInfo>
+    <security>
+      <accessControl>
+        <securityDescriptorDefinitions>
+          <securityDescriptorDefinition name="WRP_FILE_DEFAULT_SDDL" sddl="O:S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464G:S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464D:P(A;;FA;;;S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464)(A;;GRGX;;;BA)(A;;GRGX;;;SY)(A;;GRGX;;;BU)S:(AU;FASA;0x000D0116;;;WD)" operationHint="replace" description="Default SDDL for Windows Resource Protected file" />
+        </securityDescriptorDefinitions>
+      </accessControl>
+    </security>
+  </trustInfo>
+  <localization>
+    <resources culture="en-US">
+      <stringTable>
+        <string id="BusChangeDetected.OpcodeMessage" value="Bus change detect notification" />
+        <string id="BusChangeDetected.TaskMessage" value="Bus change detect notification" />
+        <string id="BusReset.OpcodeMessage" value="Bus reset" />
+        <string id="BusReset.TaskMessage" value="Bus reset" />
+        <string id="description2" value="Default SDDL for Windows Resource Protected file" />
+        <string id="displayName0" value="Microsoft StorPort Driver" />
+        <string id="displayName1" value="WRP_FILE_DEFAULT_SDDL" />
+        <string id="LinkDown.OpcodeMessage" value="Link down notification" />
+        <string id="LinkDown.TaskMessage" value="Link down notification" />
+        <string id="LinkUp.OpcodeMessage" value="Link Up notification" />
+        <string id="LinkUp.TaskMessage" value="Link Up notification" />
+        <string id="LUReset.OpcodeMessage" value="Logical Unit reset" />
+        <string id="LUReset.TaskMessage" value="Logical Unit reset" />
+        <string id="MiniportIORequestServiceTime.OpcodeMessage" value="Miniport IO Request Service Time" />
+        <string id="MiniportIORequestServiceTime.TaskMessage" value="Miniport IO Request Service Time" />
+        <string id="PortPause.OpcodeMessage" value="Port pause" />
+        <string id="PortPause.TaskMessage" value="Port pause" />
+        <string id="PortPauseDevice.OpcodeMessage" value="Port pause device" />
+        <string id="PortPauseDevice.TaskMessage" value="Port pause device" />
+        <string id="PortResume.OpcodeMessage" value="Port resume" />
+        <string id="PortResume.TaskMessage" value="Port resume" />
+        <string id="PortResumeDevice.OpcodeMessage" value="Port resume device" />
+        <string id="PortResumeDevice.TaskMessage" value="Port resume device" />
+        <string id="RequestTimerCall.OpcodeMessage" value="Request Timer notification" />
+        <string id="RequestTimerCall.TaskMessage" value="Request Timer notification" />
+        <string id="ResetDetected.OpcodeMessage" value="Reset detected notification" />
+        <string id="ResetDetected.TaskMessage" value="Reset detected notification" />
+        <string id="TargetReset.OpcodeMessage" value="Target reset" />
+        <string id="TargetReset.TaskMessage" value="Target reset" />
+      </stringTable>
+    </resources>
+  </localization>
+  <instrumentation>
+    <events xmlns="http://schemas.microsoft.com/win/2004/08/events">
+      <provider guid="{C4636A1E-7986-4646-BF10-7BC3B4A76E8E}" messageFileName="%SystemRoot%\system32\drivers\storport.sys" name="Microsoft-Windows-StorPort" resourceFileName="%SystemRoot%\system32\drivers\storport.sys" symbol="StorPortEventProvider">
+        <channels>
+          <channel chid="StorPort_Analytic_Events" name="Microsoft-Windows-StorPort/Operational" symbol="StorPort_Operations" type="Analytic" />
+        </channels>
+        <keywords>
+          <keyword mask="0x01" name="Reset" />
+          <keyword mask="0x02" name="PortNotification" />
+          <keyword mask="0x04" name="PauseResume" />
+          <keyword mask="0x08" name="IoPerfNotification" />
+        </keywords>
+        <templates>
+          <template tid="TemplateLUReset">
+            <data inType="win:UInt32" name="PortNumber" />
+            <data inType="win:UInt8" name="PathID" />
+            <data inType="win:UInt8" name="TargetID" />
+            <data inType="win:UInt8" name="LUN" />
+          </template>
+          <template tid="TemplateTargetReset">
+            <data inType="win:UInt32" name="PortNumber" />
+            <data inType="win:UInt8" name="PathID" />
+            <data inType="win:UInt8" name="TargetID" />
+          </template>
+          <template tid="TemplateBusReset">
+            <data inType="win:UInt32" name="PortNumber" />
+            <data inType="win:UInt8" name="PathID" />
+          </template>
+          <template tid="TemplatePortNotificationResetDetected">
+            <data inType="win:Pointer" name="MiniportExtension" />
+            <data inType="win:UInt32" name="PortNumber" />
+            <data inType="win:UInt32" name="PauseTime" />
+          </template>
+          <template tid="TemplatePortNotificationLinkDown">
+            <data inType="win:Pointer" name="MiniportExtension" />
+            <data inType="win:UInt32" name="PortNumber" />
+            <data inType="win:UInt32" name="LinkDownTime" />
+          </template>
+          <template tid="TemplatePortNotificationLinkUp">
+            <data inType="win:Pointer" name="MiniportExtension" />
+            <data inType="win:UInt32" name="PortNumber" />
+          </template>
+          <template tid="TemplatePortNotificationBusChangeDetected">
+            <data inType="win:Pointer" name="MiniportExtension" />
+            <data inType="win:UInt32" name="PortNumber" />
+          </template>
+          <template tid="TemplatePortNotificationRequestTimerCall">
+            <data inType="win:Pointer" name="MiniportExtension" />
+            <data inType="win:UInt32" name="PortNumber" />
+            <data inType="win:UInt32" name="Timeout" />
+          </template>
+          <template tid="TemplatePortPause">
+            <data inType="win:Pointer" name="MiniportExtension" />
+            <data inType="win:UInt32" name="PortNumber" />
+            <data inType="win:UInt32" name="PauseTime" />
+          </template>
+          <template tid="TemplatePortResume">
+            <data inType="win:Pointer" name="MiniportExtension" />
+            <data inType="win:UInt32" name="PortNumber" />
+          </template>
+          <template tid="TemplatePortPauseDevice">
+            <data inType="win:Pointer" name="MiniportExtension" />
+            <data inType="win:UInt32" name="PauseTime" />
+            <data inType="win:UInt32" name="PortNumber" />
+            <data inType="win:UInt8" name="PathID" />
+            <data inType="win:UInt8" name="TargetID" />
+            <data inType="win:UInt8" name="LUN" />
+          </template>
+          <template tid="TemplatePortResumeDevice">
+            <data inType="win:Pointer" name="MiniportExtension" />
+            <data inType="win:UInt32" name="PortNumber" />
+            <data inType="win:UInt8" name="PathID" />
+            <data inType="win:UInt8" name="TargetID" />
+            <data inType="win:UInt8" name="LUN" />
+          </template>
+          <template tid="TemplatePortNotificationMiniportIORequestServiceTime">
+            <data inType="win:Pointer" name="MiniportExtension" />
+            <data inType="win:UInt32" name="PortNumber" />
+            <data inType="win:UInt8" name="PathID" />
+            <data inType="win:UInt8" name="TargetID" />
+            <data inType="win:UInt8" name="LUN" />
+            <data inType="win:UInt32" name="RequestDuration" />
+            <data inType="win:UInt8" name="Command" />
+            <data inType="win:UInt8" name="ScsiStatus" />
+            <data inType="win:UInt8" name="SrbStatus" />
+          </template>
+        </templates>
+        <tasks>
+          <task message="$(string.LUReset.TaskMessage)" name="TaskLUReset" symbol="TaskLUReset" value="1" />
+          <task message="$(string.TargetReset.TaskMessage)" name="TaskTargetReset" symbol="TaskTargetReset" value="2" />
+          <task message="$(string.BusReset.TaskMessage)" name="TaskBusReset" symbol="TaskBusReset" value="3" />
+          <task message="$(string.ResetDetected.TaskMessage)" name="TaskResetDetected" symbol="TaskResetDetected" value="4" />
+          <task message="$(string.LinkDown.TaskMessage)" name="TaskLinkDown" symbol="TaskLinkDown" value="5" />
+          <task message="$(string.LinkUp.TaskMessage)" name="TaskLinkUp" symbol="TaskLinkUp" value="6" />
+          <task message="$(string.RequestTimerCall.TaskMessage)" name="TaskRequestTimerCall" symbol="TaskRequestTimerCall" value="7" />
+          <task message="$(string.PortPause.TaskMessage)" name="TaskPortPause" symbol="TaskPortPause" value="8" />
+          <task message="$(string.PortResume.TaskMessage)" name="TaskPortResume" symbol="TaskPortResume" value="9" />
+          <task message="$(string.PortPauseDevice.TaskMessage)" name="TaskPortPauseDevice" symbol="TaskPortPauseDevice" value="10" />
+          <task message="$(string.PortResumeDevice.TaskMessage)" name="TaskPortResumeDevice" symbol="TaskPortResumeDevice" value="11" />
+          <task message="$(string.BusChangeDetected.TaskMessage)" name="TaskBusChangeDetected" symbol="TaskBusChangeDetected" value="12" />
+          <task message="$(string.MiniportIORequestServiceTime.TaskMessage)" name="TaskMiniportIORequestServiceTime" symbol="TaskMiniportIORequestServiceTime" value="13" />
+        </tasks>
+        <opcodes>
+          <opcode name="OpCodeLUReset" symbol="OpCodeLUReset" value="11" />
+          <opcode name="OpCodeTargetReset" symbol="OpCodeTargetReset" value="12" />
+          <opcode name="OpCodeBusReset" symbol="OpCodeBusReset" value="13" />
+          <opcode name="OpCodeResetDetected" symbol="OpCodeResetDetected" value="14" />
+          <opcode name="OpCodeLinkDown" symbol="OpCodeLinkDown" value="15" />
+          <opcode name="OpCodeLinkUp" symbol="OpCodeLinkUp" value="16" />
+          <opcode name="OpCodeRequestTimerCall" symbol="OpCodeRequestTimerCall" value="17" />
+          <opcode name="OpCodePortPause" symbol="OpCodePortPause" value="18" />
+          <opcode name="OpCodePortResume" symbol="OpCodePortResume" value="19" />
+          <opcode name="OpCodePortPauseDevice" symbol="OpCodePortPauseDevice" value="20" />
+          <opcode name="OpCodePortResumeDevice" symbol="OpCodePortResumeDevice" value="21" />
+          <opcode name="OpCodeBusChangeDetected" symbol="OpCodeBusChangeDetected" value="22" />
+          <opcode name="OpCodeMiniportIORequestServiceTime" symbol="OpCodeMiniportIORequestServiceTime" value="23" />
+        </opcodes>
+        <events>
+          <event channel="StorPort_Analytic_Events" keywords="Reset" level="win:Error" message="$(string.LUReset.OpcodeMessage)" opcode="OpCodeLUReset" symbol="EventLUReset" task="TaskLUReset" template="TemplateLUReset" value="1" version="1" />
+          <event channel="StorPort_Analytic_Events" keywords="Reset" level="win:Error" message="$(string.TargetReset.OpcodeMessage)" opcode="OpCodeTargetReset" symbol="EventTargetReset" task="TaskTargetReset" template="TemplateTargetReset" value="2" version="1" />
+          <event channel="StorPort_Analytic_Events" keywords="Reset" level="win:Error" message="$(string.BusReset.OpcodeMessage)" opcode="OpCodeBusReset" symbol="EventBusReset" task="TaskBusReset" template="TemplateBusReset" value="3" version="1" />
+          <event channel="StorPort_Analytic_Events" keywords="PortNotification" level="win:Informational" message="$(string.ResetDetected.OpcodeMessage)" opcode="OpCodeResetDetected" symbol="EventResetDetected" task="TaskResetDetected" template="TemplatePortNotificationResetDetected" value="4" version="1" />
+          <event channel="StorPort_Analytic_Events" keywords="PortNotification" level="win:Informational" message="$(string.LinkDown.OpcodeMessage)" opcode="OpCodeLinkDown" symbol="EventLinkDown" task="TaskLinkDown" template="TemplatePortNotificationLinkDown" value="5" version="1" />
+          <event channel="StorPort_Analytic_Events" keywords="PortNotification" level="win:Informational" message="$(string.LinkUp.OpcodeMessage)" opcode="OpCodeLinkUp" symbol="EventLinkUp" task="TaskLinkUp" template="TemplatePortNotificationLinkUp" value="6" version="1" />
+          <event channel="StorPort_Analytic_Events" keywords="PortNotification" level="win:Informational" message="$(string.RequestTimerCall.OpcodeMessage)" opcode="OpCodeRequestTimerCall" symbol="EventRequestTimerCall" task="TaskRequestTimerCall" template="TemplatePortNotificationRequestTimerCall" value="7" version="1" />
+          <event channel="StorPort_Analytic_Events" keywords="PauseResume" level="win:Informational" message="$(string.PortPause.OpcodeMessage)" opcode="OpCodePortPause" symbol="EventPortPause" task="TaskPortPause" template="TemplatePortPause" value="8" version="1" />
+          <event channel="StorPort_Analytic_Events" keywords="PauseResume" level="win:Informational" message="$(string.PortResume.OpcodeMessage)" opcode="OpCodePortResume" symbol="EventPortResume" task="TaskPortResume" template="TemplatePortResume" value="9" version="1" />
+          <event channel="StorPort_Analytic_Events" keywords="PauseResume" level="win:Informational" message="$(string.PortPauseDevice.OpcodeMessage)" opcode="OpCodePortPauseDevice" symbol="EventPortPauseDevice" task="TaskPortPauseDevice" template="TemplatePortPauseDevice" value="10" version="1" />
+          <event channel="StorPort_Analytic_Events" keywords="PauseResume" level="win:Informational" message="$(string.PortResumeDevice.OpcodeMessage)" opcode="OpCodePortResumeDevice" symbol="EventPortResumeDevice" task="TaskPortResumeDevice" template="TemplatePortResumeDevice" value="11" version="1" />
+          <event channel="StorPort_Analytic_Events" keywords="PortNotification" level="win:Informational" message="$(string.BusChangeDetected.OpcodeMessage)" opcode="OpCodeBusChangeDetected" symbol="EventBusChangeDetected" task="TaskBusChangeDetected" template="TemplatePortNotificationBusChangeDetected" value="12" version="1" />
+          <event channel="StorPort_Analytic_Events" keywords="IoPerfNotification" level="win:Informational" message="$(string.MiniportIORequestServiceTime.OpcodeMessage)" opcode="OpCodeMiniportIORequestServiceTime" symbol="EventMiniportIORequestServiceTime" task="TaskMiniportIORequestServiceTime" template="TemplatePortNotificationMiniportIORequestServiceTime" value="13" version="1" />
+        </events>
+      </provider>
+    </events>
+  </instrumentation>
+</assembly>

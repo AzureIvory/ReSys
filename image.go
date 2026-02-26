@@ -227,7 +227,7 @@ func ensureWimWritable(wim string) error {
 	}
 	name := tf.Name()
 	_ = tf.Close()
-	_ = os.Remove(name)
+	_ = Remove(name, false)
 
 	return nil
 }
@@ -748,13 +748,12 @@ func verifyPatwimWrite(wimlib, wim string, idx int, resList []wimRes, line strin
 // index:要安装的索引
 // targetVol:目标卷，如"C:"、"C:\"
 func ApplyWimImage(wimPath string, index int, targetVol string) error {
-    p := strings.TrimSpace(wimPath)
-    if len(p) < 4 || !strings.EqualFold(strings.ToLower(filepath.Ext(p)), ".wim") {
-        return fmt.Errorf("不是WIM镜像: %s", wimPath)
-    }
-    return ApplyImage(wimPath, index, targetVol)
+	p := strings.TrimSpace(wimPath)
+	if len(p) < 4 || !strings.EqualFold(strings.ToLower(filepath.Ext(p)), ".wim") {
+		return fmt.Errorf("不是WIM镜像: %s", wimPath)
+	}
+	return ApplyImage(wimPath, index, targetVol)
 }
-
 
 // 安装ESD镜像到指定卷
 func ApplyEsdImage(esdPath string, index int, targetVol string) error {

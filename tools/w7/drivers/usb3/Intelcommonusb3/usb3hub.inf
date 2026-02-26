@@ -1,0 +1,92 @@
+;
+; usb3hub.inf -- HUB3 compliance driver inf
+;
+; Copyright (c) Microsoft Corporation. All rights reserved.
+;
+
+[Version]
+ Signature="$Windows NT$"
+ Class=USB
+ ClassGuid={36FC9E60-C465-11CF-8056-444553540000}
+ Provider=%Msft%
+ DriverVer=09/22/2010,6.1.7850.0
+ CatalogFile=usb3hub.cat
+
+[SourceDisksNames]
+1 = %DISKID2%
+
+[SourceDisksFiles]
+usb3hub.sys = 1,
+
+[DestinationDirs]
+DefaultDestDir = 12
+usb3hub.Copyfiles = 12
+
+[Manufacturer]
+%Generic% = Generic,NTamd64
+
+;
+; ---------------------- HUB3 Controllers ----------------------
+;
+
+[Generic.NTamd64]
+%Usb3HubDeviceDescRoot% = Usb3Hub, USB31\ROOT_HUB30
+%Usb3HubDeviceDescRoot2% = Usb3Hub, USB31\ROOT_HUB31
+%Usb3HubDeviceDesc% = Usb3Hub, USB31\CLASS_09&SUBCLASS_00&PROT_00
+%Usb3HubDeviceDesc1% = Usb3Hub, USB31\CLASS_09&SUBCLASS_00&PROT_01
+%Usb3HubDeviceDesc2% = Usb3Hub, USB31\CLASS_09&SUBCLASS_00&PROT_02
+%Usb3HubDeviceDesc3% = Usb3Hub, USB31\CLASS_09&SUBCLASS_00&PROT_03
+%Usb3HubDeviceDesc4% = Usb3Hub, USB31\CLASS_09&SUBCLASS_01
+%Usb3HubDeviceDesc5% = Usb3Hub, USB31\CLASS_09
+
+[DefaultInstall.NTamd64]
+CopyINF = usb3hub.inf
+
+[Usb3Hub]
+CopyFiles = Usb3Hub.CopyFiles
+FeatureScore=00
+
+[Usb3Hub.CopyFiles]
+usb3hub.sys
+
+[Usb3Hub.Services]
+AddService = usb3hub, 0x00000002, Usb3Hub.AddService, Usb3Hub.EventLog
+
+[Usb3Hub.AddService]
+DisplayName    = %usb3hub.SvcDesc2%
+ServiceType    = 1                 ; SERVICE_KERNEL_DRIVER
+StartType      = 3                 ; SERVICE_DEMAND_START
+ErrorControl   = 1                 ; SERVICE_ERROR_NORMAL
+ServiceBinary  = %12%\usb3hub.sys
+LoadOrderGroup = Base
+AddReg = BootSpecific
+
+[Usb3Hub.EventLog]
+AddReg = Usb3Hub.EventLog.AddReg
+
+[Usb3Hub.EventLog.AddReg]
+HKR,,"EventMessageFile",0x00020000,"%11%\IoLogMsg.dll;%12%\usb3hub.sys"
+HKR,,"TypesSupported",0x00010001,7
+
+[BootSpecific]
+HKR, ,BootFlags, 0x00010003, 0x4
+
+;
+; --------------------------- Strings --------------------------
+;
+
+[Strings]
+Msft = "Microsoft"
+Generic = "Microsoft Corporation"
+DISKID = "Generic USB 3.0 Hub Device Driver Installation Disk"
+DISKID2 = "Generic USB 3.1 Hub Device Driver Installation Disk"
+usb3hub.SvcDesc = "Generic USB 3.0 Hub Driver"
+usb3hub.SvcDesc2 = "Generic USB 3.1 Hub Driver"
+Usb3HubDeviceDescRoot = "Standard USB 3.0 Root Hub (xHCI)"
+Usb3HubDeviceDescRoot2 = "Standard USB 3.1 Root Hub (xHCI)"
+Usb3HubDeviceDesc = "Standard USB Hub"
+Usb3HubDeviceDesc1 = "Standard USB 2.0 Hub (EHCI)"
+Usb3HubDeviceDesc2 = "Standard USB 2.0 MTT Hub (EHCI)"
+Usb3HubDeviceDesc3 = "Standard USB 3.0 Hub (xHCI)"
+Usb3HubDeviceDesc4 = "Standard USB 3.1 Hub (xHCI)"
+Usb3HubDeviceDesc5 = "Standard USB Hub"

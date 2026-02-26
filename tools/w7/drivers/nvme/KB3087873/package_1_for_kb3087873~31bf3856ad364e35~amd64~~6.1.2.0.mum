@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v3" manifestVersion="1.0" description="Fix for KB3087873" displayName="default" company="Microsoft Corporation" copyright="Microsoft Corporation" supportInformation="http://support.microsoft.com/?kbid=3087873" creationTimeStamp="2015-08-14T17:41:40Z" lastUpdateTimeStamp="2015-08-14T17:41:40Z">
+  <assemblyIdentity name="Package_1_for_KB3087873" version="6.1.2.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+  <package identifier="KB3087873" releaseType="Hotfix" restart="possible">
+    <parent buildCompare="EQ" serviceCompare="EQ" integrate="separate" disposition="detect">
+      <assemblyIdentity name="Microsoft-Windows-WinPE-Package" version="6.1.7601.17514" processorArchitecture="amd64" language="neutral" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+    </parent>
+    <installerAssembly name="Microsoft-Windows-ServicingStack" version="6.0.0.0" language="neutral" processorArchitecture="amd64" versionScope="nonSxS" publicKeyToken="31bf3856ad364e35" />
+    <update name="3087873-1_neutral_LDR">
+      <applicable disposition="staged">
+        <updateComponent elevate="revision">
+          <assemblyIdentity name="Microsoft-Windows-StorPort" version="6.1.7601.23172" processorArchitecture="amd64" language="neutral" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+        </updateComponent>
+      </applicable>
+      <component>
+        <assemblyIdentity name="a31976698c9c4f5c54ab53077f7b14d3" version="6.1.7601.23172" processorArchitecture="amd64" language="neutral" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+      </component>
+    </update>
+    <update name="3087873-2_neutral_GDR">
+      <applicable disposition="staged">
+        <updateComponent elevate="revision">
+          <assemblyIdentity name="Microsoft-Windows-StorPort" version="6.1.7601.18969" processorArchitecture="amd64" language="neutral" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+        </updateComponent>
+      </applicable>
+      <component>
+        <assemblyIdentity name="de4ec9a59e4bbdca7c339c1a59dd4512" version="6.1.7601.18969" processorArchitecture="amd64" language="neutral" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+      </component>
+    </update>
+  </package>
+</assembly>

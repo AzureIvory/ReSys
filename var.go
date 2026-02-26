@@ -53,6 +53,11 @@ var (
 	procFormatEx                = modFmifs.NewProc("FormatEx")
 	//固件类型检测BIOS/UEFI
 	procGetFirmwareType = modKernel32.NewProc("GetFirmwareType")
+	//获取文件版本信息
+	modversion                 = syscall.NewLazyDLL("version.dll")
+	procGetFileVersionInfoSize = modversion.NewProc("GetFileVersionInfoSizeW")
+	procGetFileVersionInfo     = modversion.NewProc("GetFileVersionInfoW")
+	procVerQueryValue          = modversion.NewProc("VerQueryValueW")
 )
 
 // CLSID / IID

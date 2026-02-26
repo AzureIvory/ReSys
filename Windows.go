@@ -1,6 +1,7 @@
 package main
 
 import (
+	"debug/pe"
 	"fmt"
 	"io"
 	"os"
@@ -618,9 +619,7 @@ func isWinXP() bool {
 	return currentVersion == "5.1" || currentVersion == "5.2"
 }
 
-// GetCurrentWinVersion 返回当前系统版本号与架构文本。
-// version: 5=XP, 6=Vista, 7=Win7, 8=Win8, 9=Win8.1, 10=Win10, 11=Win11
-// arch: "32" 或 "64"
+// 注册表的方式返回当前系统版本号与架构文本。
 func GetCurrentWinVersion() (int, string, error) {
 	h, err := RegOpenKey(HKEY_LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows NT\CurrentVersion`)
 	if err != nil {
@@ -635,32 +634,20 @@ func GetCurrentWinVersion() (int, string, error) {
 	productName, _ := RegGetString(h, "ProductName")
 	buildStr, _ := RegGetString(h, "CurrentBuildNumber")
 
-	version := 0
-	switch currentVersion {
-	case "5.1", "5.2":
-		version = 5
-	case "6.0":
-		version = 6
-	case "6.1":
-		version = 7
-	case "6.2":
-		version = 8
-	case "6.3":
-		version = 9
-	case "10.0":
-		version = 10
-		upperPN := strings.ToUpper(productName)
-		if strings.Contains(upperPN, "WINDOWS 11") {
-			version = 11
-		} else if !strings.Contains(upperPN, "WINDOWS 10") {
-			if b, err := strconv.Atoi(buildStr); err == nil && b >= 22000 {
-				version = 11
-			}
-		}
+	// 将 "6.1", "10.0" 这种字符串解析成数字
+	var major, minor uint16
+	fmt.Sscanf(currentVersion, "%d.%d", &major, &minor)
+
+	// 解析 Build 号
+	var build int
+	if buildStr != "" {
+		build, _ = strconv.Atoi(buildStr)
 	}
 
+	version := ParseToVers(major, minor, uint16(build), productName)
+
 	if version == 0 {
-		return 0, "", fmt.Errorf("unsupported Windows version: %s", currentVersion)
+		return 0, "", fmt.Errorf("unsupported Windows version: %s (Build: %d)", currentVersion, build)
 	}
 
 	arch := "32"
@@ -668,6 +655,181 @@ func GetCurrentWinVersion() (int, string, error) {
 		arch = "64"
 	}
 	return version, arch, nil
+}
+
+func GetPEArch(filePath string) (string, error) {
+	f, err := pe.Open(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	// 注意：Go 标准库中的常量名比较特殊
+	switch f.Machine {
+	case 0x8664: // pe.IMAGE_FILE_MACHINE_AMD64
+		return "64", nil
+	case 0x014c: // pe.IMAGE_FILE_MACHINE_I386
+		return "32", nil
+	case 0xaa64: // pe.IMAGE_FILE_MACHINE_ARM64
+		return "ARM64", nil
+	default:
+		return "unknown", nil
+	}
+}
+
+// GetImgVers 提取并识别 WIM/ESD 镜像中特定索引的系统版本。
+// 返回:
+//
+//	version: 5=XP, 7=Win7, 10=Win10, 11=Win11 等
+//	arch: "64" 或 "32"
+func GetImgVers(imagePath string, index uint32) (int, string, error) {
+	major, minor, build, err := GetNtdllVer(imagePath, index)
+	if err != nil {
+		return 0, "", fmt.Errorf("无法从 WIM/ESD 提取版本信息: %w", err)
+	}
+	version := ParseToVers(major, minor, build, "")
+	if version == 0 {
+		return 0, "", fmt.Errorf("识别到未知的内核版本: %d.%d.%d", major, minor, build)
+	}
+	tempNtdll := filepath.Join(os.TempDir(), "ntdll.dll")
+	arch, err := GetPEArch(tempNtdll)
+	if err != nil {
+		// 如果 PE 解析失败，则回退到当前系统架构作为兜底
+		arch = "64"
+		if systemArch() == "32" {
+			arch = "32"
+		}
+	}
+
+	return version, arch, nil
+}
+
+// 将win内核版本号转换为系统代号。
+// version: 5=XP, 6=Vista, 7=Win7, 8=Win8, 9=Win8.1, 10=Win10, 11=Win11, 0=未知
+// productName 允许为空（ntdll 模式下没有此信息）。
+func ParseToVers(major, minor, build uint16, productName string) int {
+	if major == 5 && (minor == 1 || minor == 2) {
+		return 5
+	}
+	if major == 6 && minor == 0 {
+		return 6
+	}
+	if major == 6 && minor == 1 {
+		return 7
+	}
+	if major == 6 && minor == 2 {
+		return 8
+	}
+	if major == 6 && minor == 3 {
+		return 9
+	}
+	if major == 10 && minor == 0 {
+		// 判断 Win11 逻辑
+		if productName != "" {
+			upperPN := strings.ToUpper(productName)
+			if strings.Contains(upperPN, "WINDOWS 11") {
+				return 11
+			}
+			// 如果明确写了 Windows 10，但 Build 依然异常高（早期 Win11 预览版），依然按 Build 判断更稳
+		}
+
+		// 只要 Build 大于等于 22000，就是 Windows 11
+		if build >= 22000 {
+			return 11
+		}
+
+		return 10
+	}
+
+	return 0 // 不支持或未知的版本
+}
+
+// 返回PE文件的Major(主版本), Minor(次版本), Build(编译号)
+func getFileVersion(filePath string) (uint16, uint16, uint16, error) {
+	pathPtr, err := syscall.UTF16PtrFromString(filePath)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("路径转换失败: %w", err)
+	}
+
+	var handle uint32
+	size, _, err := procGetFileVersionInfoSize.Call(
+		uintptr(unsafe.Pointer(pathPtr)),
+		uintptr(unsafe.Pointer(&handle)),
+	)
+	if size == 0 {
+		return 0, 0, 0, fmt.Errorf("无法获取版本信息大小: %v", err)
+	}
+
+	info := make([]byte, size)
+	ret, _, err := procGetFileVersionInfo.Call(
+		uintptr(unsafe.Pointer(pathPtr)),
+		0,
+		uintptr(size),
+		uintptr(unsafe.Pointer(&info[0])),
+	)
+	if ret == 0 {
+		return 0, 0, 0, fmt.Errorf("获取版本信息失败: %v", err)
+	}
+
+	subBlock, _ := syscall.UTF16PtrFromString(`\`)
+	var blockPtr uintptr
+	var blockLen uint32
+
+	ret, _, err = procVerQueryValue.Call(
+		uintptr(unsafe.Pointer(&info[0])),
+		uintptr(unsafe.Pointer(subBlock)),
+		uintptr(unsafe.Pointer(&blockPtr)),
+		uintptr(unsafe.Pointer(&blockLen)),
+	)
+	if ret == 0 || blockLen == 0 {
+		return 0, 0, 0, fmt.Errorf("查询固定文件信息失败: %v", err)
+	}
+
+	fixedInfo := (*VS_FIXEDFILEINFO)(unsafe.Pointer(blockPtr))
+	if fixedInfo.DwSignature != 0xfeef04bd {
+		return 0, 0, 0, fmt.Errorf("无效的版本信息签名")
+	}
+	major := uint16(fixedInfo.DwFileVersionMS >> 16)
+	minor := uint16(fixedInfo.DwFileVersionMS & 0xFFFF)
+	build := uint16(fixedInfo.DwFileVersionLS >> 16) // 顺手把 Build 拿出来，区分 Win10/11 极度需要
+
+	return major, minor, build, nil
+}
+
+// 使用 wimlib 提取 ntdll.dll 并获取完整版本号
+// 返回值: major(主版本), minor(次版本), build(编译号), error
+func GetNtdllVer(imageFile string, index uint32) (uint16, uint16, uint16, error) {
+	tempDir := os.TempDir()
+	internalPath := "/Windows/System32/ntdll.dll"
+
+	args := []string{
+		"extract",
+		imageFile,
+		strconv.Itoa(int(index)),
+		internalPath,
+		fmt.Sprintf("--dest-dir=%s", tempDir),
+		"--no-acls",
+	}
+	_, err := runCmd("wimlib-imagex.exe", nil, nil, "", args...)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("wimlib 提取 ntdll.dll 失败: %w", err)
+	}
+
+	extractedNtdll := filepath.Join(tempDir, "ntdll.dll")
+
+	defer func() {
+		if _, err := os.Stat(extractedNtdll); err == nil {
+			os.Remove(extractedNtdll)
+		}
+	}()
+
+	// 获取完整的三段版本号
+	major, minor, build, err := getFileVersion(extractedNtdll)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("读取 ntdll.dll 版本失败: %w", err)
+	}
+
+	return major, minor, build, nil
 }
 
 // 清除文件只读属性

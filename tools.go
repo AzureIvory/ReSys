@@ -44,14 +44,68 @@ func GetDism() (string, error) {
 		subDir = "64"
 	}
 
-	p := filepath.Join(baseDir, "tools", subDir, "dism.exe")
-	if st, err := os.Stat(p); err != nil || st.IsDir() {
-		if err != nil {
-			return "", fmt.Errorf("dism.exe not found: %s: %w", p, err)
-		}
-		return "", fmt.Errorf("dism.exe not found: %s", p)
+	localPath := filepath.Join(baseDir, "tools", subDir, "dism.exe")
+	if fileExists(localPath) {
+		logWrite("[GetDism] 找到本地 DISM: %s\n", localPath)
+		return localPath, nil
 	}
-	return p, nil
+
+	// 检测 PE 环境
+	peDrives := []string{"X", "Y", "Z", "W"}
+	for _, drive := range peDrives {
+		pePaths := []string{
+			filepath.Join(drive+":\\", "Windows", "System32", "dism.exe"),
+			filepath.Join(drive+":\\", "Windows", "System32", "Dism", "dism.exe"),
+		}
+		for _, p := range pePaths {
+			if fileExists(p) {
+				logWrite("[GetDism] 找到 PE 环境 DISM: %s\n", p)
+				return p, nil
+			}
+		}
+	}
+
+	if sysDism, err := exec.LookPath("dism.exe"); err == nil {
+		logWrite("[GetDism] 使用系统 PATH 中的 DISM: %s\n", sysDism)
+		return sysDism, nil
+	}
+
+	winDirs := []string{
+		os.Getenv("WINDIR"),
+		os.Getenv("SystemRoot"),
+		"C:\\Windows",
+	}
+
+	for _, winDir := range winDirs {
+		if winDir == "" {
+			continue
+		}
+
+		sysPaths := []string{
+			filepath.Join(winDir, "sysnative", "dism.exe"),
+			filepath.Join(winDir, "System32", "dism.exe"),
+			filepath.Join(winDir, "System32", "Dism", "dism.exe"),
+		}
+
+		for _, p := range sysPaths {
+			if fileExists(p) {
+				logWrite("[GetDism] 找到系统 DISM: %s\n", p)
+				return p, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("未找到可用的 dism.exe。\n"+
+		"已尝试搜索:\n"+
+		"- %s\n"+
+		"- X, Y, Z, W 盘的 PE 环境路径\n"+
+		"- 系统环境变量 PATH\n"+
+		"- Windows\\System32 目录", localPath)
+}
+
+// 验证dism.exe是否可用
+func verifyDism(dismpath string) bool {
+	_, err := runCmd(dism, nil, nil, "", "/?")
+	return err == nil
 }
 
 // 推测指定盘符的系统架构（32/64）
@@ -959,11 +1013,6 @@ func collectPECands(dvs []string, opts []peOpt, wantArch, customSdi, customWim s
 	hasGlob := func(s string) bool { return strings.ContainsAny(s, "*?[") }
 	hasDrivePrefix := func(p string) bool { return len(p) >= 2 && p[1] == ':' }
 
-	fileExists := func(p string) bool {
-		fi, e := os.Stat(p)
-		return e == nil && !fi.IsDir()
-	}
-
 	// 把 abs 变成相对卷根 \xxx\yyy
 	toRel := func(root, abs string) string {
 		abs = strings.ReplaceAll(abs, "/", `\`)
@@ -984,7 +1033,7 @@ func collectPECands(dvs []string, opts []peOpt, wantArch, customSdi, customWim s
 		pattern = strings.ReplaceAll(pattern, "/", `\`)
 
 		if !hasGlob(pattern) {
-			if fileExists(pattern) {
+			if dirExists(pattern) {
 				return []string{pattern}, nil
 			}
 			return nil, nil
@@ -997,7 +1046,7 @@ func collectPECands(dvs []string, opts []peOpt, wantArch, customSdi, customWim s
 			ms, _ := filepath.Glob(pattern)
 			var out []string
 			for _, m := range ms {
-				if fileExists(m) {
+				if dirExists(m) {
 					out = append(out, m)
 				}
 			}
@@ -1009,7 +1058,7 @@ func collectPECands(dvs []string, opts []peOpt, wantArch, customSdi, customWim s
 			ms, _ := filepath.Glob(pattern)
 			var out []string
 			for _, m := range ms {
-				if fileExists(m) {
+				if dirExists(m) {
 					out = append(out, m)
 				}
 			}
@@ -1175,11 +1224,6 @@ func collectPECands(dvs []string, opts []peOpt, wantArch, customSdi, customWim s
 
 // 用 tools\boot.sdi 生成目标 SDI（只在缺 SDI 时调用）
 func ensureSdiByCopy(root string, sPatRel string, wAbs string) (sAbs string, sRel string, err error) {
-	fileExists := func(p string) bool {
-		fi, e := os.Stat(p)
-		return e == nil && !fi.IsDir()
-	}
-
 	findToolsBootSdi := func() (string, bool) {
 		exe, e := os.Executable()
 		if e != nil {
@@ -1192,7 +1236,7 @@ func ensureSdiByCopy(root string, sPatRel string, wAbs string) (sAbs string, sRe
 			filepath.Join(base, "tools", "Boot.sdi"),
 		}
 		for _, p := range cands {
-			if fileExists(p) {
+			if dirExists(p) {
 				return p, true
 			}
 		}

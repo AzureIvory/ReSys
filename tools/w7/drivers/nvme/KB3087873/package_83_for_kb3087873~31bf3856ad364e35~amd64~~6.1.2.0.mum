@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v3" manifestVersion="1.0" description="Fix for KB3087873" displayName="default" company="Microsoft Corporation" copyright="Microsoft Corporation" supportInformation="http://support.microsoft.com/?kbid=3087873" creationTimeStamp="2015-08-14T17:41:44Z" lastUpdateTimeStamp="2015-08-14T17:41:44Z">
+  <assemblyIdentity name="Package_83_for_KB3087873" version="6.1.2.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+  <package identifier="KB3087873" applicabilityEvaluation="deep" releaseType="Hotfix" restart="possible">
+    <parent buildCompare="EQ" serviceCompare="EQ" integrate="separate" disposition="detect">
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="ar-SA" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="bg-BG" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="cs-CZ" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="da-DK" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="de-DE" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="el-GR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="en-US" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="es-ES" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="et-EE" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="fi-FI" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="fr-FR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="he-IL" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="hr-HR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="hu-HU" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="it-IT" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="ja-JP" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="ko-KR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="lt-LT" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="lv-LV" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="nb-NO" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="nl-NL" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="pl-PL" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="pt-BR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="pt-PT" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="ro-RO" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="ru-RU" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="sk-SK" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="sl-SI" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="sr-Latn-CS" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="sv-SE" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="th-TH" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="tr-TR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="uk-UA" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="zh-CN" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="zh-HK" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="zh-TW" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+    </parent>
+    <installerAssembly name="Microsoft-Windows-ServicingStack" version="6.0.0.0" language="neutral" processorArchitecture="amd64" versionScope="nonSxS" publicKeyToken="31bf3856ad364e35" />
+    <update name="3087873-236_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_81_for_KB3087873" version="6.1.2.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+  </package>
+</assembly>

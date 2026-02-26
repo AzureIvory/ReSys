@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v3" manifestVersion="1.0" description="Fix for KB3087873" displayName="default" company="Microsoft Corporation" copyright="Microsoft Corporation" supportInformation="http://support.microsoft.com/?kbid=3087873" creationTimeStamp="2015-08-14T17:41:42Z" lastUpdateTimeStamp="2015-08-14T17:41:42Z">
+  <assemblyIdentity name="Package_51_for_KB3087873" version="6.1.2.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+  <package identifier="KB3087873" releaseType="Hotfix" restart="possible">
+    <parent buildCompare="EQ" serviceCompare="EQ" integrate="separate" disposition="detect">
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="neutral" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-Foundation-Package" language="neutral" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="neutral" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+    </parent>
+    <installerAssembly name="Microsoft-Windows-ServicingStack" version="6.0.0.0" language="neutral" processorArchitecture="amd64" versionScope="nonSxS" publicKeyToken="31bf3856ad364e35" />
+    <update name="3087873-150_neutral_LDR">
+      <applicable disposition="staged">
+        <updateComponent elevate="revision">
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll" version="6.1.7601.23172" processorArchitecture="x86" language="neutral" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+        </updateComponent>
+      </applicable>
+      <component>
+        <assemblyIdentity name="a24621654bbf1ca292e70e9af5207587" version="6.1.7601.23172" processorArchitecture="amd64" language="neutral" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+      </component>
+    </update>
+    <update name="Trigger_1">
+      <applicable disposition="staged">
+        <updateComponent elevate="revision">
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="ar-SA" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="cs-CZ" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="da-DK" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="de-DE" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="el-GR" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="en-US" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="es-ES" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="fi-FI" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="fr-FR" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="he-IL" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="hu-HU" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="it-IT" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="ja-JP" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="ko-KR" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="nb-NO" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="nl-NL" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="pl-PL" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="pt-BR" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="pt-PT" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="ru-RU" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="sv-SE" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="tr-TR" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="zh-CN" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="zh-TW" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll" version="6.1.7601.23172" processorArchitecture="amd64" language="neutral" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-StorPort" version="6.1.7601.23172" processorArchitecture="amd64" language="neutral" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="ar-SA" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="cs-CZ" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="da-DK" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="de-DE" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="el-GR" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="en-US" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="es-ES" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="fi-FI" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="fr-FR" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="he-IL" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="hu-HU" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="it-IT" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="ja-JP" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="ko-KR" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="nb-NO" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="nl-NL" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="pl-PL" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="pt-BR" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="pt-PT" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="ru-RU" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="sv-SE" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="tr-TR" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="zh-CN" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="zh-TW" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+        </updateComponent>
+      </applicable>
+    </update>
+    <update name="3087873-151_neutral_LDR">
+      <applicable disposition="staged">
+        <updateComponent elevate="serviceLevel">
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll" version="6.1.7601.23172" processorArchitecture="x86" language="neutral" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+        </updateComponent>
+        <detectUpdate>
+          <update name="Trigger_1" />
+        </detectUpdate>
+      </applicable>
+      <component>
+        <assemblyIdentity name="a24621654bbf1ca292e70e9af5207587" version="6.1.7601.23172" processorArchitecture="amd64" language="neutral" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+      </component>
+    </update>
+    <update name="3087873-152_neutral_GDR">
+      <applicable disposition="staged">
+        <updateComponent elevate="serviceLevel">
+          <assemblyIdentity name="Microsoft-Windows-IoLoggingDll" version="6.1.7601.18969" processorArchitecture="x86" language="neutral" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+        </updateComponent>
+      </applicable>
+      <component>
+        <assemblyIdentity name="7c8fd63ed49b0e6bf4778427fd9a99c3" version="6.1.7601.18969" processorArchitecture="amd64" language="neutral" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+      </component>
+    </update>
+  </package>
+</assembly>

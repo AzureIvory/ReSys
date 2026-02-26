@@ -1,0 +1,85 @@
+;
+; usb3xhc.inf -- xHCI compliance driver inf
+;
+; Copyright (c) Microsoft Corporation. All rights reserved.
+;
+
+[Version]
+Signature="$Windows NT$"
+Class=USB
+ClassGuid={36FC9E60-C465-11CF-8056-444553540000}
+Provider=%Msft%
+DriverVer=09/22/2010,6.1.7850.0
+CatalogFile=usb3xhc.cat
+
+[SourceDisksNames]
+1 = %DISKID2%
+
+[SourceDisksFiles]
+usb3xhc.sys = 1,
+
+[DestinationDirs]
+DefaultDestDir = 12
+usb3xhc.Copyfiles = 12
+
+[Manufacturer]
+%Generic% = Generic,NTamd64
+
+;
+; ---------------------- xHCI Controllers ----------------------
+;
+
+[Generic.NTamd64]
+%Usb3XhcDeviceDesc2% = Usb3Xhc, PCI\CC_0C0330
+
+[DefaultInstall.NTamd64]
+CopyINF = usb3xhc.inf
+
+[Usb3Xhc]
+CopyFiles = Usb3Xhc.CopyFiles
+FeatureScore=00
+
+[Usb3Xhc.CopyFiles]
+usb3xhc.sys
+
+[Usb3Xhc.HW]
+AddReg = Usb3Xhc.AddReg.HW
+
+[Usb3Xhc.AddReg.HW]
+HKR,"Interrupt Management\MessageSignaledInterruptProperties",MSISupported,0x00010001,1
+
+[Usb3Xhc.Services]
+AddService = usb3xhc, 0x00000002, Usb3Xhc.AddService, Usb3Xhc.EventLog
+
+[Usb3Xhc.AddService]
+DisplayName    = %usb3xhc.SvcDesc2%
+ServiceType    = 1                 ; SERVICE_KERNEL_DRIVER
+StartType      = 3                 ; SERVICE_DEMAND_START
+ErrorControl   = 1                 ; SERVICE_ERROR_NORMAL
+ServiceBinary  = %12%\usb3xhc.sys
+LoadOrderGroup = Base
+AddReg = BootSpecific
+
+[Usb3Xhc.EventLog]
+AddReg = Usb3Xhc.EventLog.AddReg
+
+[Usb3Xhc.EventLog.AddReg]
+HKR,,"EventMessageFile",0x00020000,"%11%\IoLogMsg.dll;%12%\usb3xhc.sys"
+HKR,,"TypesSupported",0x00010001,7
+
+[BootSpecific]
+HKR, ,BootFlags, 0x00010003, 0x4
+
+;
+; --------------------------- Strings --------------------------
+;
+
+[Strings]
+Msft = "Microsoft"
+Generic = "Microsoft Corporation"
+DISKID = "Generic USB 3.0 xHCI Device Driver Installation Disk"
+DISKID2 = "Generic USB 3.1 xHCI Device Driver Installation Disk"
+usb3xhc.SvcDesc = "Generic USB 3.0 xHCI Host Controller Driver"
+usb3xhc.SvcDesc2 = "Generic USB 3.1 xHCI Host Controller Driver"
+Usb3XhcDeviceDesc = "Standard USB 3.0 eXtensible Host Controller v1.0 (Microsoft)"
+Usb3XhcDeviceDesc2 = "Standard USB 3.1 eXtensible Host Controller v1.10 (Microsoft)"

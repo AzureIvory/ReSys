@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v3" manifestVersion="1.0" description="Fix for KB2990941" displayName="default" company="Microsoft Corporation" copyright="Microsoft Corporation" supportInformation="http://support.microsoft.com/?kbid=2990941" creationTimeStamp="2014-09-29T18:43:13Z" lastUpdateTimeStamp="2014-09-29T18:43:13Z">
+	<assemblyIdentity name="Package_64_for_KB2990941_BF" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35"/>
+	<package identifier="KB2990941_BF" releaseType="Hotfix" restart="required">
+		<parent buildCompare="EQ" serviceCompare="EQ" integrate="separate" disposition="detect">
+			<assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="es-ES" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+		</parent>
+		<installerAssembly name="Microsoft-Windows-ServicingStack" version="6.0.0.0" language="neutral" processorArchitecture="amd64" versionScope="nonSxS" publicKeyToken="31bf3856ad364e35"/>
+		<update name="2990941-64_neutral_LDR">
+			<applicable disposition="staged">
+				<updateComponent elevate="serviceLevel">
+					<assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.22823" processorArchitecture="amd64" language="es-ES" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS"/>
+					<assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.22823" processorArchitecture="x86" language="es-ES" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS"/>
+				</updateComponent>
+			</applicable>
+			<component>
+				<assemblyIdentity name="9362432ec62f19995e836bb7cff9c095" version="6.1.7601.22823" processorArchitecture="amd64" language="neutral" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS"/>
+			</component>
+		</update>
+	</package>
+</assembly>

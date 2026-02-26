@@ -1,0 +1,588 @@
+<?xml version="1.0" encoding="utf-8"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v3" manifestVersion="1.0" description="Fix for KB2990941" displayName="default" company="Microsoft Corporation" copyright="Microsoft Corporation" supportInformation="http://support.microsoft.com/?kbid=2990941" creationTimeStamp="2014-09-29T18:42:49Z" lastUpdateTimeStamp="2014-09-29T18:42:49Z">
+  <assemblyIdentity name="Package_for_KB2990941_SP1" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+  <package identifier="KB2990941" applicabilityEvaluation="deep" releaseType="Hotfix" restart="possible">
+    <parent buildCompare="EQ" serviceCompare="GE" integrate="separate" disposition="staged">
+      <assemblyIdentity name="Microsoft-Windows-Common-Drivers-Package" version="6.1.7601.17514" processorArchitecture="amd64" language="neutral" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+      <assemblyIdentity name="Microsoft-Windows-EmbeddedCore-Package" language="neutral" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="ar-SA" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="bg-BG" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="cs-CZ" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="da-DK" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="de-DE" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="el-GR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="en-US" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="es-ES" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="et-EE" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="fi-FI" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="fr-FR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="he-IL" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="hr-HR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="hu-HU" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="it-IT" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="ja-JP" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="ko-KR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="lt-LT" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="lv-LV" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="nb-NO" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="nl-NL" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="pl-PL" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="pt-BR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="pt-PT" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="ro-RO" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="ru-RU" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="sk-SK" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="sl-SI" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="sr-Latn-CS" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="sv-SE" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="th-TH" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="tr-TR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="uk-UA" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="zh-CN" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="zh-HK" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-FailoverCluster-Core-WOW64-Package" language="zh-TW" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-Foundation-Package" language="neutral" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-Package" language="neutral" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="ar-SA" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="bg-BG" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="cs-CZ" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="da-DK" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="de-DE" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="el-GR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="en-US" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="es-ES" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="et-EE" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="fi-FI" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="fr-FR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="he-IL" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="hr-HR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="hu-HU" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="it-IT" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="ja-JP" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="ko-KR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="lt-LT" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="lv-LV" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="nb-NO" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="nl-NL" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="pl-PL" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="pt-BR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="pt-PT" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="ro-RO" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="ru-RU" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="sk-SK" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="sl-SI" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="sr-Latn-CS" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="sv-SE" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="th-TH" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="tr-TR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="uk-UA" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="zh-CN" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="zh-HK" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerCore-WOW64-Package" language="zh-TW" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="ar-SA" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="bg-BG" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="cs-CZ" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="da-DK" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="de-DE" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="el-GR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="en-US" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="es-ES" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="et-EE" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="fi-FI" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="fr-FR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="he-IL" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="hr-HR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="hu-HU" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="it-IT" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="ja-JP" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="ko-KR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="lt-LT" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="lv-LV" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="nb-NO" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="nl-NL" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="pl-PL" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="pt-BR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="pt-PT" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="ro-RO" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="ru-RU" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="sk-SK" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="sl-SI" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="sr-Latn-CS" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="sv-SE" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="th-TH" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="tr-TR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="uk-UA" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="zh-CN" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="zh-HK" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-ServerFoundation-Base-LanguagePack-Package" language="zh-TW" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="ar-SA" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="bg-BG" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="cs-CZ" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="da-DK" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="de-DE" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="el-GR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="en-US" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="es-ES" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="et-EE" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="fi-FI" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="fr-FR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="he-IL" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="hr-HR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="hu-HU" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="it-IT" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="ja-JP" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="ko-KR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="lt-LT" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="lv-LV" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="nb-NO" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="nl-NL" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="pl-PL" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="pt-BR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="pt-PT" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="ro-RO" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="ru-RU" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="sk-SK" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="sl-SI" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="sr-Latn-CS" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="sv-SE" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="th-TH" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="tr-TR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="uk-UA" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="zh-CN" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="zh-HK" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="Microsoft-Windows-WindowsFoundation-LanguagePack-Package" language="zh-TW" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="ar-SA" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="bg-BG" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="cs-CZ" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="da-DK" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="de-DE" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="el-GR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="en-US" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="es-ES" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="et-EE" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="fi-FI" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="fr-FR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="he-IL" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="hr-HR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="hu-HU" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="it-IT" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="ja-JP" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="ko-KR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="lt-LT" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="lv-LV" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="nb-NO" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="nl-NL" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="pl-PL" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="pt-BR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="pt-PT" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="ro-RO" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="ru-RU" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="sk-SK" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="sl-SI" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="sr-Latn-CS" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="sv-SE" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="th-TH" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="tr-TR" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="uk-UA" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="zh-CN" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="zh-HK" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+      <assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="zh-TW" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release" />
+    </parent>
+    <installerAssembly name="Microsoft-Windows-ServicingStack" version="6.0.0.0" language="neutral" processorArchitecture="amd64" versionScope="nonSxS" publicKeyToken="31bf3856ad364e35" />
+    <update name="2990941-252_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_3_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-253_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_4_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-254_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_5_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-255_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_6_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-256_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_7_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-257_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_8_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-258_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_9_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-259_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_10_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-260_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_11_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-261_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_12_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-262_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_13_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-263_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_14_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-264_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_15_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-265_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_16_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-266_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_17_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-267_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_18_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-268_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_19_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-269_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_20_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-270_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_21_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-271_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_22_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-272_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_23_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-273_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_24_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-274_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_25_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-275_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_26_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-276_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_27_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-277_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_28_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-278_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_29_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-279_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_30_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-280_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_31_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-281_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_32_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-282_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_33_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-283_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_34_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-284_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_35_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-285_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_36_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-286_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_37_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-287_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_38_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-288_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_39_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-289_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_40_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-290_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_41_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-291_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_42_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-292_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_43_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-293_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_44_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-294_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_45_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-295_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_46_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-296_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_47_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-297_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_48_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-298_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_49_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-299_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_50_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-300_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_51_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-301_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_55_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-302_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_56_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-303_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_57_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-304_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_58_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-305_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_59_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-306_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_60_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-307_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_61_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-308_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_62_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-309_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_63_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-310_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_64_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-311_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_65_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-312_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_66_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-313_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_67_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-314_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_68_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-315_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_69_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-316_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_70_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-317_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_71_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-318_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_72_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-319_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_73_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-320_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_74_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-321_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_75_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-322_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_76_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-323_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_77_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-324_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_78_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-325_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_79_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-326_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_80_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-327_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_81_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-328_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_84_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-329_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_85_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+    <update name="2990941-330_neutral_PACKAGE">
+      <package integrate="hidden">
+        <assemblyIdentity name="Package_87_for_KB2990941" version="6.1.3.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" />
+      </package>
+    </update>
+  </package>
+</assembly>

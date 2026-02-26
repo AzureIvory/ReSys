@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v3" manifestVersion="1.0">
+  <assemblyIdentity name="stornvme.inf" version="6.1.7601.18615" processorArchitecture="amd64" language="neutral" buildType="release" publicKeyToken="31bf3856ad364e35" type="driverUpdate" versionScope="nonSxS" />
+  <dependency discoverable="no" resourceType="Resources" buildFilter="">
+    <dependentAssembly dependencyType="prerequisite">
+      <assemblyIdentity name="stornvme.inf.Resources" version="6.1.7601.18615" processorArchitecture="amd64" language="*" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS" />
+    </dependentAssembly>
+  </dependency>
+  <file name="stornvme.inf" sourceName="stornvme.inf" importPath="$(build.nttree)\driver_infs\">
+    <infFile xmlns="urn:schemas-microsoft-com:asm.v3" />
+    <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2">
+      <dsig:Transforms xmlns:dsig="http://www.w3.org/2000/09/xmldsig#">
+        <dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity" />
+      </dsig:Transforms>
+      <dsig:DigestMethod xmlns:dsig="http://www.w3.org/2000/09/xmldsig#" Algorithm="http://www.w3.org/2000/09/xmldsig#sha256" />
+      <dsig:DigestValue xmlns:dsig="http://www.w3.org/2000/09/xmldsig#">knNX8/h8rjdSyijIFFiLWw1uIu64Q1IhndeL8mK22FA=</dsig:DigestValue>
+    </asmv2:hash>
+  </file>
+  <file name="stornvme.sys" sourceName="stornvme.sys" importPath="$(build.nttree)\">
+    <asmv2:hash xmlns:asmv2="urn:schemas-microsoft-com:asm.v2">
+      <dsig:Transforms xmlns:dsig="http://www.w3.org/2000/09/xmldsig#">
+        <dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity" />
+      </dsig:Transforms>
+      <dsig:DigestMethod xmlns:dsig="http://www.w3.org/2000/09/xmldsig#" Algorithm="http://www.w3.org/2000/09/xmldsig#sha256" />
+      <dsig:DigestValue xmlns:dsig="http://www.w3.org/2000/09/xmldsig#">BAKJWC5k1gkHcD+dHQkkQVBdxIICmfogPAcQ2KpPdcs=</dsig:DigestValue>
+    </asmv2:hash>
+  </file>
+  <deployment xmlns="urn:schemas-microsoft-com:asm.v3" />
+</assembly>

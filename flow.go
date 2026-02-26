@@ -54,12 +54,11 @@ func desiredArch() string {
 	if version == 11 {
 		return "64"
 	}
-
-	// 调用 tools.go 中的 GetMemory 获取物理内存
 	mem, err := GetMemory()
+	logWrite("[desiredArch]物理内存大小：%d GB, err=%v", mem, err)
 	if err == nil {
 		// 判断是否小于 4GB
-		if mem < 4294967296 {
+		if mem < 4 {
 			return "32"
 		}
 		return "64" // >= 4GB
@@ -77,7 +76,7 @@ func StartInstall(target string) {
 	win2()
 	imgArch := desiredArch()
 	peArch := systemArch()
-	logWrite("开始重装流程，目标系统=%s，镜像期望架构=%s，PE架构=%s", target, imgArch, peArch)
+	logWrite("[StartInstall]开始重装流程，目标系统=%s，镜像期望架构=%s，PE架构=%s", target, imgArch, peArch)
 	uiSetProgress(0)
 	uiSetStatus("正在寻找镜像...")
 	imgPath, ok := retryLoopWithResult("镜像准备", func() (string, error) {
@@ -122,11 +121,11 @@ func StartInstall(target string) {
 
 		if bestRoot != "" {
 			uiSetStatus("镜像在系统盘：正在转移到其它分区...")
-			dstDir := filepath.Join(bestRoot, "镜像")
+			dstDir := filepath.Join(bestRoot, "tempimg")
 			_ = os.MkdirAll(dstDir, 0o755)
 			dstPath := filepath.Join(dstDir, filepath.Base(imgPath))
 
-			logWrite("转移镜像到其它分区：%s -> %s", imgPath, dstPath)
+			logWrite("[StartInstall]转移镜像到其它分区：%s -> %s", imgPath, dstPath)
 			if err := Copy(imgPath, dstPath, true, true); err != nil {
 				os.Remove(dstPath)
 				return err
@@ -138,10 +137,10 @@ func StartInstall(target string) {
 				if err := Remove(imgPath, false); err != nil {
 					return err
 				}
-				logWrite("已删除原镜像：%s", imgPath)
+				logWrite("[StartInstall]已删除原镜像：%s", imgPath)
 			}
 			imgPath = dstPath
-			logWrite("镜像已转移到其它分区，更新路径：%s", imgPath)
+			logWrite("[StartInstall]镜像已转移到其它分区，更新路径：%s", imgPath)
 			return nil
 		}
 
@@ -151,10 +150,10 @@ func StartInstall(target string) {
 		if err != nil {
 			return err
 		}
-		dstDir := filepath.Join(tmpRoot, "镜像")
+		dstDir := filepath.Join(tmpRoot, "tempimg")
 		_ = os.MkdirAll(dstDir, 0o755)
 		dstPath := filepath.Join(dstDir, filepath.Base(imgPath))
-		logWrite("转移镜像到TEMP：%s -> %s", imgPath, dstPath)
+		logWrite("[StartInstall]转移镜像到TEMP：%s -> %s", imgPath, dstPath)
 		if err := Copy(imgPath, dstPath, true, true); err != nil {
 			os.Remove(dstPath)
 			return err
@@ -166,10 +165,10 @@ func StartInstall(target string) {
 			if err := Remove(imgPath, false); err != nil {
 				return err
 			}
-			logWrite("已删除原镜像：%s", imgPath)
+			logWrite("[StartInstall]已删除原镜像：%s", imgPath)
 		}
 		imgPath = dstPath
-		logWrite("镜像已转移到TEMP，更新路径：%s", imgPath)
+		logWrite("[StartInstall]镜像已转移到TEMP，更新路径：%s", imgPath)
 		return nil
 	}) {
 		return
@@ -200,7 +199,7 @@ func StartInstall(target string) {
 
 	uiSetProgress(100)
 	uiSetStatus("即将重启进入PE...")
-	logWrite("准备完成，重启进入PE")
+	logWrite("[StartInstall]准备完成，重启进入PE")
 	Message("准备进入pe,测试模式", "请查看日志确定无误后手动重启")
 	//Shutdown(true)
 }
@@ -222,14 +221,14 @@ func findOrDownloadImage(target, arch string) (string, error) {
 func findLocalImage(target, arch string) (string, error) {
 	imgs, err := Findimg()
 	if err != nil {
-		logWrite("全盘搜索镜像失败：%v", err)
+		logWrite("[findLocalImage]全盘搜索镜像失败：%v", err)
 		return "", err
 	}
 	if len(imgs) == 0 {
-		logWrite("全盘未找到镜像")
+		logWrite("[findLocalImage]全盘未找到镜像")
 		return "", fmt.Errorf("未找到本地镜像")
 	}
-	logWrite("搜索到镜像：%s", strings.Join(imgs, " | "))
+	logWrite("[findLocalImage]搜索到镜像：%s", strings.Join(imgs, " | "))
 
 	var matchTarget []string
 	for _, p := range imgs {
@@ -259,7 +258,7 @@ func findLocalImage(target, arch string) (string, error) {
 	if len(byArch) == 0 {
 		byArch = matchTarget
 	}
-	logWrite("本地镜像筛选结果：%s", strings.Join(byArch, " | "))
+	logWrite("[findLocalImage]本地镜像筛选结果：%s", strings.Join(byArch, " | "))
 	return byArch[0], nil
 }
 
@@ -327,7 +326,7 @@ func chooseDownloadRoot() string {
 func downloadImage(target, arch string) (string, error) {
 	ent, err := GetWinImgs(target)
 	if err != nil {
-		logWrite("获取镜像列表失败：%v", err)
+		logWrite("[downloadImage]获取镜像列表失败：%v", err)
 		return "", err
 	}
 
@@ -338,14 +337,14 @@ func downloadImage(target, arch string) (string, error) {
 	if len(candidates) == 0 {
 		candidates = ent
 	}
-	logWrite("可用镜像数量：%d", len(candidates))
+	logWrite("[downloadImage]可用镜像数量：%d", len(candidates))
 
 	root := chooseDownloadRoot()
 	if root == "" {
-		logWrite("未找到可用下载分区")
+		logWrite("[downloadImage]未找到可用下载分区")
 		return "", fmt.Errorf("未找到可用下载分区")
 	}
-	dstDir := filepath.Join(root, "镜像")
+	dstDir := filepath.Join(root, "tempimg")
 	if err := os.MkdirAll(dstDir, 0o755); err != nil {
 		return "", err
 	}
@@ -367,7 +366,7 @@ func downloadImage(target, arch string) (string, error) {
 				continue
 			}
 			if !httpStatus(link) {
-				logWrite("URL链接不可用：%s", link)
+				logWrite("[downloadImage]URL链接不可用：%s", link)
 				markFailedLink(link)
 				continue
 			}
@@ -381,10 +380,10 @@ func downloadImage(target, arch string) (string, error) {
 			// 已存在则校验
 			if st, err := os.Stat(dstPath); err == nil && !st.IsDir() && st.Size() > 0 {
 				if err := validateImageFile(it, dstPath); err != nil {
-					logWrite("镜像校验失败，删除重下：%s err=%v", dstPath, err)
+					logWrite("[downloadImage]镜像校验失败，删除重下：%s err=%v", dstPath, err)
 					_ = Remove(dstPath, false)
 				} else {
-					logWrite("镜像已存在：%s", dstPath)
+					logWrite("[downloadImage]镜像已存在：%s", dstPath)
 					uiSetProgress(60)
 					return dstPath, nil
 				}
@@ -1318,7 +1317,7 @@ func matchMD5(path, expect string) (bool, error) {
 // RunPEInstall：在 PE 模式执行安装流程。
 // 1) 读取 restall_win.dat，定位镜像
 // 2) 若失败则本地搜索镜像，再失败则下载 Win10
-// 3) 处理“镜像在 C 盘”场景，必要时分区转移镜像
+// 3) 处理镜像在 C 盘场景，必要时分区转移镜像
 // 4) 格式化目标分区并应用镜像
 // 5) 修复引导 + 安装后文件处理
 // 6) 若创建临时分区，安装完成后合并回 C 盘

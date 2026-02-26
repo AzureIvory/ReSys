@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v3" manifestVersion="1.0" description="Fix for KB3087873" displayName="default" company="Microsoft Corporation" copyright="Microsoft Corporation" supportInformation="http://support.microsoft.com/?kbid=3087873" creationTimeStamp="2015-08-14T17:42:02Z" lastUpdateTimeStamp="2015-08-14T17:42:02Z">
+	<assemblyIdentity name="Package_71_for_KB3087873_BF" version="6.1.2.0" language="neutral" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35"/>
+	<package identifier="KB3087873_BF" releaseType="Hotfix" restart="possible">
+		<parent buildCompare="EQ" serviceCompare="EQ" integrate="separate" disposition="detect">
+			<assemblyIdentity name="WinEmb-SystemManagement-AdminTools" language="nb-NO" version="6.1.7601.17514" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" buildType="release"/>
+		</parent>
+		<installerAssembly name="Microsoft-Windows-ServicingStack" version="6.0.0.0" language="neutral" processorArchitecture="amd64" versionScope="nonSxS" publicKeyToken="31bf3856ad364e35"/>
+		<update name="3087873-70_neutral_LDR">
+			<applicable disposition="staged">
+				<updateComponent elevate="serviceLevel">
+					<assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="amd64" language="nb-NO" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS"/>
+					<assemblyIdentity name="Microsoft-Windows-IoLoggingDll.Resources" version="6.1.7601.23172" processorArchitecture="x86" language="nb-NO" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS"/>
+				</updateComponent>
+			</applicable>
+			<component>
+				<assemblyIdentity name="cd795fa6601c3844ec12f2a6f7a01743" version="6.1.7601.23172" processorArchitecture="amd64" language="neutral" buildType="release" publicKeyToken="31bf3856ad364e35" versionScope="nonSxS"/>
+			</component>
+		</update>
+	</package>
+</assembly>
