@@ -79,7 +79,7 @@ func CloseLog() {
 }
 
 // level: 0=INFO, -1=WARN, -2=ERROR
-func logWrite(level int, format string, args ...any) {
+func logWrite(level int, msg any, args ...any) {
 	initLogger()
 
 	lv := slog.LevelInfo
@@ -90,5 +90,10 @@ func logWrite(level int, format string, args ...any) {
 		lv = slog.LevelError
 	}
 
-	logger.Log(context.Background(), lv, fmt.Sprintf(format, args...))
+	text := fmt.Sprint(msg)
+	if len(args) > 0 {
+		text = fmt.Sprintf(text, args...)
+	}
+
+	logger.Log(context.Background(), lv, text)
 }
