@@ -614,6 +614,9 @@ func PE() int {
 
 // main 函数。
 func main() {
+	id, err := GetBootGUID()
+	fmt.Printf("Current Boot ID: %s (err: %v)\n", id, err)
+	os.Exit(1)
 
 	if dism == "" {
 		dism = "dism.exe"
