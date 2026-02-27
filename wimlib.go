@@ -808,7 +808,7 @@ func wcharPtrToString(p *C.wchar_t) string {
 	if p == nil {
 		return ""
 	}
-	return wcharPtrToString1(p)
+	return utf16zPtrToString((*uint16)(unsafe.Pointer(p)))
 }
 
 func allocWString(s string) (*C.wchar_t, func(), error) {
@@ -894,9 +894,4 @@ func utf16zPtrToString(p *uint16) string {
 		}
 	}
 	return syscall.UTF16ToString(unsafe.Slice(p, n))
-}
-
-// 包装：wchar_t*（cgo）-> Go string
-func wcharPtrToString1(p *C.wchar_t) string {
-	return utf16zPtrToString((*uint16)(unsafe.Pointer(p)))
 }
