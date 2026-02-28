@@ -57,6 +57,8 @@ func ansiToUTF8(b []byte) string {
 //	0: 盘符根(C:\)，支持输入 C / C: / C:\ / C:\path
 //	1: 盘符字母(C)，支持输入 C / C: / C:\ / C:\path
 //	2: 从完整路径提取盘符根(C:\)，必须是 C:\path
+//	3: 盘符带冒号(C:)，支持输入 C / C: / C:\ / C:\path / \\.\C: / \\?\C:
+//	   若输入包含 Volume{GUID}（如 \\?\Volume{...}\），则原样返回
 func NormalizeDrive(input string, mode int) (string, error) {
 	s := strings.TrimSpace(input)
 	if s == "" {
@@ -99,14 +101,43 @@ func NormalizeDrive(input string, mode int) (string, error) {
 			return strings.ToUpper(s[:1]) + `:\`, nil
 		}
 		return "", err
+
 	case 1:
 		return extractLetter(s)
+
 	case 2:
 		if len(s) >= 3 && s[1] == ':' && (s[2] == '\\' || s[2] == '/') {
 			return strings.ToUpper(s[:1]) + `:\`, nil
 		}
 		logWrite(0, "[NormalizeDrive]NormalizeDrive 解析路径失败: input=%s", input)
 		return "", fmt.Errorf("invalid path for drive root: %q", input)
+
+	case 3:
+		// Volume{GUID} 形式直接透传
+		if strings.Contains(strings.ToLower(s), "volume{") {
+			return s, nil
+		}
+
+		// 支持 \\.\C: 或 \\?\C: 形式
+		ss := s
+		if strings.HasPrefix(ss, `\\.\`) || strings.HasPrefix(ss, `\\?\`) {
+			if len(ss) > 4 {
+				ss = ss[4:]
+			}
+		}
+
+		letter, err := extractLetter(ss)
+		if err == nil {
+			return letter + `:`, nil
+		}
+
+		// 如果像 "C:\xxx" / "C:" 这种还能识别到冒号，直接取前两位
+		if len(ss) >= 2 && ss[1] == ':' && ((ss[0] >= 'a' && ss[0] <= 'z') || (ss[0] >= 'A' && ss[0] <= 'Z')) {
+			return strings.ToUpper(ss[:2]), nil
+		}
+
+		return "", err
+
 	default:
 		logWrite(0, "[NormalizeDrive]NormalizeDrive 模式无效: mode=%d input=%s", mode, input)
 		return "", fmt.Errorf("invalid normalize mode: %d", mode)
