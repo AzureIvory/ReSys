@@ -815,10 +815,7 @@ func fileExists(path string) bool {
 func systemDriveRoot() string {
 	drive := strings.TrimSpace(os.Getenv("SystemDrive"))
 	if drive == "" {
-		windir := os.Getenv("SystemRoot")
-		if windir == "" {
-			windir = os.Getenv("WINDIR")
-		}
+		windir := windowsDir()
 		if windir != "" {
 			drive = filepath.VolumeName(windir)
 		}

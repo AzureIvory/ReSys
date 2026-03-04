@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -472,24 +471,7 @@ func FixUEFI(osRoot, sysHint, locale string) error {
 		"/s", sysRoot,
 		"/f", "UEFI",
 	}
-	windir := os.Getenv("SystemRoot")
-	if windir == "" {
-		windir = os.Getenv("WINDIR")
-	}
-	isWow64 := runtime.GOARCH == "386" && os.Getenv("PROCESSOR_ARCHITEW6432") != ""
-	bcdpath := filepath.Join(windir, "System32", "bcdboot.exe")
-	if isWow64 {
-		bcdpath = filepath.Join(windir, "Sysnative", "bcdboot.exe")
-	}
-
-	if _, err := os.Stat(bcdpath); err != nil {
-		alt := filepath.Join(windir, "System32", "bcdboot.exe")
-		if _, err2 := os.Stat(alt); err2 == nil {
-			bcdpath = alt
-		} else {
-			bcdpath = "bcdboot.exe"
-		}
-	}
+	bcdpath := GetSystemExe("bcdboot.exe")
 
 	out, err := runCmd(bcdpath, nil, nil, "", args...)
 	if err != nil {
@@ -539,24 +521,7 @@ func FixBIOS(osRoot, sysHint, locale string) error {
 		"/s", sysRoot,
 		"/f", "BIOS",
 	}
-	windir := os.Getenv("SystemRoot")
-	if windir == "" {
-		windir = os.Getenv("WINDIR")
-	}
-	isWow64 := runtime.GOARCH == "386" && os.Getenv("PROCESSOR_ARCHITEW6432") != ""
-	bcdpath := filepath.Join(windir, "System32", "bcdboot.exe")
-	if isWow64 {
-		bcdpath = filepath.Join(windir, "Sysnative", "bcdboot.exe")
-	}
-
-	if _, err := os.Stat(bcdpath); err != nil {
-		alt := filepath.Join(windir, "System32", "bcdboot.exe")
-		if _, err2 := os.Stat(alt); err2 == nil {
-			bcdpath = alt
-		} else {
-			bcdpath = "bcdboot.exe"
-		}
-	}
+	bcdpath := GetSystemExe("bcdboot.exe")
 
 	out, err := runCmd(bcdpath, nil, nil, "", args...)
 	if err != nil {
@@ -612,10 +577,11 @@ func PE() int {
 	return 0
 }
 
-// main 函数。
+
 func main() {
-	id, err := GetBootGUID()
-	fmt.Printf("Current Boot ID: %s (err: %v)\n", id, err)
+	//cab,_:=NewCab()
+	//cab.Extract("Windows6.1-KB3087873-v2-x64.cab","temp")
+
 	os.Exit(1)
 
 	if dism == "" {

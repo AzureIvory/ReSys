@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -144,7 +146,7 @@ func NormalizeDrive(input string, mode int) (string, error) {
 	}
 }
 
-// NormalizeArch 统一架构名称，返回 64/32/arm/other 等短值。
+// NormalizeArch 统一架构名称，返回 64/32/arm/other
 func NormalizeArch(arch string) string {
 	a := strings.ToLower(strings.TrimSpace(arch))
 	switch a {
@@ -159,7 +161,7 @@ func NormalizeArch(arch string) string {
 	}
 }
 
-// SelfArch 返回当前运行架构的短值。
+// SelfArch 返回当前运行架构。
 func SelfArch() string {
 	switch runtime.GOARCH {
 	case "amd64":
@@ -171,4 +173,42 @@ func SelfArch() string {
 	default:
 		return "other"
 	}
+}
+
+// windowsDir 返回 Windows 根目录（优先 SystemRoot，其次 WINDIR）。
+func windowsDir() string {
+	if d := os.Getenv("SystemRoot"); d != "" {
+		return d
+	}
+	return os.Getenv("WINDIR")
+}
+
+// 判断当前是否为 32 位进程运行在 64 位 Windows 上。
+func is32() bool {
+	return runtime.GOARCH == "386" && os.Getenv("PROCESSOR_ARCHITEW6432") != ""
+}
+
+// 返回系统命令路径：优先 Sysnative(在 WOW64 下)，其次 System32，最后回退到 exeName（走 PATH）。
+func GetSystemExe(exeName string) string {
+	windir := windowsDir()
+	if windir == "" {
+		return exeName
+	}
+
+	sysDir := "System32"
+	if is32() {
+		sysDir = "Sysnative"
+	}
+
+	preferred := filepath.Join(windir, sysDir, exeName)
+	if fileExists(preferred) {
+		return preferred
+	}
+
+	alt := filepath.Join(windir, "System32", exeName)
+	if fileExists(alt) {
+		return alt
+	}
+
+	return exeName
 }

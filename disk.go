@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -1253,30 +1252,7 @@ func runDiskpartDirect(script string) (string, error) {
 
 // diskpartBinary 函数。
 func diskpartBinary() string {
-	windir := os.Getenv("SystemRoot")
-	if windir == "" {
-		windir = os.Getenv("WINDIR")
-	}
-
-	isWow64 := runtime.GOARCH == "386" && os.Getenv("PROCESSOR_ARCHITEW6432") != ""
-
-	diskpart := filepath.Join(windir, "System32", "diskpart.exe")
-	if isWow64 {
-		diskpart = filepath.Join(windir, "Sysnative", "diskpart.exe")
-	}
-
-	if windir != "" {
-		if _, err := os.Stat(diskpart); err == nil {
-			return diskpart
-		}
-		alt := filepath.Join(windir, "System32", "diskpart.exe")
-		if _, err := os.Stat(alt); err == nil {
-			return alt
-		}
-	}
-
-	// 最后走 PATH
-	return "diskpart.exe"
+	return GetSystemExe("diskpart.exe")
 }
 
 // 获取卷所在磁盘号 + 卷的起始偏移/长度（用于计算 /offset）。

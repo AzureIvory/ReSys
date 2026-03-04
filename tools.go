@@ -1299,15 +1299,7 @@ func applyPEBoot(best peCand) error {
 	lt, sdi, wim, nm := best.lt, best.sRel, best.wRel, best.nm
 	logWrite(0, "[applyPEBoot]PE:", nm, "DRV:", lt, "SDI:", sdi, "WIM:", wim)
 
-	windir := os.Getenv("SystemRoot")
-	if windir == "" {
-		windir = os.Getenv("WINDIR")
-	}
-	isWow64 := runtime.GOARCH == "386" && os.Getenv("PROCESSOR_ARCHITEW6432") != ""
-	bcdeditPath := filepath.Join(windir, "System32", "bcdedit.exe")
-	if isWow64 {
-		bcdeditPath = filepath.Join(windir, "Sysnative", "bcdedit.exe")
-	}
+	bcdeditPath := GetSystemExe("bcdedit.exe")
 	out, err := runCmd(bcdeditPath, nil, nil, "")
 	if err != nil && (errors.Is(err, os.ErrNotExist) || errors.Is(err, exec.ErrNotFound)) {
 		exe, e := os.Executable()
@@ -1374,22 +1366,10 @@ func applyPEBoot(best peCand) error {
 
 	// WinPE 注册表 PEFirmwareType（可能不存在；不存在时 reg 会 exit 1）
 	if fw == 0 {
-		windir = os.Getenv("SystemRoot")
-		if windir == "" {
-			windir = os.Getenv("WINDIR")
-		}
-		isWow64 = runtime.GOARCH == "386" && os.Getenv("PROCESSOR_ARCHITEW6432") != ""
-
-		regPath := filepath.Join(windir, "System32", "reg.exe")
-		if isWow64 {
-			regPath = filepath.Join(windir, "Sysnative", "reg.exe")
-		}
+		regPath := GetSystemExe("reg.exe")
 
 		// 有些 WinPE 需要先 UpdateBootInfo 才会写出 PEFirmwareType
-		wpeutilPath := filepath.Join(windir, "System32", "wpeutil.exe")
-		if isWow64 {
-			wpeutilPath = filepath.Join(windir, "Sysnative", "wpeutil.exe")
-		}
+		wpeutilPath := GetSystemExe("wpeutil.exe")
 		if _, stErr := os.Stat(wpeutilPath); stErr == nil {
 			_, _ = runCmd(wpeutilPath, nil, nil, "", "UpdateBootInfo")
 		}
@@ -1473,7 +1453,7 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 	}
 
 	wantArch := NormalizeArch(SelfArch())
-	if runtime.GOARCH == "386" && os.Getenv("PROCESSOR_ARCHITEW6432") != "" {
+	if is32() {
 		wantArch = "64"
 	}
 

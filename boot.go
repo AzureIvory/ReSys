@@ -6,29 +6,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 )
 
 // 获取当前系统引导 GUID
 func GetBootGUID() (string, error) {
-	// Resolve bcdedit.exe path (System32/Sysnative), fallback to local tools if not found.
-	windir := os.Getenv("SystemRoot")
-	if windir == "" {
-		windir = os.Getenv("WINDIR")
-	}
+	windir := windowsDir()
 	if windir == "" {
 		return "", fmt.Errorf("WINDIR/SystemRoot is empty")
 	}
+	bcdeditPath := GetSystemExe("bcdedit.exe")
 
-	isWow64 := runtime.GOARCH == "386" && os.Getenv("PROCESSOR_ARCHITEW6432") != ""
-	bcdeditPath := filepath.Join(windir, "System32", "bcdedit.exe")
-	if isWow64 {
-		// 32-bit process on 64-bit OS: use Sysnative to access real System32
-		bcdeditPath = filepath.Join(windir, "Sysnative", "bcdedit.exe")
-	}
-
-	// Run bcdedit once; if not exist/not found, fallback to <exeDir>\tools\bcdedit.exe and rerun.
 	out, err := runCmd(bcdeditPath, nil, nil, "", "/enum")
 	if err != nil && (errors.Is(err, os.ErrNotExist) || errors.Is(err, exec.ErrNotFound)) {
 		if exe, e := os.Executable(); e == nil {

@@ -20,8 +20,7 @@ import (
 	"time"
 )
 
-// Client is a lightweight aria2 JSON-RPC client for local-only use (127.0.0.1).
-// It can auto-start aria2c.exe from ./tools when RPC is not available.
+
 type Client struct {
 	Endpoint string // default: http://127.0.0.1:6800/jsonrpc
 
@@ -33,14 +32,13 @@ type Client struct {
 	started bool
 }
 
-// Options controls download behavior.
+
 type Options struct {
-	Dir      string   // download directory (relative is allowed)
-	Out      string   // output filename (HTTP/HTTPS single file only; BT may ignore)
-	Trackers []string // optional bt-tracker list (helps magnets / cold torrents)
+	Dir      string
+	Out      string
+	Trackers []string
 }
 
-// Progress is reported once per second while waiting.
 type Progress struct {
 	GID       string
 	Status    string
@@ -55,7 +53,7 @@ type Progress struct {
 	ErrMsg    string
 }
 
-// Result is returned when download completes (or errors).
+
 type Result struct {
 	GID     string
 	Status  string
@@ -67,14 +65,9 @@ type Result struct {
 	ErrMsg  string
 }
 
-// ProgressFunc is called once per second while waiting.
-// If nil, the client uses DefaultProgressPrinter.
 type ProgressFunc func(p Progress)
 
-// NewLocal creates a local-only client and ensures aria2 RPC is ready.
-// It will try to reuse an existing aria2 RPC on 127.0.0.1:6800.
-// If not available, it starts ./tools/aria2c.exe (relative to the running program).
-func NewLocal() (*Client, error) {
+func Newaria2() (*Client, error) {
 	c := &Client{
 		Endpoint: "http://127.0.0.1:6800/jsonrpc",
 		hc: &http.Client{
@@ -93,8 +86,6 @@ func NewLocal() (*Client, error) {
 	return c, nil
 }
 
-// Close stops aria2c only if it was started by this client.
-// If aria2 was already running, Close does nothing.
 func (c *Client) Close() error {
 	if c == nil || !c.started || c.cmd == nil || c.cmd.Process == nil {
 		return nil
@@ -104,21 +95,16 @@ func (c *Client) Close() error {
 	return nil
 }
 
-// Download downloads a normal URL (http/https/ftp/sftp...) via aria2.
-// It waits until complete/error, and calls cb once per second.
-// If cb is nil, it prints progress once per second to stdout.
+
 func (c *Client) Download(src string, opt Options, cb ProgressFunc) (Result, error) {
 	return c.DownloadContext(context.Background(), src, opt, cb)
 }
 
-// DownloadBt downloads a magnet or .torrent (local path or remote URL) via aria2.
-// It waits until complete/error, and calls cb once per second.
-// If cb is nil, it prints progress once per second to stdout.
+
 func (c *Client) DownloadBt(src string, opt Options, cb ProgressFunc) (Result, error) {
 	return c.DownloadBtContext(context.Background(), src, opt, cb)
 }
 
-// DownloadContext is the context-aware variant of Download.
 func (c *Client) DownloadContext(ctx context.Context, src string, opt Options, cb ProgressFunc) (Result, error) {
 	if c == nil {
 		return Result{}, errors.New("nil client")
@@ -133,7 +119,6 @@ func (c *Client) DownloadContext(ctx context.Context, src string, opt Options, c
 	return c.wait(ctx, gid, cb)
 }
 
-// DownloadBtContext is the context-aware variant of DownloadBt.
 func (c *Client) DownloadBtContext(ctx context.Context, src string, opt Options, cb ProgressFunc) (Result, error) {
 	if c == nil {
 		return Result{}, errors.New("nil client")
@@ -148,8 +133,6 @@ func (c *Client) DownloadBtContext(ctx context.Context, src string, opt Options,
 	return c.wait(ctx, gid, cb)
 }
 
-// DefaultProgressPrinter prints one-line progress each second.
-// You can pass it as cb: aria2dl.DefaultProgressPrinter
 func DefaultProgressPrinter(p Progress) {
 	totalMB := float64(p.Total) / (1024 * 1024)
 	doneMB := float64(p.Done) / (1024 * 1024)
@@ -532,7 +515,7 @@ func parseI64(s string) int64 {
 }
 
 func main1() {
-	c, err := NewLocal()
+	c, err := Newaria2()
 	if err != nil {
 		logWrite(-2, err.Error())
 	}
