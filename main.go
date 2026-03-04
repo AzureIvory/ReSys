@@ -577,7 +577,6 @@ func PE() int {
 	return 0
 }
 
-
 func main() {
 	//cab,_:=NewCab()
 	//cab.Extract("Windows6.1-KB3087873-v2-x64.cab","temp")

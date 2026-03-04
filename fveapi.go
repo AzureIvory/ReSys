@@ -1,6 +1,3 @@
-//go:build windows
-// +build windows
-
 package main
 
 import (
@@ -160,7 +157,7 @@ func (o *fveGetStatusOutput) getVolumeStatus() FveVolumeStatus {
 	case 5:
 		return DecryptionPaused
 	default:
-		// 不认识就当 FullyDecrypted（Rust 没有未知分支，这里给个保守值）
+		// 不认识就当 FullyDecrypted
 		return FullyDecrypted
 	}
 }
@@ -177,7 +174,7 @@ func (o *fveGetStatusOutput) getProtectionStatus() FveProtectionStatus {
 }
 
 func (o *fveGetStatusOutput) getLockStatus() FveLockStatus {
-	// Rust 的逻辑：protection_status=1 视为 Locked
+	// protection_status=1 视为 Locked
 	if o.ProtectionStatus == 1 {
 		return Locked
 	}

@@ -704,7 +704,7 @@ func getVolumeInfoByPath(root string) (fsType, label string, sizeBytes, freeByte
 	return fsType, label, total, freeAvail, nil
 }
 
-// parseMultiSz 函数。
+// 把 Windows 的 REG_MULTI_SZ（MULTI_SZ）UTF-16 缓冲区解析成 []string。
 func parseMultiSz(buf []uint16) []string {
 	var out []string
 	start := 0

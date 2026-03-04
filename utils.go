@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"unicode/utf16"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 // ansiToUTF8 函数。
@@ -184,8 +186,16 @@ func windowsDir() string {
 }
 
 // 判断当前是否为 32 位进程运行在 64 位 Windows 上。
-func is32() bool {
-	return runtime.GOARCH == "386" && os.Getenv("PROCESSOR_ARCHITEW6432") != ""
+func isWOW64() bool {
+	if runtime.GOARCH != "386" {
+		return false
+	}
+	// API
+	var wow64 bool
+	if err := windows.IsWow64Process(windows.CurrentProcess(), &wow64); err == nil {
+		return wow64
+	}
+	return os.Getenv("PROCESSOR_ARCHITEW6432") != ""
 }
 
 // 返回系统命令路径：优先 Sysnative(在 WOW64 下)，其次 System32，最后回退到 exeName（走 PATH）。
@@ -196,7 +206,7 @@ func GetSystemExe(exeName string) string {
 	}
 
 	sysDir := "System32"
-	if is32() {
+	if isWOW64() {
 		sysDir = "Sysnative"
 	}
 
@@ -211,4 +221,17 @@ func GetSystemExe(exeName string) string {
 	}
 
 	return exeName
+}
+
+// 获取真实的 System32（WOW64 下为 Sysnative）目录
+func GetSystem32Dir() string {
+	windir := windowsDir()
+	if windir == "" {
+		// 兜底
+		windir = `C:\Windows`
+	}
+	if isWOW64() {
+		return filepath.Join(windir, "Sysnative")
+	}
+	return filepath.Join(windir, "System32")
 }

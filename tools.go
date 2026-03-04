@@ -1453,7 +1453,7 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 	}
 
 	wantArch := NormalizeArch(SelfArch())
-	if is32() {
+	if isWOW64() {
 		wantArch = "64"
 	}
 
