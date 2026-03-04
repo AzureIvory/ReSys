@@ -17,20 +17,7 @@ import (
 
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"golang.org/x/text/transform"
-
-	// 这里按你的工程实际 import 路径改一下：
-	// 例如： "yourmodule/fveapi"
-	"fveapi"
 )
-
-/*
-对齐 Rust 版语义：
-- BitLockerManager：内部 useFveapi；fveapi 不可用则回退 manage-bde
-- VolumeStatus：NotEncrypted/EncryptedUnlocked/EncryptedLocked/Encrypting/Decrypting/Unknown
-- UnlockResult/DecryptResult：success/message/error_code
-- GetStatus/GetStatusWithPercentage/GetRecoveryKey/UnlockWithPassword/UnlockWithRecoveryKey/Decrypt
-- GetEncryptedVolumes / GetLockedVolumes 等（探测固定磁盘，跳过 X:）
-*/
 
 // --------------------- public types ---------------------
 
@@ -114,7 +101,7 @@ type BitLockerManager struct {
 func New() *BitLockerManager {
 	use := false
 	// fveapi.dll 可能不存在/不可用，或者 FindProc 失败
-	if api, err := fveapi.Instance(); err == nil && api != nil {
+	if api, err := Instance(); err == nil && api != nil {
 		use = true
 	}
 	return &BitLockerManager{useFveapi: use}
@@ -200,7 +187,7 @@ func (m *BitLockerManager) UnlockWithRecoveryKey(drive, recoveryKey string) Unlo
 		return unlockFailure(vol, "恢复密钥不能为空", nil)
 	}
 	// 对齐 Rust：把输入里的数字抽出来，格式化为 8 组 * 6 位
-	if formatted, err := fveapi.FormatRecoveryKey(key); err == nil {
+	if formatted, err := FormatRecoveryKey(key); err == nil {
 		key = formatted
 	}
 
@@ -328,29 +315,29 @@ func (m *BitLockerManager) GetEncryptedPartitions(partitions []string) []string 
 // --------------------- internal: fveapi path ---------------------
 
 func (m *BitLockerManager) getStatusFveapi(letter byte) VolumeStatus {
-	api, err := fveapi.Instance()
+	api, err := Instance()
 	if err != nil || api == nil {
 		return m.getStatusManageBde(letter)
 	}
 	vol := fmt.Sprintf("%c:", letter)
 
 	info, fe := api.GetStatusByPath(vol)
-	if fe == fveapi.Success {
+	if fe == Success {
 		return volumeStatusFromFveInfo(info)
 	}
 
 	// Rust 对齐：locked errors => EncryptedLocked
-	if fe == fveapi.VolumeLocked || fe == fveapi.KeyRequired {
+	if fe == VolumeLocked || fe == KeyRequired {
 		return EncryptedLocked
 	}
 
 	// not encrypted
-	if fe == fveapi.NotEncrypted || fe == fveapi.NotBitLockerVolume || fe == fveapi.NotSupported {
+	if fe == NotEncrypted || fe == NotBitLockerVolume || fe == NotSupported {
 		return NotEncrypted
 	}
 
 	// AccessDenied：回退 manage-bde
-	if fe == fveapi.AccessDenied {
+	if fe == AccessDenied {
 		return m.getStatusManageBde(letter)
 	}
 
@@ -359,39 +346,39 @@ func (m *BitLockerManager) getStatusFveapi(letter byte) VolumeStatus {
 }
 
 func (m *BitLockerManager) getStatusWithPercentageFveapi(letter byte) (VolumeStatus, float32) {
-	api, err := fveapi.Instance()
+	api, err := Instance()
 	if err != nil || api == nil {
 		return m.getStatusWithPercentageManageBde(letter)
 	}
 	vol := fmt.Sprintf("%c:", letter)
 
 	info, fe := api.GetStatusByPath(vol)
-	if fe == fveapi.Success {
+	if fe == Success {
 		st := volumeStatusFromFveInfo(info)
 		return st, float32(info.EncryptionPercentage)
 	}
 	// locked -> EncryptedLocked + percent unknown
-	if fe == fveapi.VolumeLocked || fe == fveapi.KeyRequired {
+	if fe == VolumeLocked || fe == KeyRequired {
 		return EncryptedLocked, 0
 	}
-	if fe == fveapi.NotEncrypted || fe == fveapi.NotBitLockerVolume || fe == fveapi.NotSupported {
+	if fe == NotEncrypted || fe == NotBitLockerVolume || fe == NotSupported {
 		return NotEncrypted, 0
 	}
 	return m.getStatusWithPercentageManageBde(letter)
 }
 
-func volumeStatusFromFveInfo(info fveapi.FveVolumeInfo) VolumeStatus {
+func volumeStatusFromFveInfo(info FveVolumeInfo) VolumeStatus {
 	switch info.VolumeStatus {
-	case fveapi.FullyEncrypted:
-		if info.LockStatus == fveapi.Locked {
+	case FullyEncrypted:
+		if info.LockStatus == Locked {
 			return EncryptedLocked
 		}
 		return EncryptedUnlocked
-	case fveapi.EncryptionInProgress, fveapi.EncryptionPaused:
+	case EncryptionInProgress, EncryptionPaused:
 		return Encrypting
-	case fveapi.DecryptionInProgress, fveapi.DecryptionPaused:
+	case DecryptionInProgress, DecryptionPaused:
 		return Decrypting
-	case fveapi.FullyDecrypted:
+	case FullyDecrypted:
 		// Rust 对齐：FullyDecrypted 但 percent>0 => 仍视为解密中
 		if info.EncryptionPercentage > 0 {
 			return Decrypting
@@ -403,28 +390,28 @@ func volumeStatusFromFveInfo(info fveapi.FveVolumeInfo) VolumeStatus {
 }
 
 func (m *BitLockerManager) unlockWithPasswordFveapi(letter byte, password string) UnlockResult {
-	api, err := fveapi.Instance()
+	api, err := Instance()
 	if err != nil || api == nil {
 		return unlockFailure(fmt.Sprintf("%c:", letter), fmt.Sprintf("FveApi 初始化失败: %v", err), nil)
 	}
 	vol := fmt.Sprintf("%c:", letter)
 
 	h, fe := api.OpenVolume(vol)
-	if fe != fveapi.Success {
+	if fe != Success {
 		code := fe.Code()
 		return unlockFailure(vol, fmt.Sprintf("打开卷失败: 0x%08X", code), &code)
 	}
 	defer h.Close()
 
 	fe = h.UnlockWithPassword(password)
-	if fe == fveapi.Success {
+	if fe == Success {
 		return unlockSuccess(vol, "解锁成功")
 	}
 	code := fe.Code()
 	switch fe {
-	case fveapi.BadPassword:
+	case BadPassword:
 		return unlockFailure(vol, "密码错误", &code)
-	case fveapi.VolumeUnlocked:
+	case VolumeUnlocked:
 		return unlockSuccess(vol, "驱动器已经是解锁状态")
 	default:
 		return unlockFailure(vol, fmt.Sprintf("解锁失败: 0x%08X", code), &code)
@@ -432,28 +419,28 @@ func (m *BitLockerManager) unlockWithPasswordFveapi(letter byte, password string
 }
 
 func (m *BitLockerManager) unlockWithRecoveryKeyFveapi(letter byte, recoveryKey string) UnlockResult {
-	api, err := fveapi.Instance()
+	api, err := Instance()
 	if err != nil || api == nil {
 		return unlockFailure(fmt.Sprintf("%c:", letter), fmt.Sprintf("FveApi 初始化失败: %v", err), nil)
 	}
 	vol := fmt.Sprintf("%c:", letter)
 
 	h, fe := api.OpenVolume(vol)
-	if fe != fveapi.Success {
+	if fe != Success {
 		code := fe.Code()
 		return unlockFailure(vol, fmt.Sprintf("打开卷失败: 0x%08X", code), &code)
 	}
 	defer h.Close()
 
 	fe = h.UnlockWithRecoveryKey(recoveryKey)
-	if fe == fveapi.Success {
+	if fe == Success {
 		return unlockSuccess(vol, "解锁成功")
 	}
 	code := fe.Code()
 	switch fe {
-	case fveapi.BadRecoveryPassword:
+	case BadRecoveryPassword:
 		return unlockFailure(vol, "恢复密钥错误", &code)
-	case fveapi.VolumeUnlocked:
+	case VolumeUnlocked:
 		return unlockSuccess(vol, "驱动器已经是解锁状态")
 	default:
 		return unlockFailure(vol, fmt.Sprintf("解锁失败: 0x%08X", code), &code)
@@ -461,25 +448,25 @@ func (m *BitLockerManager) unlockWithRecoveryKeyFveapi(letter byte, recoveryKey 
 }
 
 func (m *BitLockerManager) decryptFveapi(letter byte) DecryptResult {
-	api, err := fveapi.Instance()
+	api, err := Instance()
 	if err != nil || api == nil {
 		return decryptFailure(fmt.Sprintf("%c:", letter), fmt.Sprintf("FveApi 初始化失败: %v", err), nil)
 	}
 	vol := fmt.Sprintf("%c:", letter)
 
 	// Rust 对齐：解密必须 ReadWrite
-	h, fe := api.OpenVolumeEx(vol, fveapi.ReadWrite)
-	if fe != fveapi.Success {
+	h, fe := api.OpenVolumeEx(vol, ReadWrite)
+	if fe != Success {
 		code := fe.Code()
 		return decryptFailure(vol, fmt.Sprintf("打开卷失败: 0x%08X", code), &code)
 	}
 	defer h.Close()
 
 	fe = h.StartDecryption()
-	if fe == fveapi.Success {
+	if fe == Success {
 		return decryptSuccess(vol, "已开始解密，此过程可能需要较长时间，请勿中断")
 	}
-	if fe == fveapi.NotEncrypted {
+	if fe == NotEncrypted {
 		return decryptSuccess(vol, "分区已经是未加密状态")
 	}
 	code := fe.Code()
@@ -898,13 +885,13 @@ func (m *BitLockerManager) probeDrive(letter byte) (VolumeInfo, bool) {
 	var pct *uint8
 
 	if m.useFveapi {
-		api, err := fveapi.Instance()
+		api, err := Instance()
 		if err == nil && api != nil {
-			if info, fe := api.GetStatusByPath(drive); fe == fveapi.Success {
+			if info, fe := api.GetStatusByPath(drive); fe == Success {
 				switch info.ProtectionStatus {
-				case fveapi.ProtectionOn:
+				case ProtectionOn:
 					method = "密码/恢复密钥"
-				case fveapi.ProtectionOff:
+				case ProtectionOff:
 					method = "保护已暂停"
 				default:
 					method = "未知"
@@ -912,10 +899,10 @@ func (m *BitLockerManager) probeDrive(letter byte) (VolumeInfo, bool) {
 
 				pp := uint8(0)
 				switch info.VolumeStatus {
-				case fveapi.FullyEncrypted:
+				case FullyEncrypted:
 					pp = 100
 					pct = &pp
-				case fveapi.FullyDecrypted:
+				case FullyDecrypted:
 					pp = 0
 					pct = &pp
 				default:
