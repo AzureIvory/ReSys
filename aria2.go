@@ -20,7 +20,11 @@ import (
 	"time"
 )
 
-
+// Client 是一个 aria2 JSON-RPC 客户端封装。
+// - Endpoint：aria2 RPC 地址（默认 127.0.0.1:6800/jsonrpc）
+// - hc：HTTP 客户端
+// - seq：JSON-RPC 请求自增 ID
+// - cmd/started：当本库自行启动 aria2c 进程时，用于进程生命周期管理
 type Client struct {
 	Endpoint string // default: http://127.0.0.1:6800/jsonrpc
 
@@ -32,13 +36,27 @@ type Client struct {
 	started bool
 }
 
-
+// Options 表示一次下载的可选参数：
+// - Dir：下载目录
+// - Out：输出文件名（aria2 的 out 参数）
+// - Trackers：BT tracker 列表（会拼成 bt-tracker 参数）
 type Options struct {
 	Dir      string
 	Out      string
 	Trackers []string
 }
 
+// Progress 表示下载过程中的进度信息（每次轮询 tellStatus 得到并加工后回调给用户）。
+// 字段含义：
+// - GID：aria2 任务 ID
+// - Status：任务状态（active/complete/error/removed 等）
+// - Path：文件路径（从 tellStatus 的 files[0].path 推断）
+// - Total / Done：总字节数 / 已完成字节数
+// - DownBps：当前下载速度（bytes/s）
+// - Percent：完成百分比（0~100）
+// - SpeedMBps：速度换算成 MiB/s（bytes/(1024*1024)）
+// - ETA：预计剩余时间
+// - ErrCode / ErrMsg：失败时的错误码/错误信息（来自 aria2）
 type Progress struct {
 	GID       string
 	Status    string
@@ -53,7 +71,7 @@ type Progress struct {
 	ErrMsg    string
 }
 
-
+// Result 表示最终结果（完成/错误/移除都会返回一个 Result；错误时同时返回 error）。
 type Result struct {
 	GID     string
 	Status  string
@@ -65,8 +83,12 @@ type Result struct {
 	ErrMsg  string
 }
 
+// ProgressFunc 是进度回调函数类型：每次轮询得到新进度都会调用一次。
 type ProgressFunc func(p Progress)
 
+// Newaria2 创建一个 Client，并确保 aria2 RPC 可用：
+// - 先尝试 ping 已存在的 aria2 RPC；
+// - 若不可用，则尝试从当前程序目录下的 ./tools/aria2c.exe 启动一个 aria2c 并等待其就绪。
 func Newaria2() (*Client, error) {
 	c := &Client{
 		Endpoint: "http://127.0.0.1:6800/jsonrpc",
@@ -86,6 +108,9 @@ func Newaria2() (*Client, error) {
 	return c, nil
 }
 
+// Close 关闭客户端占用的资源：
+// - 只有当本库自己启动了 aria2c（c.started=true）时才会尝试杀进程；
+// - 若 aria2c 不是本库启动的，则 Close 不做任何事。
 func (c *Client) Close() error {
 	if c == nil || !c.started || c.cmd == nil || c.cmd.Process == nil {
 		return nil
@@ -95,16 +120,21 @@ func (c *Client) Close() error {
 	return nil
 }
 
-
+// Download 以默认 context.Background() 下载普通 URL 资源。
+// src 必须是 URL（http/https/ftp/sftp）。
 func (c *Client) Download(src string, opt Options, cb ProgressFunc) (Result, error) {
 	return c.DownloadContext(context.Background(), src, opt, cb)
 }
 
-
+// DownloadBt 以默认 context.Background() 下载 BT 资源：magnet 或 .torrent（本地/远程）。
 func (c *Client) DownloadBt(src string, opt Options, cb ProgressFunc) (Result, error) {
 	return c.DownloadBtContext(context.Background(), src, opt, cb)
 }
 
+// DownloadContext 使用指定 ctx 下载普通 URL 资源：
+// 1) 参数校验（client 非空、src 是 URL）
+// 2) addAny 创建 aria2 任务并返回 gid
+// 3) wait 轮询任务状态直到完成/错误/移除/ctx 取消
 func (c *Client) DownloadContext(ctx context.Context, src string, opt Options, cb ProgressFunc) (Result, error) {
 	if c == nil {
 		return Result{}, errors.New("nil client")
@@ -119,6 +149,10 @@ func (c *Client) DownloadContext(ctx context.Context, src string, opt Options, c
 	return c.wait(ctx, gid, cb)
 }
 
+// DownloadBtContext 使用指定 ctx 下载 BT 资源（magnet 或 .torrent）：
+// 1) 参数校验（client 非空、src 是 magnet 或 torrent）
+// 2) addAny 创建 aria2 任务并返回 gid
+// 3) wait 轮询任务状态直到结束
 func (c *Client) DownloadBtContext(ctx context.Context, src string, opt Options, cb ProgressFunc) (Result, error) {
 	if c == nil {
 		return Result{}, errors.New("nil client")
@@ -133,6 +167,9 @@ func (c *Client) DownloadBtContext(ctx context.Context, src string, opt Options,
 	return c.wait(ctx, gid, cb)
 }
 
+// DefaultProgressPrinter 默认的进度打印器：
+// - 使用 \r 复写同一行输出进度；
+// - 当任务 complete/error/removed 时追加换行。
 func DefaultProgressPrinter(p Progress) {
 	totalMB := float64(p.Total) / (1024 * 1024)
 	doneMB := float64(p.Done) / (1024 * 1024)
@@ -153,6 +190,7 @@ func DefaultProgressPrinter(p Progress) {
 
 // ----------------- internal: rpc -----------------
 
+// rpcReq 表示 aria2 JSON-RPC 请求结构体。
 type rpcReq struct {
 	JSONRPC string `json:"jsonrpc"`
 	ID      uint64 `json:"id"`
@@ -160,6 +198,9 @@ type rpcReq struct {
 	Params  []any  `json:"params,omitempty"`
 }
 
+// rpcResp 表示 aria2 JSON-RPC 响应结构体：
+// - Result：成功时的返回 JSON
+// - Error：失败时的错误码/错误信息
 type rpcResp struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      uint64          `json:"id"`
@@ -170,7 +211,11 @@ type rpcResp struct {
 	} `json:"error,omitempty"`
 }
 
-// call performs a JSON-RPC call to aria2.
+// call 执行一次 JSON-RPC 调用：
+// 1) 自增请求 ID 并序列化请求体
+// 2) POST 到 c.Endpoint
+// 3) 读取并解析响应
+// 4) 如果 RPC 层报错，转成 Go error
 func (c *Client) call(ctx context.Context, method string, params ...any) (json.RawMessage, error) {
 	id := atomic.AddUint64(&c.seq, 1)
 	body, err := json.Marshal(rpcReq{
@@ -213,7 +258,10 @@ func (c *Client) call(ctx context.Context, method string, params ...any) (json.R
 	return rr.Result, nil
 }
 
-// ensureRPCReady tries to ping aria2 RPC; if not available, starts ./tools/aria2c.exe and waits for readiness.
+// ensureRPCReady 确保 aria2 RPC 可用：
+// - 先快速 ping 一次已有 aria2；若成功直接返回；
+// - 否则尝试启动 ./tools/aria2c.exe，并在 6 秒内轮询等待 RPC 就绪；
+// - 若仍失败则关闭进程并返回清晰错误（可能端口被占用等）。
 func (c *Client) ensureRPCReady() error {
 	// quick ping existing aria2
 	if err := c.pingOnce(800 * time.Millisecond); err == nil {
@@ -247,8 +295,8 @@ func (c *Client) ensureRPCReady() error {
 	cmd.Stderr = io.Discard
 
 	if runtime.GOOS == "windows" {
-		// HideWindow best-effort (no extra imports, keep simple)
-		// If you want it strictly, add: cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		// HideWindow best-effort（这里不额外引入 syscall，保持依赖简单）
+		// 如果需要更严格隐藏窗口，可加：cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	}
 
 	if err := cmd.Start(); err != nil {
@@ -274,7 +322,7 @@ func (c *Client) ensureRPCReady() error {
 	return fmt.Errorf("aria2 rpc not ready on 127.0.0.1:6800 (maybe port occupied). last=%v", lastErr)
 }
 
-// pingOnce calls aria2.getVersion with a short timeout to verify RPC availability.
+// pingOnce 使用短超时调用 aria2.getVersion，用于探测 RPC 是否可达。
 func (c *Client) pingOnce(timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -283,7 +331,9 @@ func (c *Client) pingOnce(timeout time.Duration) error {
 	return err
 }
 
-// addAny adds URL/magnet/torrent to aria2 and returns GID.
+// addAny 根据 src 类型（URL/magnet/torrent）创建 aria2 任务并返回 GID。
+// - URL/magnet：走 aria2.addUri
+// - torrent：加载 .torrent bytes（本地/远程），base64 后走 aria2.addTorrent
 func (c *Client) addAny(ctx context.Context, src string, opt Options) (string, error) {
 	options := map[string]string{}
 	if opt.Dir != "" {
@@ -296,6 +346,7 @@ func (c *Client) addAny(ctx context.Context, src string, opt Options) (string, e
 		options["bt-tracker"] = strings.Join(opt.Trackers, ",")
 	}
 
+	// magnet 或普通 URL（且不是 .torrent URL）直接 addUri
 	if isMagnet(src) || (looksLikeURL(src) && !isTorrent(src)) {
 		uris := []string{src}
 		res, err := c.call(ctx, "aria2.addUri", uris, options)
@@ -333,8 +384,11 @@ func (c *Client) addAny(ctx context.Context, src string, opt Options) (string, e
 	return "", fmt.Errorf("unsupported src: %q", src)
 }
 
-// wait polls aria2.tellStatus once per second and calls cb with progress.
-// It returns on complete/error/removed or ctx cancellation.
+// wait 每秒轮询一次 aria2.tellStatus，并通过 cb 回调进度。
+// 结束条件：
+// - status=complete：返回结果 nil error
+// - status=error/removed：返回结果 + error（含 code/msg）
+// - ctx 被取消：返回最新结果 + ctx.Err()
 func (c *Client) wait(ctx context.Context, gid string, cb ProgressFunc) (Result, error) {
 	if cb == nil {
 		cb = DefaultProgressPrinter
@@ -345,7 +399,7 @@ func (c *Client) wait(ctx context.Context, gid string, cb ProgressFunc) (Result,
 		"errorCode", "errorMessage", "files",
 	}
 
-	// immediate first tick (so user sees progress instantly)
+	// immediate first tick（让用户立刻看到一次进度）
 	p, err := c.tellStatus(ctx, gid, keys)
 	if err == nil {
 		cb(p)
@@ -381,6 +435,8 @@ func (c *Client) wait(ctx context.Context, gid string, cb ProgressFunc) (Result,
 	}
 }
 
+// tellStatusResp 是 aria2.tellStatus 返回 JSON 的结构体映射。
+// 注意：aria2 的数字字段经常以字符串形式返回。
 type tellStatusResp struct {
 	GID             string `json:"gid"`
 	Status          string `json:"status"`
@@ -394,6 +450,10 @@ type tellStatusResp struct {
 	} `json:"files"`
 }
 
+// tellStatus 调用 aria2.tellStatus 并将返回结果转换为 Progress：
+// - 把字符串数字转为 int64
+// - 计算百分比/速度/ETA
+// - 提取第一个文件路径作为展示路径
 func (c *Client) tellStatus(ctx context.Context, gid string, keys []string) (Progress, error) {
 	res, err := c.call(ctx, "aria2.tellStatus", gid, keys)
 	if err != nil {
@@ -441,6 +501,7 @@ func (c *Client) tellStatus(ctx context.Context, gid string, keys []string) (Pro
 	}, nil
 }
 
+// toResult 将 Progress 转换为最终 Result（字段基本一一对应）。
 func toResult(p Progress) Result {
 	return Result{
 		GID:     p.GID,
@@ -454,6 +515,9 @@ func toResult(p Progress) Result {
 	}
 }
 
+// loadTorrentBytes 加载 .torrent 文件内容：
+// - 若 src 是 URL，则通过 HTTP GET 拉取；
+// - 否则视为本地路径并 os.ReadFile。
 func loadTorrentBytes(ctx context.Context, src string, hc *http.Client) ([]byte, error) {
 	if looksLikeURL(src) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, src, nil)
@@ -474,16 +538,21 @@ func loadTorrentBytes(ctx context.Context, src string, hc *http.Client) ([]byte,
 	return os.ReadFile(src)
 }
 
+// looksLikeURL 粗略判断是否为 URL（支持 http/https/ftp/sftp）。
 func looksLikeURL(s string) bool {
 	ss := strings.ToLower(strings.TrimSpace(s))
 	return strings.HasPrefix(ss, "http://") || strings.HasPrefix(ss, "https://") ||
 		strings.HasPrefix(ss, "ftp://") || strings.HasPrefix(ss, "sftp://")
 }
 
+// isMagnet 判断字符串是否为 magnet 链接（前缀 magnet:）。
 func isMagnet(s string) bool {
 	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(s)), "magnet:")
 }
 
+// isTorrent 判断 src 是否为 .torrent：
+// - 若是 URL，则检查 URL path 的扩展名是否为 .torrent；
+// - 若是本地路径，则检查文件扩展名。
 func isTorrent(s string) bool {
 	ss := strings.TrimSpace(s)
 	if looksLikeURL(ss) {
@@ -496,6 +565,8 @@ func isTorrent(s string) bool {
 	return strings.EqualFold(filepath.Ext(ss), ".torrent")
 }
 
+// parseI64 把 aria2 返回的“数字字符串”解析成 int64。
+// aria2 有时返回浮点风格字符串，这里做容错：先 ParseInt，失败再 ParseFloat。
 func parseI64(s string) int64 {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -514,6 +585,9 @@ func parseI64(s string) int64 {
 	return 0
 }
 
+// main1 演示用入口：
+// - 例1：HTTP 文件下载
+// - 例2：BT/magnet 下载（注释掉了，需要你自行替换 magnet 链接）
 func main1() {
 	c, err := Newaria2()
 	if err != nil {

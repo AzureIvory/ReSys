@@ -6,7 +6,6 @@ import (
 	"strings"
 	"sync"
 	"syscall"
-	"unicode"
 	"unsafe"
 )
 
@@ -65,6 +64,8 @@ const (
 	Unknown              FveError = 0xFFFFFFFF
 )
 
+// FromHRESULT 将 Windows 的 HRESULT/错误码（uint32）映射到本文件定义的 FveError。
+// 目的：把底层 API 返回的数值统一归一化为枚举，便于上层逻辑判断/分支处理。
 func FromHRESULT(code uint32) FveError {
 	switch code {
 	case 0:
@@ -98,12 +99,18 @@ func FromHRESULT(code uint32) FveError {
 	}
 }
 
+// Code 返回该错误对应的原始数值（uint32）。
+// 方便在需要打印/上报或与系统错误码对照时使用。
 func (e FveError) Code() uint32 { return uint32(e) }
 
+// IndicatesNotEncrypted 判断该错误是否“强烈暗示：该卷并非 BitLocker 加密卷/未加密/不支持”。
+// 用途：上层可用来把“不是加密卷”的情况当作一种正常分支（而非致命错误）。
 func (e FveError) IndicatesNotEncrypted() bool {
 	return e == NotEncrypted || e == NotBitLockerVolume || e == NotSupported
 }
 
+// IndicatesLocked 判断该错误是否“强烈暗示：卷处于锁定或需要密钥/鉴权失败”。
+// 用途：上层可用来决定是否提示用户输入密码/恢复密钥等。
 func (e FveError) IndicatesLocked() bool {
 	return e == VolumeLocked || e == KeyRequired || e == AuthenticationFailed
 }
@@ -129,6 +136,9 @@ type fveGetStatusOutput struct {
 	Reserved5        [0x0C]byte // 0x74..0x7F
 }
 
+// newStatusOutput 构造一个用于接收 FveGetStatus / FveGetStatusW 输出的结构体。
+// 参数 version：期望的输出结构版本（通常先用 2，老系统可能只支持 1）。
+// 关键点：会做强校验，确保 Go 结构体布局大小必须恰好为 0x80，否则直接 panic。
 func newStatusOutput(version uint32) fveGetStatusOutput {
 	var out fveGetStatusOutput
 	out.Size = 0x80
@@ -142,6 +152,8 @@ func newStatusOutput(version uint32) fveGetStatusOutput {
 	return out
 }
 
+// getVolumeStatus 根据底层 ConversionStatus 字段，解析出卷的加解密状态（FveVolumeStatus）。
+// 如果遇到未知值，按 FullyDecrypted 兜底（更保守：避免误判为加密中）。
 func (o *fveGetStatusOutput) getVolumeStatus() FveVolumeStatus {
 	switch o.ConversionStatus {
 	case 0:
@@ -162,6 +174,8 @@ func (o *fveGetStatusOutput) getVolumeStatus() FveVolumeStatus {
 	}
 }
 
+// getProtectionStatus 根据底层 ProtectionStatus 字段，解析出保护状态（FveProtectionStatus）。
+// 0=Off, 1=On, 其他=Unknown。
 func (o *fveGetStatusOutput) getProtectionStatus() FveProtectionStatus {
 	switch o.ProtectionStatus {
 	case 0:
@@ -173,6 +187,8 @@ func (o *fveGetStatusOutput) getProtectionStatus() FveProtectionStatus {
 	}
 }
 
+// getLockStatus 推导卷锁定状态（FveLockStatus）。
+// 注意：这里用 protection_status=1 视为 Locked（与该项目 Rust 侧语义保持一致）。
 func (o *fveGetStatusOutput) getLockStatus() FveLockStatus {
 	// protection_status=1 视为 Locked
 	if o.ProtectionStatus == 1 {
@@ -193,6 +209,8 @@ type FveVolumeInfo struct {
 	EncryptedSize        uint64
 }
 
+// volumeInfoFrom 将底层 fveGetStatusOutput 转成更易用的上层结构 FveVolumeInfo。
+// 行为：会把 PercentComplete 夹到 [0,100]，然后按 Rust 逻辑 round() 后转 uint8。
 func volumeInfoFrom(out *fveGetStatusOutput) FveVolumeInfo {
 	percent := out.PercentComplete
 	if percent < 0 {
@@ -242,6 +260,8 @@ var (
 	instErr  error
 )
 
+// Instance 返回单例的 FveApi（线程安全，只初始化一次）。
+// 目的：避免重复加载 DLL/重复查找导出函数，且统一管理初始化错误。
 func Instance() (*FveApi, error) {
 	once.Do(func() {
 		api, err := newFveApi()
@@ -254,6 +274,11 @@ func Instance() (*FveApi, error) {
 	return instance, instErr
 }
 
+// newFveApi 创建并初始化 FveApi：加载 fveapi.dll 并绑定所需导出函数。
+// 行为：
+// 1) 先 dll.Load() 以便尽早暴露“组件缺失/系统不支持”等问题；
+// 2) NewProc 获取函数入口；
+// 3) Find() 校验导出确实存在（否则尽早返回错误）。
 func newFveApi() (*FveApi, error) {
 	dll := syscall.NewLazyDLL("fveapi.dll")
 
@@ -305,41 +330,8 @@ func newFveApi() (*FveApi, error) {
 	return api, nil
 }
 
-// ===================== Helper: normalize volume path =====================
-
-func normalizeVolumePath(path string) string {
-	trimmed := strings.TrimSpace(path)
-
-	// Volume GUID 直接保留
-	if strings.Contains(trimmed, "Volume{") {
-		return trimmed
-	}
-
-	// 设备路径格式: \\.\X: 或 \\?\X:
-	if len(trimmed) >= 6 {
-		prefix := trimmed[:4]
-		if prefix == `\\.\` || prefix == `\\?\` {
-			rest := trimmed[4:]
-			if len(rest) >= 2 && rest[1] == ':' {
-				letter := rune(rest[0])
-				if unicode.IsLetter(letter) {
-					return strings.ToUpper(string(letter)) + ":"
-				}
-			}
-		}
-	}
-
-	// 简单盘符格式: X: 或 X:\
-	if len(trimmed) >= 2 && trimmed[1] == ':' {
-		letter := rune(trimmed[0])
-		if unicode.IsLetter(letter) {
-			return strings.ToUpper(string(letter)) + ":"
-		}
-	}
-
-	return trimmed
-}
-
+// toUTF16Ptr 将 Go string 转换为 Windows API 常用的 UTF-16 以 \0 结尾的指针。
+// 内部使用 syscall.UTF16PtrFromString（会自动追加终止符）。
 func toUTF16Ptr(s string) (*uint16, error) {
 	// syscall.UTF16PtrFromString 会自动加 \0
 	return syscall.UTF16PtrFromString(s)
@@ -347,8 +339,14 @@ func toUTF16Ptr(s string) (*uint16, error) {
 
 // ===================== FveApi methods (match Rust semantics) =====================
 
+// GetStatusByPath 通过卷路径（例如 "C:" / "C:\\" / "\\?\Volume{...}\\" 等）查询 BitLocker 状态。
+// 行为：
+// 1) NormalizeDrive 规范化路径；
+// 2) 先用 version=2 调用 FveGetStatusW；
+// 3) 若返回 InvalidParameter，则降级尝试 version=1（兼容 Win7/老系统）；
+// 返回：解析后的 FveVolumeInfo + FveError（Success 表示成功）。
 func (api *FveApi) GetStatusByPath(volumePath string) (FveVolumeInfo, FveError) {
-	normalized := normalizeVolumePath(volumePath)
+	normalized, _ := NormalizeDrive(volumePath, 3)
 	p, err := toUTF16Ptr(normalized)
 	if err != nil {
 		return FveVolumeInfo{}, InvalidParameter
@@ -374,12 +372,17 @@ func (api *FveApi) GetStatusByPath(volumePath string) (FveVolumeInfo, FveError) 
 	return FveVolumeInfo{}, FromHRESULT(hr)
 }
 
+// OpenVolume 以只读方式打开卷，返回可用于后续操作的句柄（FveVolumeHandle）。
+// 等价于 OpenVolumeEx(volumePath, ReadOnly)。
 func (api *FveApi) OpenVolume(volumePath string) (*FveVolumeHandle, FveError) {
 	return api.OpenVolumeEx(volumePath, ReadOnly)
 }
 
+// OpenVolumeEx 以指定访问模式打开卷（只读/读写）。
+// 成功返回：FveVolumeHandle（包含底层句柄）；失败返回对应 FveError。
+// 注意：返回的句柄需要调用 Close() 释放（类似 RAII）。
 func (api *FveApi) OpenVolumeEx(volumePath string, mode FveAccessMode) (*FveVolumeHandle, FveError) {
-	normalized := normalizeVolumePath(volumePath)
+	normalized, _ := NormalizeDrive(volumePath, 3)
 	p, err := toUTF16Ptr(normalized)
 	if err != nil {
 		return nil, InvalidParameter
@@ -401,6 +404,8 @@ func (api *FveApi) OpenVolumeEx(volumePath string, mode FveAccessMode) (*FveVolu
 	return vh, Success
 }
 
+// IsEncrypted 判断卷是否处于“已加密/正在加密/暂停加密/正在解密/暂停解密”等非 FullyDecrypted 状态。
+// 返回：bool 表示是否加密；FveError 表示查询是否成功。
 func (api *FveApi) IsEncrypted(volumePath string) (bool, FveError) {
 	info, e := api.GetStatusByPath(volumePath)
 	if e != Success {
@@ -409,6 +414,8 @@ func (api *FveApi) IsEncrypted(volumePath string) (bool, FveError) {
 	return info.VolumeStatus != FullyDecrypted, Success
 }
 
+// IsLocked 判断卷是否处于锁定状态。
+// 返回：bool 表示是否 Locked；FveError 表示查询是否成功。
 func (api *FveApi) IsLocked(volumePath string) (bool, FveError) {
 	info, e := api.GetStatusByPath(volumePath)
 	if e != Success {
@@ -417,6 +424,8 @@ func (api *FveApi) IsLocked(volumePath string) (bool, FveError) {
 	return info.LockStatus == Locked, Success
 }
 
+// GetVolumeStatus 返回卷的加/解密状态（FveVolumeStatus）。
+// 若查询失败，返回值会给一个默认 FullyDecrypted（同时返回错误码 e）。
 func (api *FveApi) GetVolumeStatus(volumePath string) (FveVolumeStatus, FveError) {
 	info, e := api.GetStatusByPath(volumePath)
 	if e != Success {
@@ -425,6 +434,8 @@ func (api *FveApi) GetVolumeStatus(volumePath string) (FveVolumeStatus, FveError
 	return info.VolumeStatus, Success
 }
 
+// GetProtectionStatus 返回 BitLocker 保护状态（ProtectionOn/Off/Unknown）。
+// 若查询失败，返回 ProtectionUnknown 并携带错误码。
 func (api *FveApi) GetProtectionStatus(volumePath string) (FveProtectionStatus, FveError) {
 	info, e := api.GetStatusByPath(volumePath)
 	if e != Success {
@@ -433,6 +444,8 @@ func (api *FveApi) GetProtectionStatus(volumePath string) (FveProtectionStatus, 
 	return info.ProtectionStatus, Success
 }
 
+// GetLockStatus 返回卷锁定状态（Locked/Unlocked）。
+// 若查询失败，返回 Unlocked 并携带错误码（默认值不代表真实状态）。
 func (api *FveApi) GetLockStatus(volumePath string) (FveLockStatus, FveError) {
 	info, e := api.GetStatusByPath(volumePath)
 	if e != Success {
@@ -441,6 +454,9 @@ func (api *FveApi) GetLockStatus(volumePath string) (FveLockStatus, FveError) {
 	return info.LockStatus, Success
 }
 
+// callGetStatusW 调用底层导出函数 FveGetStatusW（按路径查询）。
+// 参数：path 为 UTF-16 指针；out 为接收输出结构体指针。
+// 返回：HRESULT（0 表示成功）。
 func (api *FveApi) callGetStatusW(path *uint16, out *fveGetStatusOutput) uint32 {
 	r1, _, _ := api.pGetStatusW.Call(
 		uintptr(unsafe.Pointer(path)),
@@ -456,6 +472,9 @@ type FveVolumeHandle struct {
 	api    *FveApi
 }
 
+// Close 关闭/释放底层卷句柄。
+// 设计：无论 Close 调用是否成功，都会把 handle 置 0，避免重复 close。
+// 返回：Success 表示关闭成功（或本来就已关闭）；否则返回对应错误码。
 func (h *FveVolumeHandle) Close() FveError {
 	if h == nil || h.handle == 0 {
 		return Success
@@ -470,6 +489,9 @@ func (h *FveVolumeHandle) Close() FveError {
 	return Success
 }
 
+// GetStatus 通过已打开的句柄查询状态（与 GetStatusByPath 类似，但走 FveGetStatus(handle)）。
+// 行为：先用 version=2；若 InvalidParameter 则降级到 version=1（兼容老系统）。
+// 返回：FveVolumeInfo + FveError（Success 表示成功）。
 func (h *FveVolumeHandle) GetStatus() (FveVolumeInfo, FveError) {
 	if h == nil || h.handle == 0 {
 		return FveVolumeInfo{}, InvalidParameter
@@ -499,6 +521,8 @@ func (h *FveVolumeHandle) GetStatus() (FveVolumeInfo, FveError) {
 	return FveVolumeInfo{}, FromHRESULT(hr)
 }
 
+// UnlockWithPassword 使用用户密码解锁卷。
+// 逻辑：先构造“口令鉴权元素”（createPassphraseAuth），再调用 FveUnlockVolume(handle, auth)。
 func (h *FveVolumeHandle) UnlockWithPassword(password string) FveError {
 	if h == nil || h.handle == 0 {
 		return InvalidParameter
@@ -518,6 +542,8 @@ func (h *FveVolumeHandle) UnlockWithPassword(password string) FveError {
 	return Success
 }
 
+// UnlockWithRecoveryKey 使用恢复密钥（Recovery Password）解锁卷。
+// 逻辑：先构造“恢复密钥鉴权元素”（createRecoveryAuth），再调用 FveUnlockVolume(handle, auth)。
 func (h *FveVolumeHandle) UnlockWithRecoveryKey(recoveryKey string) FveError {
 	if h == nil || h.handle == 0 {
 		return InvalidParameter
@@ -537,6 +563,9 @@ func (h *FveVolumeHandle) UnlockWithRecoveryKey(recoveryKey string) FveError {
 	return Success
 }
 
+// Lock 锁定卷（可选：先卸载/断开挂载）。
+// 参数 dismountFirst：true 表示在锁定前先尝试 dismount；false 直接锁定。
+// 返回：Success 表示成功；否则返回错误码。
 func (h *FveVolumeHandle) Lock(dismountFirst bool) FveError {
 	if h == nil || h.handle == 0 {
 		return InvalidParameter
@@ -556,6 +585,8 @@ func (h *FveVolumeHandle) Lock(dismountFirst bool) FveError {
 	return Success
 }
 
+// StartDecryption 发起解密（BitLocker 转换：Decrypt）。
+// 实际调用 FveConversionDecrypt(handle)。
 func (h *FveVolumeHandle) StartDecryption() FveError {
 	if h == nil || h.handle == 0 {
 		return InvalidParameter
@@ -568,6 +599,9 @@ func (h *FveVolumeHandle) StartDecryption() FveError {
 	return Success
 }
 
+// StartDecryptionEx 发起解密（扩展版本，可传 flags）。
+// 实际调用 FveConversionDecryptEx(handle, flags)。
+// flags 的具体含义取决于 fveapi.dll 定义（这里保持与 Rust 侧一致的透传）。
 func (h *FveVolumeHandle) StartDecryptionEx(flags uint32) FveError {
 	if h == nil || h.handle == 0 {
 		return InvalidParameter
@@ -583,6 +617,8 @@ func (h *FveVolumeHandle) StartDecryptionEx(flags uint32) FveError {
 	return Success
 }
 
+// AsRaw 返回底层原始句柄值（uintptr），用于与其他底层调用互操作。
+// 注意：仅暴露数值，不负责生命周期；仍需通过 Close() 管理句柄释放。
 func (h *FveVolumeHandle) AsRaw() uintptr {
 	if h == nil {
 		return 0
@@ -595,6 +631,9 @@ func (h *FveVolumeHandle) AsRaw() uintptr {
 // 如果你后续验证 Win7/某些版本函数实际是“写入 caller buffer”形式，
 // 需要改签名和内存策略（否则会崩）。现在以“与 Rust 一致”为优先。
 
+// createPassphraseAuth 通过口令（passphrase）创建 FVE 鉴权元素（auth element）。
+// 返回：auth 指针（uintptr）+ 错误码。
+// 注意：这里假设底层函数会分配/返回一个指针给调用方；如果某些系统实现不同，需要调整内存策略。
 func (api *FveApi) createPassphraseAuth(passphrase string) (uintptr, FveError) {
 	p, err := toUTF16Ptr(passphrase)
 	if err != nil {
@@ -612,6 +651,9 @@ func (api *FveApi) createPassphraseAuth(passphrase string) (uintptr, FveError) {
 	return auth, Success
 }
 
+// createRecoveryAuth 通过恢复密钥（recoveryKey）创建 FVE 鉴权元素（auth element）。
+// 返回：auth 指针（uintptr）+ 错误码。
+// 注意：同 createPassphraseAuth，这里以“函数返回指针”语义为前提。
 func (api *FveApi) createRecoveryAuth(recoveryKey string) (uintptr, FveError) {
 	p, err := toUTF16Ptr(recoveryKey)
 	if err != nil {
@@ -631,7 +673,12 @@ func (api *FveApi) createRecoveryAuth(recoveryKey string) (uintptr, FveError) {
 
 // ===================== Utilities =====================
 
-// FormatRecoveryKey matches Rust: keep digits only, must be 48 digits, group by 6 with '-'.
+// FormatRecoveryKey 把用户输入的恢复密钥格式化为标准形式：
+// 规则：
+// 1) 仅保留数字；
+// 2) 必须恰好 48 位；
+// 3) 每 6 位分组，用 '-' 连接（共 8 组）。
+// 返回：格式化后的字符串；若位数不对则返回 error。
 func FormatRecoveryKey(input string) (string, error) {
 	var b strings.Builder
 	b.Grow(len(input))
@@ -651,7 +698,8 @@ func FormatRecoveryKey(input string) (string, error) {
 	return strings.Join(parts, "-"), nil
 }
 
-// A small helper to make sure caller doesn't pass empty API.
+// MustInstance 获取 FveApi 单例；如果初始化失败则直接 panic。
+// 用途：适合在“程序启动就必须能用 BitLocker API”的场景下简化错误处理。
 func MustInstance() *FveApi {
 	api, err := Instance()
 	if err != nil {
