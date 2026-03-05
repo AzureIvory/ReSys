@@ -1,4 +1,4 @@
-package windows
+package tools
 
 import (
 	"ReSys/src/log"
