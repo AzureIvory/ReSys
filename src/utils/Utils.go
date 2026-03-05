@@ -1,4 +1,4 @@
-package main
+package utils
 
 import (
 	"fmt"
@@ -10,11 +10,13 @@ import (
 	"unicode/utf16"
 	"unsafe"
 
+	"ReSys/src/log"
+
 	"golang.org/x/sys/windows"
 )
 
 // ansiToUTF8 函数。
-func ansiToUTF8(b []byte) string {
+func AnsiToUTF8(b []byte) string {
 	if len(b) == 0 {
 		return ""
 	}
@@ -55,6 +57,14 @@ func ansiToUTF8(b []byte) string {
 	return string(utf16.Decode(w))
 }
 
+// 文件存在且不是目录。
+func FileExists(path string) bool {
+	if st, err := os.Stat(path); err == nil && !st.IsDir() {
+		return true
+	}
+	return false
+}
+
 // NormalizeDrive 统一盘符/路径格式。
 // mode 说明：
 //
@@ -66,7 +76,7 @@ func ansiToUTF8(b []byte) string {
 func NormalizeDrive(input string, mode int) (string, error) {
 	s := strings.TrimSpace(input)
 	if s == "" {
-		logWrite(0, "[NormalizeDrive]NormalizeDrive 输入为空")
+		log.LogWrite(0, "[NormalizeDrive]NormalizeDrive 输入为空")
 		return "", fmt.Errorf("empty drive")
 	}
 	s = strings.ReplaceAll(s, "/", `\`)
@@ -74,7 +84,7 @@ func NormalizeDrive(input string, mode int) (string, error) {
 	extractLetter := func(val string) (string, error) {
 		val = strings.TrimSpace(val)
 		if val == "" {
-			logWrite(0, "[NormalizeDrive]NormalizeDrive 盘符为空: input=%s", input)
+			log.LogWrite(0, "[NormalizeDrive]NormalizeDrive 盘符为空: input=%s", input)
 			return "", fmt.Errorf("empty drive letter")
 		}
 		val = strings.ToUpper(val)
@@ -85,11 +95,11 @@ func NormalizeDrive(input string, mode int) (string, error) {
 			val = val[:1]
 		case len(val) == 1:
 		default:
-			logWrite(0, "[NormalizeDrive]NormalizeDrive 盘符格式异常: input=%s", input)
+			log.LogWrite(0, "[NormalizeDrive]NormalizeDrive 盘符格式异常: input=%s", input)
 			return "", fmt.Errorf("invalid drive letter: %q", input)
 		}
 		if val[0] < 'A' || val[0] > 'Z' {
-			logWrite(0, "[NormalizeDrive]NormalizeDrive 盘符范围异常: input=%s", input)
+			log.LogWrite(0, "[NormalizeDrive]NormalizeDrive 盘符范围异常: input=%s", input)
 			return "", fmt.Errorf("invalid drive letter: %q", input)
 		}
 		return val, nil
@@ -113,7 +123,7 @@ func NormalizeDrive(input string, mode int) (string, error) {
 		if len(s) >= 3 && s[1] == ':' && (s[2] == '\\' || s[2] == '/') {
 			return strings.ToUpper(s[:1]) + `:\`, nil
 		}
-		logWrite(0, "[NormalizeDrive]NormalizeDrive 解析路径失败: input=%s", input)
+		log.LogWrite(0, "[NormalizeDrive]NormalizeDrive 解析路径失败: input=%s", input)
 		return "", fmt.Errorf("invalid path for drive root: %q", input)
 
 	case 3:
@@ -143,7 +153,7 @@ func NormalizeDrive(input string, mode int) (string, error) {
 		return "", err
 
 	default:
-		logWrite(0, "[NormalizeDrive]NormalizeDrive 模式无效: mode=%d input=%s", mode, input)
+		log.LogWrite(0, "[NormalizeDrive]NormalizeDrive 模式无效: mode=%d input=%s", mode, input)
 		return "", fmt.Errorf("invalid normalize mode: %d", mode)
 	}
 }
@@ -177,8 +187,8 @@ func SelfArch() string {
 	}
 }
 
-// windowsDir 返回 Windows 根目录（优先 SystemRoot，其次 WINDIR）。
-func windowsDir() string {
+// WindowsDir 返回 Windows 根目录（优先 SystemRoot，其次 WINDIR）。
+func WindowsDir() string {
 	if d := os.Getenv("SystemRoot"); d != "" {
 		return d
 	}
@@ -186,7 +196,7 @@ func windowsDir() string {
 }
 
 // 判断当前是否为 32 位进程运行在 64 位 Windows 上。
-func isWOW64() bool {
+func IsWOW64() bool {
 	if runtime.GOARCH != "386" {
 		return false
 	}
@@ -200,23 +210,23 @@ func isWOW64() bool {
 
 // 返回系统命令路径：优先 Sysnative(在 WOW64 下)，其次 System32，最后回退到 exeName（走 PATH）。
 func GetSystemExe(exeName string) string {
-	windir := windowsDir()
+	windir := WindowsDir()
 	if windir == "" {
 		return exeName
 	}
 
 	sysDir := "System32"
-	if isWOW64() {
+	if IsWOW64() {
 		sysDir = "Sysnative"
 	}
 
 	preferred := filepath.Join(windir, sysDir, exeName)
-	if fileExists(preferred) {
+	if FileExists(preferred) {
 		return preferred
 	}
 
 	alt := filepath.Join(windir, "System32", exeName)
-	if fileExists(alt) {
+	if FileExists(alt) {
 		return alt
 	}
 
@@ -225,12 +235,12 @@ func GetSystemExe(exeName string) string {
 
 // 获取真实的 System32（WOW64 下为 Sysnative）目录
 func GetSystem32Dir() string {
-	windir := windowsDir()
+	windir := WindowsDir()
 	if windir == "" {
 		// 兜底
 		windir = `C:\Windows`
 	}
-	if isWOW64() {
+	if IsWOW64() {
 		return filepath.Join(windir, "Sysnative")
 	}
 	return filepath.Join(windir, "System32")

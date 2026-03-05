@@ -3,13 +3,13 @@ package main
 import "syscall"
 
 const (
-	driveUnknown = 0
-	driveNoRoot  = 1
-	driveRemov   = 2
-	driveFixed   = 3
-	driveRemote  = 4
-	driveCdrom   = 5
-	driveRamdisk = 6
+	driveUnknown = 0//未知
+	driveNoRoot  = 1//无根目录
+	driveRemov   = 2//可移动介质
+	driveFixed   = 3//固定磁盘
+	driveRemote  = 4//网络驱动器
+	driveCdrom   = 5//光盘
+	driveRamdisk = 6//RAM盘
 	//磁盘相关
 	ioctlVolumeGetVolumeDiskExtents = 0x00560000 // IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS
 	ioctlDiskGetDriveLayoutEx       = 0x00070050 // IOCTL_DISK_GET_DRIVE_LAYOUT_EX

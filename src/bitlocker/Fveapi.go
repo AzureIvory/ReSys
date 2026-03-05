@@ -1,6 +1,7 @@
-package main
+package bitlocker
 
 import (
+	"ReSys/src/utils"
 	"errors"
 	"fmt"
 	"strings"
@@ -9,9 +10,7 @@ import (
 	"unsafe"
 )
 
-// ===================== Enums / Error codes =====================
-
-// FveAccessMode matches Rust: ReadOnly=0, ReadWrite=1.
+// ReadOnly=0, ReadWrite=1.
 type FveAccessMode uint32
 
 const (
@@ -115,8 +114,6 @@ func (e FveError) IndicatesLocked() bool {
 	return e == VolumeLocked || e == KeyRequired || e == AuthenticationFailed
 }
 
-// ===================== Status output (0x80) =====================
-
 // Mirrors Rust layout:
 // size=0x80, version=2 (fallback to 1), conversion_status, percent_complete, protection_status,
 // volume_size, encrypted_size, encryption_flags.
@@ -219,7 +216,6 @@ func volumeInfoFrom(out *fveGetStatusOutput) FveVolumeInfo {
 	if percent > 100 {
 		percent = 100
 	}
-	// Rust: round().clamp(0,100) as u8
 	p := uint8(percent + 0.5)
 
 	return FveVolumeInfo{
@@ -232,8 +228,6 @@ func volumeInfoFrom(out *fveGetStatusOutput) FveVolumeInfo {
 		EncryptedSize:        out.EncryptedSize,
 	}
 }
-
-// ===================== API loader =====================
 
 type FveApi struct {
 	dll *syscall.LazyDLL
@@ -346,7 +340,7 @@ func toUTF16Ptr(s string) (*uint16, error) {
 // 3) 若返回 InvalidParameter，则降级尝试 version=1（兼容 Win7/老系统）；
 // 返回：解析后的 FveVolumeInfo + FveError（Success 表示成功）。
 func (api *FveApi) GetStatusByPath(volumePath string) (FveVolumeInfo, FveError) {
-	normalized, _ := NormalizeDrive(volumePath, 3)
+	normalized, _ := utils.NormalizeDrive(volumePath, 3)
 	p, err := toUTF16Ptr(normalized)
 	if err != nil {
 		return FveVolumeInfo{}, InvalidParameter
@@ -382,7 +376,7 @@ func (api *FveApi) OpenVolume(volumePath string) (*FveVolumeHandle, FveError) {
 // 成功返回：FveVolumeHandle（包含底层句柄）；失败返回对应 FveError。
 // 注意：返回的句柄需要调用 Close() 释放（类似 RAII）。
 func (api *FveApi) OpenVolumeEx(volumePath string, mode FveAccessMode) (*FveVolumeHandle, FveError) {
-	normalized, _ := NormalizeDrive(volumePath, 3)
+	normalized, _ := utils.NormalizeDrive(volumePath, 3)
 	p, err := toUTF16Ptr(normalized)
 	if err != nil {
 		return nil, InvalidParameter

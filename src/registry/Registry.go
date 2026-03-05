@@ -1,4 +1,4 @@
-package main
+package registry
 
 import (
 	"fmt"
@@ -9,13 +9,12 @@ import (
 
 	"golang.org/x/sys/windows"
 )
-// 注册表
+
 const (
-	// Registry value types
+	REG_SZ        = 1
 	REG_EXPAND_SZ = 2
 	REG_DWORD     = 4
 
-	// Access rights (REGSAM)
 	KEY_QUERY_VALUE    = 0x0001
 	KEY_SET_VALUE      = 0x0002
 	KEY_CREATE_SUB_KEY = 0x0004
@@ -25,7 +24,10 @@ const (
 	KEY_WOW64_64KEY = 0x0100
 	KEY_WOW64_32KEY = 0x0200
 
+	KEY_READ  = 0x20019
 	KEY_WRITE = 0x20006
+
+	HKEY_LOCAL_MACHINE = syscall.Handle(0x80000002)
 )
 
 type RegView uint32
@@ -37,12 +39,18 @@ const (
 )
 
 var (
-	procRegCreateKeyExW = modAdvapi32.NewProc("RegCreateKeyExW")
-	procRegSetValueExW  = modAdvapi32.NewProc("RegSetValueExW")
+	modAdvapi32          = syscall.NewLazyDLL("advapi32.dll")
+	procRegCreateKeyExW  = modAdvapi32.NewProc("RegCreateKeyExW")
+	procRegSetValueExW   = modAdvapi32.NewProc("RegSetValueExW")
+	procRegCloseKey      = modAdvapi32.NewProc("RegCloseKey")
+	procRegOpenKeyExW    = modAdvapi32.NewProc("RegOpenKeyExW")
+	procRegQueryValueExW = modAdvapi32.NewProc("RegQueryValueExW")
+	procRegLoadKeyW      = modAdvapi32.NewProc("RegLoadKeyW")
+	procRegUnLoadKeyW    = modAdvapi32.NewProc("RegUnLoadKeyW")
 )
 
-// 解析 HKLM\... 这种完整路径
-func parseFullKeyPath(full string) (root syscall.Handle, subPath string, err error) {
+// parseFullKey 解析完整注册表路径（如 HKLM\Software\...），拆分为根键与子路径。
+func parseFullKey(full string) (root syscall.Handle, subPath string, err error) {
 	s := strings.ReplaceAll(full, "/", `\`)
 	s = strings.TrimSpace(s)
 	parts := strings.SplitN(s, `\`, 2)
@@ -69,9 +77,9 @@ func parseFullKeyPath(full string) (root syscall.Handle, subPath string, err err
 	return root, subPath, nil
 }
 
-// RegCreateKeyPath: 等价于 reg.exe add <key> /f（确保 key 存在）
-func RegCreateKeyPath(fullKeyPath string, view RegView) error {
-	root, sub, err := parseFullKeyPath(fullKeyPath)
+// RegCreateKey 确保指定 key 存在（等价 reg.exe add <key> /f 只创建路径不写值）。
+func RegCreateKey(fullKeyPath string, view RegView) error {
+	root, sub, err := parseFullKey(fullKeyPath)
 	if err != nil {
 		return err
 	}
@@ -83,6 +91,7 @@ func RegCreateKeyPath(fullKeyPath string, view RegView) error {
 	return nil
 }
 
+// regCreateOrOpenKey 创建或打开子键并返回句柄（可附带 32/64 视图）。
 func regCreateOrOpenKey(root syscall.Handle, subPath string, view RegView) (syscall.Handle, error) {
 	subPtr, err := syscall.UTF16PtrFromString(subPath)
 	if err != nil {
@@ -115,8 +124,9 @@ func regCreateOrOpenKey(root syscall.Handle, subPath string, view RegView) (sysc
 	return h, nil
 }
 
+// RegSetDword 在指定 key 下写入 DWORD 值（key 不存在则自动创建）。
 func RegSetDword(fullKeyPath, valueName string, data uint32, view RegView) error {
-	root, sub, err := parseFullKeyPath(fullKeyPath)
+	root, sub, err := parseFullKey(fullKeyPath)
 	if err != nil {
 		return err
 	}
@@ -129,6 +139,7 @@ func RegSetDword(fullKeyPath, valueName string, data uint32, view RegView) error
 	return regSetValueDword(h, valueName, data)
 }
 
+// regSetValueDword 向已打开的键句柄写入 DWORD（name=="" 表示默认值）。
 func regSetValueDword(h syscall.Handle, name string, data uint32) error {
 	var namePtr *uint16
 	var err error
@@ -155,16 +166,20 @@ func regSetValueDword(h syscall.Handle, name string, data uint32) error {
 	}
 	return nil
 }
-func RegSetStringPath(fullKeyPath, valueName, data string, view RegView) error {
+
+// RegSetString 写入 REG_SZ 字符串值（自动创建 key）。
+func RegSetString(fullKeyPath, valueName, data string, view RegView) error {
 	return regSetStringTyped(fullKeyPath, valueName, data, REG_SZ, view)
 }
 
-func RegSetExpandStringPath(fullKeyPath, valueName, data string, view RegView) error {
+// RegSetExpandString 写入 REG_EXPAND_SZ 字符串值（支持环境变量展开，自动创建 key）。
+func RegSetExpandString(fullKeyPath, valueName, data string, view RegView) error {
 	return regSetStringTyped(fullKeyPath, valueName, data, REG_EXPAND_SZ, view)
 }
 
+// regSetStringTyped 写入指定类型的字符串值（REG_SZ / REG_EXPAND_SZ）。
 func regSetStringTyped(fullKeyPath, valueName, data string, typ uint32, view RegView) error {
-	root, sub, err := parseFullKeyPath(fullKeyPath)
+	root, sub, err := parseFullKey(fullKeyPath)
 	if err != nil {
 		return err
 	}
@@ -177,6 +192,7 @@ func regSetStringTyped(fullKeyPath, valueName, data string, typ uint32, view Reg
 	return regSetValueString(h, valueName, data, typ)
 }
 
+// regSetValueString 向已打开的键句柄写入字符串（UTF-16，包含结尾 NUL）。
 func regSetValueString(h syscall.Handle, name, data string, typ uint32) error {
 	var namePtr *uint16
 	var err error
@@ -210,6 +226,8 @@ func regSetValueString(h syscall.Handle, name, data string, typ uint32) error {
 	}
 	return nil
 }
+
+// RegUnloadHiveRetry 卸载 hive（带重试与间隔），常用于句柄尚未完全释放的场景。
 func RegUnloadHiveRetry(subKey string, tries int, delay time.Duration) error {
 	if tries <= 0 {
 		tries = 1
@@ -230,10 +248,7 @@ func RegUnloadHiveRetry(subKey string, tries int, delay time.Duration) error {
 	return lastErr
 }
 
-// 加载离线注册表 hive
-// subKey：挂载点名称，如"OFFLINE_SYSTEM"
-// file:注册表 hive 文件的 完整路径
-// 需要有 SeBackupPrivilege / SeRestorePrivilege 之类的权限
+// RegLoadHive 加载离线注册表 hive 到 HKLM\<subKey>（需 SeBackupPrivilege/SeRestorePrivilege 等权限）。
 func RegLoadHive(subKey, file string) error {
 	subKeyPtr, err := syscall.UTF16PtrFromString(subKey)
 	if err != nil {
@@ -257,8 +272,7 @@ func RegLoadHive(subKey, file string) error {
 	return nil
 }
 
-// 卸载之前通过 RegLoadKeyW 加载的 hive
-// subKey：挂载点名称，如"OFFLINE_SYSTEM"
+// RegUnloadHive 卸载通过 RegLoadKeyW 挂载的 hive（从 HKLM\<subKey> 解挂）。
 func RegUnloadHive(subKey string) error {
 	subKeyPtr, err := syscall.UTF16PtrFromString(subKey)
 	if err != nil {
@@ -277,9 +291,7 @@ func RegUnloadHive(subKey string) error {
 	return nil
 }
 
-// 打开某个注册表子键，获得一个 可读句柄
-// root:根键,如syscall.Handle(HKEY_LOCAL_MACHINE)
-// path:子路径,如"SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+// RegOpenKey 以只读权限打开指定子键并返回句柄（使用完需 RegCloseKey）。
 func RegOpenKey(root syscall.Handle, path string) (syscall.Handle, error) {
 	pathPtr, err := syscall.UTF16PtrFromString(path)
 	if err != nil {
@@ -302,6 +314,7 @@ func RegOpenKey(root syscall.Handle, path string) (syscall.Handle, error) {
 	return h, nil
 }
 
+// RegCloseKey 关闭注册表键句柄（允许传入 0，视为 no-op）。
 func RegCloseKey(h syscall.Handle) {
 	if h == 0 {
 		return
@@ -309,9 +322,7 @@ func RegCloseKey(h syscall.Handle) {
 	_, _, _ = procRegCloseKey.Call(uintptr(h))
 }
 
-// 从指定键下读取一个 字符串类型的值
-// h:已经打开的注册表键句柄。
-// name:值名称
+// RegGetString 读取指定值为字符串（调用方需确保值类型为字符串相关）。
 func RegGetString(h syscall.Handle, name string) (string, error) {
 	namePtr, err := syscall.UTF16PtrFromString(name)
 	if err != nil {
@@ -361,7 +372,7 @@ func RegGetString(h syscall.Handle, name string) (string, error) {
 	return syscall.UTF16ToString(buf[:n]), nil
 }
 
-//示例
+// Examplereg 演示：加载离线 SYSTEM hive，并写入一个服务项（最后自动卸载）。
 func Examplereg() error {
 	sub := "OFFLINE_SYSTEM"
 	hiveFile := `D:\Windows\System32\config\SYSTEM`
@@ -369,20 +380,20 @@ func Examplereg() error {
 	if err := RegLoadHive(sub, hiveFile); err != nil {
 		return err
 	}
-	defer _ = RegUnloadHiveRetry(sub, 4, 500*time.Millisecond)
+	defer RegUnloadHiveRetry(sub, 4, 500*time.Millisecond)
 
 	key := `HKLM\` + sub + `\ControlSet001\Services\MySvc`
-	if err := RegCreateKeyPath(key, RegViewDefault); err != nil {
+	if err := RegCreateKey(key, RegViewDefault); err != nil {
 		return err
 	}
 
-	if err := RegSetDwordPath(key, "Start", 2, RegViewDefault); err != nil {
+	if err := RegSetDword(key, "Start", 2, RegViewDefault); err != nil {
 		return err
 	}
-	if err := RegSetStringPath(key, "ImagePath", `%SystemRoot%\System32\mysvc.exe`, RegViewDefault); err != nil {
+	if err := RegSetString(key, "ImagePath", `%SystemRoot%\System32\mysvc.exe`, RegViewDefault); err != nil {
 		return err
 	}
-	if err := RegSetExpandStringPath(key, "Description", `%SystemRoot%\System32\mysvc.exe`, RegViewDefault); err != nil {
+	if err := RegSetExpandString(key, "Description", `%SystemRoot%\System32\mysvc.exe`, RegViewDefault); err != nil {
 		return err
 	}
 	return nil

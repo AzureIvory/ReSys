@@ -18,6 +18,9 @@ import (
 	"unicode"
 	"unsafe"
 
+	"ReSys/src/registry"
+	"ReSys/src/utils"
+
 	"github.com/kdomanski/iso9660"
 )
 
@@ -45,7 +48,7 @@ func GetDism() (string, error) {
 	}
 
 	localPath := filepath.Join(baseDir, "tools", subDir, "dism.exe")
-	if fileExists(localPath) {
+	if utils.FileExists(localPath) {
 		logWrite(0, "[GetDism] 找到本地 DISM: %s\n", localPath)
 		return localPath, nil
 	}
@@ -58,7 +61,7 @@ func GetDism() (string, error) {
 			filepath.Join(drive+":\\", "Windows", "System32", "Dism", "dism.exe"),
 		}
 		for _, p := range pePaths {
-			if fileExists(p) {
+			if utils.FileExists(p) {
 				logWrite(0, "[GetDism] 找到 PE 环境 DISM: %s\n", p)
 				return p, nil
 			}
@@ -88,7 +91,7 @@ func GetDism() (string, error) {
 		}
 
 		for _, p := range sysPaths {
-			if fileExists(p) {
+			if utils.FileExists(p) {
 				logWrite(0, "[GetDism] 找到系统 DISM: %s\n", p)
 				return p, nil
 			}
@@ -117,9 +120,9 @@ func detectArch(root string, hasPFx86, hasSysWOW, systemLoaded bool) string {
 	// SYSTEM hive 里的环境变量
 	if systemLoaded {
 		keyPath := `Offline_SYSTEM\ControlSet001\Control\Session Manager\Environment`
-		if h, err := RegOpenKey(HKEY_LOCAL_MACHINE, keyPath); err == nil {
-			defer RegCloseKey(h)
-			if s, err := RegGetString(h, "PROCESSOR_ARCHITECTURE"); err == nil && s != "" {
+		if h, err := registry.RegOpenKey(HKEY_LOCAL_MACHINE, keyPath); err == nil {
+			defer registry.RegCloseKey(h)
+			if s, err := registry.RegGetString(h, "PROCESSOR_ARCHITECTURE"); err == nil && s != "" {
 				up := strings.ToUpper(s)
 				if strings.Contains(up, "64") || up == "AMD64" || up == "ARM64" {
 					return "x64"
@@ -521,7 +524,7 @@ func hasISOInstallImage(entry *iso9660.File, base string) bool {
 // 写入重装文件
 func writeResFile(imagePath string, target, arch string, index int) error {
 	imagePath, _ = filepath.Abs(imagePath)
-	imageRoot, _ := NormalizeDrive(imagePath, 2)
+	imageRoot, _ := utils.NormalizeDrive(imagePath, 2)
 	var (
 		diskPath     string
 		volumeGuid   string
@@ -546,7 +549,7 @@ func writeResFile(imagePath string, target, arch string, index int) error {
 		}
 		if vols, verr := ListVolumes(); verr == nil {
 			for _, v := range vols {
-				vRoot, _ := NormalizeDrive(v.RootPath, 0)
+				vRoot, _ := utils.NormalizeDrive(v.RootPath, 0)
 				if strings.EqualFold(vRoot, imageRoot) {
 					volumeGuid = strings.TrimSpace(v.VolumeGuidPath)
 					break
@@ -559,7 +562,7 @@ func writeResFile(imagePath string, target, arch string, index int) error {
 	if systemDrive == "" {
 		systemDrive = "C:"
 	}
-	sysRoot, _ := NormalizeDrive(systemDrive, 0)
+	sysRoot, _ := utils.NormalizeDrive(systemDrive, 0)
 	restallPath := sysRoot + "restall_win.dat"
 	content := fmt.Sprintf("disk=%s\nimage=%s\n", diskPath, imagePath)
 	if volumeGuid != "" {
@@ -608,7 +611,7 @@ func loadResData() (targetRoot string, diskPath string, imagePath string, volume
 
 	var hits []hit
 	for _, d := range drives {
-		root, _ := NormalizeDrive(d, 0)
+		root, _ := utils.NormalizeDrive(d, 0)
 		if root == "" {
 			continue
 		}
@@ -722,7 +725,7 @@ func resolveImagePath(diskPath, volumeGuid, diskUniqueID, imagePath, imageRel st
 	}
 
 	tryRoot := func(root string) (string, bool) {
-		if nr, err := NormalizeDrive(root, 0); err == nil {
+		if nr, err := utils.NormalizeDrive(root, 0); err == nil {
 			root = nr
 		}
 		if root == "" {
@@ -1180,7 +1183,7 @@ func collectPECands(dvs []string, opts []peOpt, wantArch, customSdi, customWim s
 
 	// 按 opts 扫描所有盘符
 	for _, o := range opts {
-		if o.a != "" && NormalizeArch(o.a) != NormalizeArch(wantArch) {
+		if o.a != "" && utils.NormalizeArch(o.a) != utils.NormalizeArch(wantArch) {
 			continue
 		}
 
@@ -1299,7 +1302,7 @@ func applyPEBoot(best peCand) error {
 	lt, sdi, wim, nm := best.lt, best.sRel, best.wRel, best.nm
 	logWrite(0, "[applyPEBoot]PE:", nm, "DRV:", lt, "SDI:", sdi, "WIM:", wim)
 
-	bcdeditPath := GetSystemExe("bcdedit.exe")
+	bcdeditPath := utils.GetSystemExe("bcdedit.exe")
 	out, err := runCmd(bcdeditPath, nil, nil, "")
 	if err != nil && (errors.Is(err, os.ErrNotExist) || errors.Is(err, exec.ErrNotFound)) {
 		exe, e := os.Executable()
@@ -1366,10 +1369,10 @@ func applyPEBoot(best peCand) error {
 
 	// WinPE 注册表 PEFirmwareType（可能不存在；不存在时 reg 会 exit 1）
 	if fw == 0 {
-		regPath := GetSystemExe("reg.exe")
+		regPath := utils.GetSystemExe("reg.exe")
 
 		// 有些 WinPE 需要先 UpdateBootInfo 才会写出 PEFirmwareType
-		wpeutilPath := GetSystemExe("wpeutil.exe")
+		wpeutilPath := utils.GetSystemExe("wpeutil.exe")
 		if _, stErr := os.Stat(wpeutilPath); stErr == nil {
 			_, _ = runCmd(wpeutilPath, nil, nil, "", "UpdateBootInfo")
 		}
@@ -1452,8 +1455,8 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 		return false, "", "", err
 	}
 
-	wantArch := NormalizeArch(SelfArch())
-	if isWOW64() {
+	wantArch := utils.NormalizeArch(utils.SelfArch())
+	if utils.IsWOW64() {
 		wantArch = "64"
 	}
 
@@ -1698,7 +1701,7 @@ func ensureTempVolumeForBytes(needBytes uint64) (string, error) {
 	if err == nil && extent.SizeBytes >= needBytes {
 		letter, err2 := CreatePartitionFromFreeExtent(extent, needBytes, "ntfs", tempLabel)
 		if err2 == nil {
-			root, _ := NormalizeDrive(letter, 0)
+			root, _ := utils.NormalizeDrive(letter, 0)
 			if root != "" {
 				// 写 marker
 				marker := filepath.Join(root, tempMarkerRel)
@@ -1730,7 +1733,7 @@ func ensureTempVolumeForBytes(needBytes uint64) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	root, _ := NormalizeDrive(newVol, 0)
+	root, _ := utils.NormalizeDrive(newVol, 0)
 	if root == "" {
 		return "", fmt.Errorf("SplitVolume成功但未解析到新分区盘符: %v", newVol)
 	}
@@ -1748,7 +1751,7 @@ func ensureTempVolumeForBytes(needBytes uint64) (string, error) {
 func findTempRootByMarker() string {
 	drives, _ := ListDrive()
 	for _, d := range drives {
-		root, _ := NormalizeDrive(d, 0)
+		root, _ := utils.NormalizeDrive(d, 0)
 		if root == "" {
 			continue
 		}

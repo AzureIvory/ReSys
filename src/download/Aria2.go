@@ -1,6 +1,7 @@
-package main
+package download
 
 import (
+	"ReSys/src/log"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -587,11 +588,11 @@ func parseI64(s string) int64 {
 
 // main1 演示用入口：
 // - 例1：HTTP 文件下载
-// - 例2：BT/magnet 下载（注释掉了，需要你自行替换 magnet 链接）
+// - 例2：BT/magnet 下载
 func main1() {
 	c, err := Newaria2()
 	if err != nil {
-		logWrite(-2, err.Error())
+		log.LogWrite(-2, err.Error())
 	}
 	defer c.Close()
 
@@ -604,7 +605,7 @@ func main1() {
 		Out: "100MB.bin",
 	}, nil)
 	if err != nil {
-		logWrite(-2, err.Error())
+		log.LogWrite(-2, err.Error())
 	}
 	fmt.Println("下载完成:", res.Path)
 

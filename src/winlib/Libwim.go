@@ -21,7 +21,7 @@
 // - wimlib's Windows DLL uses cdecl calling convention (per wimlib.h).
 // - To keep cgo rules safe, ALL strings passed to C are allocated in C memory.
 
-package main
+package wimlib
 
 /*
 #cgo CFLAGS: -DUNICODE -D_UNICODE

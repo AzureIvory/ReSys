@@ -1,6 +1,4 @@
-//go:build windows
-
-package main
+package windows
 
 import (
 	"context"
@@ -37,7 +35,8 @@ type SYSTEMTIME struct {
 }
 
 var (
-	procSetSystemTime = kernel32.NewProc("SetSystemTime")
+	Kernel32          = syscall.NewLazyDLL("kernel32.dll")
+	procSetSystemTime = Kernel32.NewProc("SetSystemTime")
 )
 
 // queryNTP 发送 NTP 请求并解析响应，返回服务器时间（UTC）。timeout 包括 DNS 解析时间。
@@ -165,10 +164,4 @@ func SyncTime() TimeSyncResult {
 		NewTime: "",
 		Server:  "",
 	}
-}
-
-func maintime() {
-	res := SyncTime()
-	fmt.Printf("Success: %v\nServer:  %s\nOld:     %s\nNew:     %s\nMsg:     %s\n",
-		res.Success, res.Server, res.OldTime, res.NewTime, res.Message)
 }

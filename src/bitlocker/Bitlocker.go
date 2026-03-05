@@ -1,4 +1,4 @@
-package main
+package bitlocker
 
 import (
 	"bytes"
@@ -15,13 +15,13 @@ import (
 	"unicode/utf16"
 	"unsafe"
 
+	"ReSys/src/utils"
+
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"golang.org/x/text/transform"
 )
 
-// --------------------- public types ---------------------
-
-// VolumeStatus 表示卷（分区）的 BitLocker 状态（上层业务统一使用这个枚举）。
+// VolumeStatus 表示卷（分区）的 BitLocker 状态
 type VolumeStatus int
 
 const (
@@ -31,6 +31,12 @@ const (
 	VolEncrypting                            // 正在加密（或加密暂停也可归入这类）
 	VolDecrypting                            // 正在解密（或解密暂停/残留进度也可归入这类）
 	VolUnknown                               // 无法识别/命令失败/输出解析失败
+)
+
+var (
+	Kernel32                  = syscall.NewLazyDLL("kernel32.dll")
+	procGetDiskFreeSpaceExW   = Kernel32.NewProc("GetDiskFreeSpaceExW")
+	procGetVolumeInformationW = Kernel32.NewProc("GetVolumeInformationW")
 )
 
 // AsString 将 VolumeStatus 转成稳定的英文字符串，便于日志/上报/对齐 Rust 输出。
@@ -960,8 +966,9 @@ func (m *BitLockerManager) probeDrive(letter byte) (BitLockerVolumeInfo, bool) {
 	drive := fmt.Sprintf("%c:", letter)
 	root := fmt.Sprintf("%c:\\", letter)
 
-	// 只检查固定磁盘（对齐 Rust）
-	if getDriveType(root) != driveFixed {
+	// 只检查固定磁盘
+	//GetDriveType来自disk.go
+	if GetDriveType(root) != 3 { //非固定盘
 		return BitLockerVolumeInfo{}, false
 	}
 
@@ -1045,7 +1052,7 @@ func isManageBdeAvailable() bool {
 // - CombinedOutput 同时捕获 stdout/stderr
 // - 自动根据输出编码（UTF-16LE/UTF-8/GBK）进行解码
 func runManageBde(stdin []byte, args ...string) (string, error) {
-	exe := GetSystemExe("manage-bde.exe")
+	exe := utils.GetSystemExe("manage-bde.exe")
 	cmd := exec.Command(exe, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow:    true,
@@ -1131,14 +1138,6 @@ func utf8LooksOK(s string) bool {
 var (
 	kernel32 = syscall.NewLazyDLL("kernel32.dll") // kernel32.dll：Windows 基础 API
 )
-
-// getDriveType 调用 GetDriveTypeW 获取驱动器类型（固定磁盘/可移动/网络等）。
-// root 形如 "C:\\"。
-func getDriveType(root string) uint32 {
-	p, _ := syscall.UTF16PtrFromString(root)
-	r, _, _ := procGetDriveTypeW.Call(uintptr(unsafe.Pointer(p)))
-	return uint32(r)
-}
 
 // getBitLockerVolumeInfo 读取卷标与总容量（MB）。
 // drive 形如 "C:"，内部会拼成 root "C:\" 调用 GetVolumeInformationW / GetDiskFreeSpaceExW。

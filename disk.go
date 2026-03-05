@@ -1,6 +1,7 @@
 package main
 
 import (
+	"ReSys/src/utils"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -134,7 +135,7 @@ func GetDiskPartitions(diskID string) (int, []string, error) {
 
 // 获取卷的文件系统类型和总大小（字节）
 func GetVolumeInfo(root string) (fsType string, totalBytes uint64, err error) {
-	if nr, err := NormalizeDrive(root, 0); err == nil {
+	if nr, err := utils.NormalizeDrive(root, 0); err == nil {
 		root = nr
 	}
 	if root == "" {
@@ -185,7 +186,7 @@ func GetVolumeInfo(root string) (fsType string, totalBytes uint64, err error) {
 
 // 读取指定卷的剩余空间
 func GetFreeSize(vol string) (freeBytes uint64, err error) {
-	root, _ := NormalizeDrive(vol, 0)
+	root, _ := utils.NormalizeDrive(vol, 0)
 	if root == "" {
 		return 0, fmt.Errorf("empty volume")
 	}
@@ -214,7 +215,7 @@ func GetFreeSize(vol string) (freeBytes uint64, err error) {
 
 // 根据分区取第一个物理磁盘号
 func GetDiskNum(vol string) (uint32, error) {
-	root, _ := NormalizeDrive(vol, 0)
+	root, _ := utils.NormalizeDrive(vol, 0)
 	if root == "" {
 		return 0, fmt.Errorf("invalid volume: %q", vol)
 	}
@@ -329,7 +330,7 @@ func GetDiskInfo(vol string) (string, uint32, error) {
 		style = "UNKNOWN"
 	}
 
-	normVol, _ := NormalizeDrive(vol, 0)
+	normVol, _ := utils.NormalizeDrive(vol, 0)
 	fmt.Printf("[GetDiskInfo] vol=%s disk=%d style=%s\n", normVol, diskNum, style)
 	return style, diskNum, nil
 }
@@ -338,7 +339,7 @@ func GetDiskInfo(vol string) (string, uint32, error) {
 // vol 可以是 "C" / "C:" / "C:\"。
 // 返回值： "SSD" / "HDD" / "Removable" / "CDROM" / "Unknown"
 func GetDiskKind(vol string) (string, error) {
-	root, _ := NormalizeDrive(vol, 0)
+	root, _ := utils.NormalizeDrive(vol, 0)
 	if root == "" {
 		return "Unknown", fmt.Errorf("invalid volume: %q", vol)
 	}
@@ -648,7 +649,7 @@ func volumeHandlePath(vol string) (string, error) {
 	if strings.HasPrefix(low, `\\?\volume{`) {
 		return strings.TrimRight(raw, `\`), nil
 	}
-	root, _ := NormalizeDrive(raw, 0)
+	root, _ := utils.NormalizeDrive(raw, 0)
 	if root == "" {
 		return "", fmt.Errorf("invalid volume: %q", vol)
 	}
@@ -1252,7 +1253,7 @@ func runDiskpartDirect(script string) (string, error) {
 
 // diskpartBinary 函数。
 func diskpartBinary() string {
-	return GetSystemExe("diskpart.exe")
+	return utils.GetSystemExe("diskpart.exe")
 }
 
 // 获取卷所在磁盘号 + 卷的起始偏移/长度（用于计算 /offset）。
@@ -1374,7 +1375,7 @@ func diskpartDetectError(out, op string) error {
 // ShrinkVolume 将某个卷从右侧收缩指定大小(MB)，在卷尾释放出未分配空间。
 // 返回：diskpart 输出，便于日志记录。
 func ShrinkVolume(vol string, sizeMB int) (string, error) {
-	volLetter, err := NormalizeDrive(vol, 1)
+	volLetter, err := utils.NormalizeDrive(vol, 1)
 	if err != nil {
 		return "", err
 	}
@@ -1402,7 +1403,7 @@ func ShrinkVolume(vol string, sizeMB int) (string, error) {
 // sizeMB：期望新分区大小(MB)。如果因为对齐导致 size 放不下，会做小幅降级重试。
 // 返回：新分区盘符（例如 "E:"）和错误。
 func CreatePartitionAfterVolume(vol string, sizeMB int, fs, label string) (string, error) {
-	volLetter, err := NormalizeDrive(vol, 1)
+	volLetter, err := utils.NormalizeDrive(vol, 1)
 	if err != nil {
 		return "", err
 	}
@@ -1534,7 +1535,7 @@ func SplitVolume(vol string, sizeMB int, fs, label string) (string, error) {
 // 合并分区：将目标卷卷尾紧邻的未分配空间扩展到指定卷。
 // sizeMB: 扩展大小（MB），<=0 表示使用全部
 func MergeVolume(vol string, sizeMB int) error {
-	volLetter, err := NormalizeDrive(vol, 1)
+	volLetter, err := utils.NormalizeDrive(vol, 1)
 	if err != nil {
 		return err
 	}
@@ -1560,7 +1561,7 @@ func MergeVolume(vol string, sizeMB int) error {
 
 // 删除指定卷（转为未分配空间）。
 func DeleteVolume(vol string) error {
-	volLetter, err := NormalizeDrive(vol, 1)
+	volLetter, err := utils.NormalizeDrive(vol, 1)
 	if err != nil {
 		return err
 	}
@@ -1582,7 +1583,7 @@ func DeleteVolume(vol string) error {
 
 // 按盘符格式化卷：先尝试 FormatEX；失败则回退到 diskpart。
 func Format(letter, fs, label string, quick bool) error {
-	volLetter, err := NormalizeDrive(letter, 1)
+	volLetter, err := utils.NormalizeDrive(letter, 1)
 	if err != nil {
 		return err
 	}
@@ -1623,7 +1624,7 @@ func Format(letter, fs, label string, quick bool) error {
 
 // 调用 Windows API FormatEx 格式化卷。
 func FormatEX(letter, fs, label string, quick bool) error {
-	root, _ := NormalizeDrive(letter, 0)
+	root, _ := utils.NormalizeDrive(letter, 0)
 	if root == "" {
 		return fmt.Errorf("invalid volume: %q", letter)
 	}

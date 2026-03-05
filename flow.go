@@ -1,6 +1,7 @@
 package main
 
 import (
+	"ReSys/src/utils"
 	"context"
 	"crypto/md5"
 	"fmt"
@@ -90,8 +91,8 @@ func StartInstall(target string) {
 	// 只要镜像在目标盘/系统盘上（通常是 C 盘），就优先搬到其它固定盘卷；
 	// 如果不存在其它固定盘卷（或空间不足），再考虑创建 TEMP（未分配/拆分）来存放。
 	if !retryLoop("准备镜像存放分区", func() error {
-		sysRoot, _ := NormalizeDrive(systemDriveRoot(), 0)
-		imgRoot, _ := NormalizeDrive(imgPath, 2)
+		sysRoot, _ := utils.NormalizeDrive(systemDriveRoot(), 0)
+		imgRoot, _ := utils.NormalizeDrive(imgPath, 2)
 		if sysRoot == "" || imgRoot == "" || !strings.EqualFold(sysRoot, imgRoot) {
 			return nil
 		}
@@ -284,7 +285,7 @@ func chooseDownloadRoot() string {
 	} else {
 		root = systemDriveRoot()
 	}
-	if nr, err := NormalizeDrive(root, 0); err == nil {
+	if nr, err := utils.NormalizeDrive(root, 0); err == nil {
 		root = nr
 	}
 
@@ -734,7 +735,7 @@ func resolveSdiPath(wimPath string) string {
 		return ""
 	}
 	sdi := filepath.Join(dir, "boot.sdi")
-	if fileExists(sdi) {
+	if utils.FileExists(sdi) {
 		return sdi
 	}
 	if sdis, _ := FindFile(dir, "*.sdi|*.SDI", 1); len(sdis) > 0 {
@@ -783,9 +784,9 @@ func hasPEFiles(arch string) (bool, string, string) {
 		for _, o := range opts {
 			wp := filepath.Join(d, o.wim)
 			sp := filepath.Join(d, o.sdi)
-			if fileExists(wp) {
+			if utils.FileExists(wp) {
 				wimCands = append(wimCands, wp)
-				if fileExists(sp) {
+				if utils.FileExists(sp) {
 					sdiMap[wp] = sp
 				} else {
 					sdiMap[wp] = ""
@@ -804,18 +805,10 @@ func hasPEFiles(arch string) (bool, string, string) {
 	return true, bestWim, bestSdi
 }
 
-// 文件存在且不是目录。
-func fileExists(path string) bool {
-	if st, err := os.Stat(path); err == nil && !st.IsDir() {
-		return true
-	}
-	return false
-}
-
 func systemDriveRoot() string {
 	drive := strings.TrimSpace(os.Getenv("SystemDrive"))
 	if drive == "" {
-		windir := windowsDir()
+		windir := utils.WindowsDir()
 		if windir != "" {
 			drive = filepath.VolumeName(windir)
 		}
@@ -1003,7 +996,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 				exePath := filepath.Join(peDir, exeName)
 
 				useExisting := false
-				if fileExists(exePath) {
+				if utils.FileExists(exePath) {
 					if strings.TrimSpace(it.MD5) != "" {
 						ok, merr := matchMD5(exePath, it.MD5)
 						if merr == nil && ok {
@@ -1239,7 +1232,7 @@ func tryLocalWepe(wepe []WinPEImg, arch string) (string, error) {
 		}
 		for _, it := range all {
 			candPath := filepath.Join(dir, it.name)
-			if !fileExists(candPath) {
+			if !utils.FileExists(candPath) {
 				continue
 			}
 			if strings.TrimSpace(it.img.MD5) != "" {
@@ -1402,12 +1395,12 @@ func RunPEInstall() error {
 	uiSetStatus("正在准备分区...")
 
 	tempVol := ""
-	if nr, err := NormalizeDrive(targetRoot, 0); err == nil {
+	if nr, err := utils.NormalizeDrive(targetRoot, 0); err == nil {
 		targetRoot = nr
 	}
 	imagePath = strings.TrimSpace(imagePath)
 
-	imageRoot, _ := NormalizeDrive(imagePath, 2)
+	imageRoot, _ := utils.NormalizeDrive(imagePath, 2)
 	if strings.EqualFold(imageRoot, targetRoot) {
 		fi, err := os.Stat(imagePath)
 		if err != nil {
@@ -1422,7 +1415,7 @@ func RunPEInstall() error {
 		alts := otherInstallVolumes(targetRoot)
 
 		for _, v := range alts {
-			altRoot, _ := NormalizeDrive(v, 0)
+			altRoot, _ := utils.NormalizeDrive(v, 0)
 			if altRoot == "" {
 				continue
 			}
@@ -1490,7 +1483,7 @@ func RunPEInstall() error {
 			}
 			splitCb(100)
 			uiSetProgress(15)
-			if nr, err := NormalizeDrive(newVol, 0); err == nil {
+			if nr, err := utils.NormalizeDrive(newVol, 0); err == nil {
 				tempVol = nr
 			}
 
@@ -1599,7 +1592,7 @@ func RunPEInstall() error {
 	// 如果不是 PE 内创建的 tempVol，尝试通过 marker 找到我们创建的 TEMP 分区
 	if tempVol == "" {
 		if mr := findTempRootByMarker(); mr != "" {
-			if nr, err := NormalizeDrive(mr, 0); err == nil {
+			if nr, err := utils.NormalizeDrive(mr, 0); err == nil {
 				mr = nr
 			}
 			if mr != "" && !strings.EqualFold(mr, targetRoot) {
@@ -1641,7 +1634,7 @@ func chooseInstallTargetRoot() string {
 	parts := Findpart()
 	if len(parts) > 0 {
 		logWrite(0, "[chooseInstallTargetRoot]选择未装系统分区：%s", parts[0])
-		if nr, err := NormalizeDrive(parts[0], 0); err == nil {
+		if nr, err := utils.NormalizeDrive(parts[0], 0); err == nil {
 			return nr
 		}
 		return ""
@@ -1653,7 +1646,7 @@ func chooseInstallTargetRoot() string {
 		}
 		if GetDriveType(d) == driveFixed {
 			logWrite(0, "[chooseInstallTargetRoot]回退选择固定盘分区：%s", d)
-			if nr, err := NormalizeDrive(d, 0); err == nil {
+			if nr, err := utils.NormalizeDrive(d, 0); err == nil {
 				return nr
 			}
 			return ""
@@ -1667,7 +1660,7 @@ func otherInstallVolumes(targetRoot string) []string {
 	drives, _ := ListDrive()
 	var out []string
 	for _, d := range drives {
-		root, _ := NormalizeDrive(d, 0)
+		root, _ := utils.NormalizeDrive(d, 0)
 		if root == "" || strings.EqualFold(root, targetRoot) {
 			continue
 		}
@@ -1697,7 +1690,7 @@ func postInstallTasks(targetRoot, targetOS string) error {
 
 	driveExe := filepath.Join(baseDir, "tools", "drive.exe")
 
-	if fileExists(driveExe) {
+	if utils.FileExists(driveExe) {
 		_ = Copy(driveExe, filepath.Join(targetRoot, "drive.exe"), true, true)
 	}
 	logWrite(0, "[postInstallTasks]驱动安装工具准备完成")

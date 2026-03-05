@@ -12,6 +12,8 @@ import (
 	"time"
 	"unsafe"
 
+	"ReSys/src/utils"
+
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
@@ -114,10 +116,10 @@ func SecureBootEnabled() (bool, error) {
 // IsWinPE 多特征启发式判断
 func IsWinPE() bool {
 	// 特征1/2：典型 PE 文件
-	if fileExists(`X:\Windows\System32\drivers\fbwf.sys`) {
+	if utils.FileExists(`X:\Windows\System32\drivers\fbwf.sys`) {
 		return true
 	}
-	if fileExists(`X:\Windows\System32\winpeshl.ini`) {
+	if utils.FileExists(`X:\Windows\System32\winpeshl.ini`) {
 		return true
 	}
 
@@ -148,8 +150,8 @@ func IsWinPE() bool {
 
 	// 特征6：系统盘下也查一遍（兼容非 X: 的 PE/映射情况）
 	if sd := os.Getenv("SystemDrive"); sd != "" {
-		if fileExists(filepath.Join(sd+`\`, `Windows\System32\drivers\fbwf.sys`)) ||
-			fileExists(filepath.Join(sd+`\`, `Windows\System32\winpeshl.ini`)) {
+		if utils.FileExists(filepath.Join(sd+`\`, `Windows\System32\drivers\fbwf.sys`)) ||
+			utils.FileExists(filepath.Join(sd+`\`, `Windows\System32\winpeshl.ini`)) {
 			return true
 		}
 	}
@@ -254,7 +256,7 @@ func registryKeyExistsHKLMAnyView(path string) bool {
 
 	// 只有 SOFTWARE 类路径才会被 Wow64 重定向；我们简单按前缀判断
 	isSoftware := strings.HasPrefix(strings.ToUpper(path), "SOFTWARE\\")
-	if isSoftware && isWOW64() {
+	if isSoftware && utils.IsWOW64() {
 		k, err := registry.OpenKey(registry.LOCAL_MACHINE, path, access|registry.WOW64_64KEY)
 		if err == nil {
 			_ = k.Close()

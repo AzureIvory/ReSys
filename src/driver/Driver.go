@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"unsafe"
 
+	"ReSys/src/utils"
+
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
@@ -457,7 +459,7 @@ func (m *DriverManager) ExportDrivers(destination string, oemOnly bool) (int, er
 		storeInf := m.resolveDriverStoreInfPath(d.InfPath)
 		if storeInf == "" {
 			// 最后 fallback：Windows\INF\<oemXX.inf>
-			storeInf = filepath.Join(filepath.Join(windowsDir(), "INF"), filepath.Base(d.InfPath))
+			storeInf = filepath.Join(filepath.Join(utils.WindowsDir(), "INF"), filepath.Base(d.InfPath))
 		}
 		if _, err := os.Stat(storeInf); err != nil {
 			continue
@@ -487,14 +489,14 @@ func (m *DriverManager) resolveDriverStoreInfPath(infNameOrPath string) string {
 	base := strings.ToLower(filepath.Base(infNameOrPath))
 
 	// ⚠️ GetSystem32Dir() 需要你在别处实现：WOW64 下应返回 Sysnative，否则 System32
-	repo := filepath.Join(GetSystem32Dir(), "DriverStore", "FileRepository")
+	repo := filepath.Join(utils.GetSystem32Dir(), "DriverStore", "FileRepository")
 
 	found := findFileInDriverStore(repo, base)
 	if found != "" {
 		return found
 	}
 
-	oemPath := filepath.Join(filepath.Join(windowsDir(), "INF"), filepath.Base(infNameOrPath))
+	oemPath := filepath.Join(filepath.Join(utils.WindowsDir(), "INF"), filepath.Base(infNameOrPath))
 	cat := parseCatalogFileFromINF(oemPath)
 	if cat != "" {
 		foundCat := findFileInDriverStore(repo, strings.ToLower(cat))
@@ -633,7 +635,7 @@ func tryCopyAssociatedFiles(infPath, destDir string) error {
 	}
 
 	// ⚠️ GetSystem32Dir() 需要你实现：WOW64 下应返回 Sysnative，否则 System32
-	driversDir := filepath.Join(GetSystem32Dir(), "drivers")
+	driversDir := filepath.Join(utils.GetSystem32Dir(), "drivers")
 
 	lines := strings.Split(string(data), "\n")
 	for _, ln := range lines {

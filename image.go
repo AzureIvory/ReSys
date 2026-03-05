@@ -1,6 +1,7 @@
 package main
 
 import (
+	"ReSys/src/utils"
 	"bufio"
 	"bytes"
 	"context"
@@ -103,7 +104,7 @@ func ApplyImage(imagePath string, index int, targetVol string) error {
 		return fmt.Errorf("invalid image index: %d", index)
 	}
 
-	targetRoot, _ := NormalizeDrive(targetVol, 0)
+	targetRoot, _ := utils.NormalizeDrive(targetVol, 0)
 	if targetRoot == "" {
 		return fmt.Errorf("invalid target volume: %q", targetVol)
 	}

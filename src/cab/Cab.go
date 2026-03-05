@@ -1,6 +1,7 @@
-package main
+package cab
 
 import (
+	"ReSys/src/utils"
 	"bytes"
 	"errors"
 	"fmt"
@@ -25,7 +26,7 @@ type CabinetExtractor struct {
 // 2) 额外验证 expand.exe 是否可运行；
 // 返回：可用的 CabinetExtractor 或错误。
 func NewCab() (*CabinetExtractor, error) {
-	p := GetSystemExe("expand.exe")
+	p := utils.GetSystemExe("expand.exe")
 	return &CabinetExtractor{expandPath: p}, nil
 }
 
@@ -41,7 +42,7 @@ func (e *CabinetExtractor) Extract(cabPath, destDir string) ([]string, error) {
 	if cabPath == "" || destDir == "" {
 		return nil, fmt.Errorf("cabPath/destDir 不能为空")
 	}
-	if !fileExists(cabPath) {
+	if !utils.FileExists(cabPath) {
 		return nil, fmt.Errorf("CAB 文件不存在: %s", cabPath)
 	}
 
@@ -74,7 +75,7 @@ func (e *CabinetExtractor) Extract(cabPath, destDir string) ([]string, error) {
 // ListContents 列出 CAB 内容（尽力解析；不同语言/版本输出格式可能不同）。
 // 调用：expand.exe -D <cab>
 func (e *CabinetExtractor) ListContents(cabPath string) ([]string, error) {
-	if !fileExists(cabPath) {
+	if !utils.FileExists(cabPath) {
 		return nil, fmt.Errorf("CAB 文件不存在: %s", cabPath)
 	}
 

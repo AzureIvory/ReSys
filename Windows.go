@@ -1,6 +1,8 @@
 package main
 
 import (
+	"ReSys/src/registry"
+	"ReSys/src/utils"
 	"debug/pe"
 	"fmt"
 	"io"
@@ -516,7 +518,7 @@ func Shutdown(reboot bool) {
 // drive：可以是 "D", "D:", "D:\"
 // 返回如: "Windows 7 x64" / "Windows 10 x86" / "Windows 11 x64"
 func DetectWin(drive string) (string, error) {
-	root, err := NormalizeDrive(drive, 0)
+	root, err := utils.NormalizeDrive(drive, 0)
 	if err != nil {
 		return "", err
 	}
@@ -544,29 +546,29 @@ func DetectWin(drive string) (string, error) {
 		hasSystemHive = true
 	}
 
-	if err := RegLoadHive("Offline_SOFTWARE", softwareHive); err != nil {
+	if err := registry.RegLoadHive("Offline_SOFTWARE", softwareHive); err != nil {
 		return "", fmt.Errorf("load SOFTWARE hive: %w", err)
 	}
-	defer RegUnloadHive("Offline_SOFTWARE")
+	defer registry.RegUnloadHive("Offline_SOFTWARE")
 
 	systemLoaded := false
 	if hasSystemHive {
-		if err := RegLoadHive("Offline_SYSTEM", systemHive); err == nil {
+		if err := registry.RegLoadHive("Offline_SYSTEM", systemHive); err == nil {
 			systemLoaded = true
-			defer RegUnloadHive("Offline_SYSTEM")
+			defer registry.RegUnloadHive("Offline_SYSTEM")
 		}
 	}
 
 	// HKLM\Offline_SOFTWARE\Microsoft\Windows NT\CurrentVersion
 	keyPath := `Offline_SOFTWARE\Microsoft\Windows NT\CurrentVersion`
-	h, err := RegOpenKey(HKEY_LOCAL_MACHINE, keyPath)
+	h, err := registry.RegOpenKey(registry.HKEY_LOCAL_MACHINE, keyPath)
 	if err != nil {
 		return "", fmt.Errorf("open offline CurrentVersion: %w", err)
 	}
-	defer RegCloseKey(h)
+	defer registry.RegCloseKey(h)
 
-	productName, _ := RegGetString(h, "ProductName")
-	currentVersion, _ := RegGetString(h, "CurrentVersion")
+	productName, _ := registry.RegGetString(h, "ProductName")
+	currentVersion, _ := registry.RegGetString(h, "CurrentVersion")
 
 	osName := "Unknown"
 
@@ -586,7 +588,7 @@ func DetectWin(drive string) (string, error) {
 			osName = "Windows 10"
 		default:
 			// 用build号区分 10 / 11
-			buildStr, _ := RegGetString(h, "CurrentBuildNumber")
+			buildStr, _ := registry.RegGetString(h, "CurrentBuildNumber")
 			if b, err := strconv.Atoi(buildStr); err == nil && b >= 22000 {
 				osName = "Windows 11"
 			} else if productName != "" {
@@ -608,13 +610,13 @@ func DetectWin(drive string) (string, error) {
 
 // 判断当前系统是否为 Windows XP（5.1/5.2）。
 func isWinXP() bool {
-	h, err := RegOpenKey(HKEY_LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows NT\CurrentVersion`)
+	h, err := registry.RegOpenKey(registry.HKEY_LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows NT\CurrentVersion`)
 	if err != nil {
 		return false
 	}
-	defer RegCloseKey(h)
+	defer registry.RegCloseKey(h)
 
-	currentVersion, err := RegGetString(h, "CurrentVersion")
+	currentVersion, err := registry.RegGetString(h, "CurrentVersion")
 	if err != nil {
 		return false
 	}
@@ -623,18 +625,18 @@ func isWinXP() bool {
 
 // 注册表的方式返回当前系统版本号与架构文本。
 func GetCurrentWinVersion() (int, string, error) {
-	h, err := RegOpenKey(HKEY_LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows NT\CurrentVersion`)
+	h, err := registry.RegOpenKey(HKEY_LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows NT\CurrentVersion`)
 	if err != nil {
 		return 0, "", err
 	}
-	defer RegCloseKey(h)
+	defer registry.RegCloseKey(h)
 
-	currentVersion, err := RegGetString(h, "CurrentVersion")
+	currentVersion, err := registry.RegGetString(h, "CurrentVersion")
 	if err != nil {
 		return 0, "", err
 	}
-	productName, _ := RegGetString(h, "ProductName")
-	buildStr, _ := RegGetString(h, "CurrentBuildNumber")
+	productName, _ := registry.RegGetString(h, "ProductName")
+	buildStr, _ := registry.RegGetString(h, "CurrentBuildNumber")
 
 	// 将 "6.1", "10.0" 这种字符串解析成数字
 	var major, minor uint16

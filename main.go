@@ -14,6 +14,8 @@ import (
 
 	"github.com/kdomanski/iso9660/util"
 	"golang.org/x/text/encoding/simplifiedchinese"
+
+	"ReSys/src/utils"
 )
 
 var dism, _ = GetDism()
@@ -258,7 +260,7 @@ func GetFwType() (uint32, error) {
 // 找系统分区
 func FindOS(hint string) (string, error) {
 	if hint != "" {
-		root, _ := NormalizeDrive(hint, 0)
+		root, _ := utils.NormalizeDrive(hint, 0)
 		if root != "" {
 			if st, err := os.Stat(root + "Windows"); err == nil && st.IsDir() {
 				fmt.Println("[FindOS] use hint:", root)
@@ -280,7 +282,7 @@ func FindOS(hint string) (string, error) {
 		if dt != driveFixed && dt != driveRemov {
 			continue
 		}
-		root, _ := NormalizeDrive(r, 0)
+		root, _ := utils.NormalizeDrive(r, 0)
 		if st, err := os.Stat(root + "Windows"); err == nil && st.IsDir() {
 			cand = root
 			fmt.Println("[FindOS] found OS volume:", cand)
@@ -314,7 +316,7 @@ func FindESP(osRoot string) (string, error) {
 		if dt != driveFixed && dt != driveRemov {
 			continue
 		}
-		root, _ := NormalizeDrive(r, 0)
+		root, _ := utils.NormalizeDrive(r, 0)
 		if root == "" {
 			continue
 		}
@@ -440,7 +442,7 @@ func FixUEFI(osRoot, sysHint, locale string) error {
 
 	var sysRoot string
 	if sysHint != "" {
-		r, _ := NormalizeDrive(sysHint, 0)
+		r, _ := utils.NormalizeDrive(sysHint, 0)
 		if r != "" {
 			if fs, _, err := GetVolumeInfo(r); err == nil && fs == "FAT32" {
 				sysRoot = r
@@ -471,7 +473,7 @@ func FixUEFI(osRoot, sysHint, locale string) error {
 		"/s", sysRoot,
 		"/f", "UEFI",
 	}
-	bcdpath := GetSystemExe("bcdboot.exe")
+	bcdpath := utils.GetSystemExe("bcdboot.exe")
 
 	out, err := runCmd(bcdpath, nil, nil, "", args...)
 	if err != nil {
@@ -487,7 +489,7 @@ func FixUEFI(osRoot, sysHint, locale string) error {
 // BIOS/MBR引导修复
 func FixBIOS(osRoot, sysHint, locale string) error {
 	winDir := osRoot + "Windows"
-	sysRoot, _ := NormalizeDrive(sysHint, 0)
+	sysRoot, _ := utils.NormalizeDrive(sysHint, 0)
 	if sysRoot == "" {
 		sysRoot = osRoot
 	}
@@ -521,7 +523,7 @@ func FixBIOS(osRoot, sysHint, locale string) error {
 		"/s", sysRoot,
 		"/f", "BIOS",
 	}
-	bcdpath := GetSystemExe("bcdboot.exe")
+	bcdpath := utils.GetSystemExe("bcdboot.exe")
 
 	out, err := runCmd(bcdpath, nil, nil, "", args...)
 	if err != nil {
