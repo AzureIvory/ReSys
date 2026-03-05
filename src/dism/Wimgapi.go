@@ -1,6 +1,7 @@
 package dism
 
 import (
+	"ReSys/src/log"
 	"errors"
 	"fmt"
 	"os"
@@ -109,6 +110,7 @@ func NewWimg(dllPath string) (*API, error) {
 
 	// 先 Load 一下，确保路径/搜索能成功
 	if err := api.dll.Load(); err != nil {
+		log.LogWrite(-2, "[NewWimg]加载wimgapi失败: path=%s err=%v", dllPath, err)
 		return nil, fmt.Errorf("load wimgapi.dll failed: %w", err)
 	}
 
@@ -133,6 +135,7 @@ func NewWimg(dllPath string) (*API, error) {
 	}
 	for _, p := range required {
 		if err := p.Find(); err != nil {
+			log.LogWrite(-2, "[NewWimg]缺少函数导出: proc=%v err=%v", p.Name, err)
 			return nil, fmt.Errorf("missing proc %v: %w", p.Name, err)
 		}
 	}
@@ -146,6 +149,7 @@ func NewWimg(dllPath string) (*API, error) {
 	// LocalFree
 	api.pLocalFree = api.kernel32.NewProc("LocalFree")
 	if err := api.pLocalFree.Find(); err != nil {
+		log.LogWrite(-2, "[NewWimg]绑定LocalFree失败: err=%v", err)
 		return nil, fmt.Errorf("find kernel32!LocalFree failed: %w", err)
 	}
 

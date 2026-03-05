@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"ReSys/src/log"
 	"fmt"
 	"strings"
 	"syscall"
@@ -55,7 +56,9 @@ func parseFullKey(full string) (root syscall.Handle, subPath string, err error) 
 	s = strings.TrimSpace(s)
 	parts := strings.SplitN(s, `\`, 2)
 	if len(parts) < 2 {
-		return 0, "", fmt.Errorf("invalid key path: %q", full)
+		err = fmt.Errorf("invalid key path: %q", full)
+		log.LogWrite(-2, "[parseFullKey]解析注册表路径失败: %v", err)
+		return 0, "", err
 	}
 
 	switch strings.ToUpper(parts[0]) {
@@ -70,7 +73,9 @@ func parseFullKey(full string) (root syscall.Handle, subPath string, err error) 
 	case "HKCC", "HKEY_CURRENT_CONFIG":
 		root = syscall.Handle(windows.HKEY_CURRENT_CONFIG)
 	default:
-		return 0, "", fmt.Errorf("unsupported root key: %q", parts[0])
+		err = fmt.Errorf("unsupported root key: %q", parts[0])
+		log.LogWrite(-2, "[parseFullKey]不支持的根键: %v", err)
+		return 0, "", err
 	}
 
 	subPath = parts[1]
@@ -81,6 +86,7 @@ func parseFullKey(full string) (root syscall.Handle, subPath string, err error) 
 func RegCreateKey(fullKeyPath string, view RegView) error {
 	root, sub, err := parseFullKey(fullKeyPath)
 	if err != nil {
+		log.LogWrite(-2, "[RegCreateKey]解析路径失败: key=%s err=%v", fullKeyPath, err)
 		return err
 	}
 	h, err := regCreateOrOpenKey(root, sub, view)
@@ -128,6 +134,7 @@ func regCreateOrOpenKey(root syscall.Handle, subPath string, view RegView) (sysc
 func RegSetDword(fullKeyPath, valueName string, data uint32, view RegView) error {
 	root, sub, err := parseFullKey(fullKeyPath)
 	if err != nil {
+		log.LogWrite(-2, "[RegSetDword]解析路径失败: key=%s err=%v", fullKeyPath, err)
 		return err
 	}
 	h, err := regCreateOrOpenKey(root, sub, view) // 和 reg.exe add 一样：不存在就创建
@@ -181,6 +188,7 @@ func RegSetExpandString(fullKeyPath, valueName, data string, view RegView) error
 func regSetStringTyped(fullKeyPath, valueName, data string, typ uint32, view RegView) error {
 	root, sub, err := parseFullKey(fullKeyPath)
 	if err != nil {
+		log.LogWrite(-2, "[RegSetDword]解析路径失败: key=%s err=%v", fullKeyPath, err)
 		return err
 	}
 	h, err := regCreateOrOpenKey(root, sub, view)

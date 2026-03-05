@@ -1,6 +1,7 @@
 package cab
 
 import (
+	"ReSys/src/log"
 	"ReSys/src/utils"
 	"bytes"
 	"errors"
@@ -40,13 +41,18 @@ func (e *CabinetExtractor) ExpandPath() string { return e.expandPath }
 // - expand 的输出编码可能不是 UTF-8
 func (e *CabinetExtractor) Extract(cabPath, destDir string) ([]string, error) {
 	if cabPath == "" || destDir == "" {
-		return nil, fmt.Errorf("cabPath/destDir 不能为空")
+		err := fmt.Errorf("cabPath/destDir 不能为空")
+		log.LogWrite(-2, "[Extract]参数错误: %v", err)
+		return nil, err
 	}
 	if !utils.FileExists(cabPath) {
-		return nil, fmt.Errorf("CAB 文件不存在: %s", cabPath)
+		err := fmt.Errorf("CAB 文件不存在: %s", cabPath)
+		log.LogWrite(-2, "[Extract]源文件不存在: %v", err)
+		return nil, err
 	}
 
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		log.LogWrite(-2, "[Extract]创建目标目录失败: dir=%s err=%v", destDir, err)
 		return nil, fmt.Errorf("创建目标目录失败: %w", err)
 	}
 
@@ -62,11 +68,13 @@ func (e *CabinetExtractor) Extract(cabPath, destDir string) ([]string, error) {
 		if msg == "" {
 			msg = err.Error()
 		}
+		log.LogWrite(-2, "[Extract]解压失败: cab=%s dest=%s msg=%s", cabPath, destDir, msg)
 		return nil, fmt.Errorf("expand.exe 解压失败: %s", msg)
 	}
 
 	files, err := scanFilesRecursive(destDir)
 	if err != nil {
+		log.LogWrite(-2, "[Extract]扫描解压结果失败: dir=%s err=%v", destDir, err)
 		return nil, err
 	}
 	return files, nil
@@ -76,7 +84,9 @@ func (e *CabinetExtractor) Extract(cabPath, destDir string) ([]string, error) {
 // 调用：expand.exe -D <cab>
 func (e *CabinetExtractor) ListContents(cabPath string) ([]string, error) {
 	if !utils.FileExists(cabPath) {
-		return nil, fmt.Errorf("CAB 文件不存在: %s", cabPath)
+		err := fmt.Errorf("CAB 文件不存在: %s", cabPath)
+		log.LogWrite(-2, "[ListContents]源文件不存在: %v", err)
+		return nil, err
 	}
 
 	out, err := runCmd(e.expandPath, nil, nil, "", "-D", cabPath)
@@ -85,6 +95,7 @@ func (e *CabinetExtractor) ListContents(cabPath string) ([]string, error) {
 		if msg == "" {
 			msg = err.Error()
 		}
+		log.LogWrite(-2, "[ListContents]读取CAB目录失败: cab=%s msg=%s", cabPath, msg)
 		return nil, fmt.Errorf("expand.exe -D 失败: %s", msg)
 	}
 
@@ -151,6 +162,7 @@ func IsValidCabFile(path string) bool {
 func ExtractCab(cabPath, destDir string) ([]string, error) {
 	ex, err := NewCab()
 	if err != nil {
+		log.LogWrite(-2, "[ExtractCab]初始化CAB解压器失败: err=%v", err)
 		return nil, err
 	}
 	return ex.Extract(cabPath, destDir)
@@ -170,11 +182,13 @@ func ExtractAllCabs(sourceDir, destDir string) (int, []CabExtractFailure, error)
 		return 0, nil, err
 	}
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		log.LogWrite(-2, "[ExtractAllCabs]创建目标目录失败: dir=%s err=%v", destDir, err)
 		return 0, nil, fmt.Errorf("创建目标目录失败: %w", err)
 	}
 
 	entries, err := os.ReadDir(sourceDir)
 	if err != nil {
+		log.LogWrite(-2, "[ExtractAllCabs]读取源目录失败: dir=%s err=%v", sourceDir, err)
 		return 0, nil, fmt.Errorf("读取源目录失败: %w", err)
 	}
 

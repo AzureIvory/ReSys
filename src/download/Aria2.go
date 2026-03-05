@@ -104,6 +104,7 @@ func Newaria2() (*Client, error) {
 		},
 	}
 	if err := c.ensureRPCReady(); err != nil {
+		log.LogWrite(-2, "[Newaria2]初始化RPC失败: err=%v", err)
 		return nil, err
 	}
 	return c, nil
@@ -138,13 +139,18 @@ func (c *Client) DownloadBt(src string, opt Options, cb ProgressFunc) (Result, e
 // 3) wait 轮询任务状态直到完成/错误/移除/ctx 取消
 func (c *Client) DownloadContext(ctx context.Context, src string, opt Options, cb ProgressFunc) (Result, error) {
 	if c == nil {
-		return Result{}, errors.New("nil client")
+		err := errors.New("nil client")
+		log.LogWrite(-2, "[DownloadContext]参数错误: %v", err)
+		return Result{}, err
 	}
 	if !looksLikeURL(src) {
-		return Result{}, fmt.Errorf("Download expects a URL, got: %q", src)
+		err := fmt.Errorf("Download expects a URL, got: %q", src)
+		log.LogWrite(-2, "[DownloadContext]参数错误: %v", err)
+		return Result{}, err
 	}
 	gid, err := c.addAny(ctx, src, opt)
 	if err != nil {
+		log.LogWrite(-2, "[DownloadContext]创建下载任务失败: src=%s err=%v", src, err)
 		return Result{}, err
 	}
 	return c.wait(ctx, gid, cb)
@@ -156,13 +162,16 @@ func (c *Client) DownloadContext(ctx context.Context, src string, opt Options, c
 // 3) wait 轮询任务状态直到结束
 func (c *Client) DownloadBtContext(ctx context.Context, src string, opt Options, cb ProgressFunc) (Result, error) {
 	if c == nil {
-		return Result{}, errors.New("nil client")
+		err := errors.New("nil client")
+		log.LogWrite(-2, "[DownloadContext]参数错误: %v", err)
+		return Result{}, err
 	}
 	if !isMagnet(src) && !isTorrent(src) {
 		return Result{}, fmt.Errorf("DownloadBt expects magnet or .torrent, got: %q", src)
 	}
 	gid, err := c.addAny(ctx, src, opt)
 	if err != nil {
+		log.LogWrite(-2, "[DownloadContext]创建下载任务失败: src=%s err=%v", src, err)
 		return Result{}, err
 	}
 	return c.wait(ctx, gid, cb)
@@ -272,12 +281,14 @@ func (c *Client) ensureRPCReady() error {
 	// start aria2 from tools folder near the running program
 	exePath, err := os.Executable()
 	if err != nil {
+		log.LogWrite(-2, "[ensureRPCReady]获取程序路径失败: err=%v", err)
 		return fmt.Errorf("cannot locate executable: %w", err)
 	}
 	exeDir := filepath.Dir(exePath)
 	aria2Path := filepath.Join(exeDir, "tools", "aria2c.exe")
 
 	if _, err := os.Stat(aria2Path); err != nil {
+		log.LogWrite(-2, "[ensureRPCReady]未找到aria2c: path=%s err=%v", aria2Path, err)
 		return fmt.Errorf("aria2c not found: %s (expected in ./tools). err=%v", aria2Path, err)
 	}
 
@@ -301,6 +312,7 @@ func (c *Client) ensureRPCReady() error {
 	}
 
 	if err := cmd.Start(); err != nil {
+		log.LogWrite(-2, "[ensureRPCReady]启动aria2c失败: path=%s err=%v", aria2Path, err)
 		return fmt.Errorf("start aria2c failed: %w", err)
 	}
 
@@ -320,6 +332,7 @@ func (c *Client) ensureRPCReady() error {
 	}
 
 	_ = c.Close()
+	log.LogWrite(-2, "[ensureRPCReady]RPC未就绪: lastErr=%v", lastErr)
 	return fmt.Errorf("aria2 rpc not ready on 127.0.0.1:6800 (maybe port occupied). last=%v", lastErr)
 }
 
@@ -418,6 +431,7 @@ func (c *Client) wait(ctx context.Context, gid string, cb ProgressFunc) (Result,
 		case <-ticker.C:
 			st, err := c.tellStatus(ctx, gid, keys)
 			if err != nil {
+				log.LogWrite(-2, "[wait]查询下载状态失败: gid=%s err=%v", gid, err)
 				return Result{GID: gid}, err
 			}
 			cb(st)
@@ -430,7 +444,9 @@ func (c *Client) wait(ctx context.Context, gid string, cb ProgressFunc) (Result,
 				if msg == "" {
 					msg = "download stopped"
 				}
-				return toResult(st), fmt.Errorf("aria2 %s (code=%s): %s", st.Status, st.ErrCode, msg)
+				err := fmt.Errorf("aria2 %s (code=%s): %s", st.Status, st.ErrCode, msg)
+				log.LogWrite(-2, "[wait]下载失败: gid=%s status=%s code=%s msg=%s", gid, st.Status, st.ErrCode, msg)
+				return toResult(st), err
 			}
 		}
 	}

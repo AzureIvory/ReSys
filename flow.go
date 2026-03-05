@@ -1,6 +1,7 @@
 package main
 
 import (
+	log "ReSys/src/log"
 	"ReSys/src/utils"
 	"context"
 	"crypto/md5"
@@ -56,7 +57,7 @@ func desiredArch() string {
 		return "64"
 	}
 	mem, err := GetMemory()
-	logWrite(0, "[desiredArch]物理内存大小：%d GB, err=%v", mem, err)
+	log.LogWrite(0, "[desiredArch]物理内存大小：%d GB, err=%v", mem, err)
 	if err == nil {
 		// 判断是否小于 4GB
 		if mem < 4 {
@@ -77,7 +78,7 @@ func StartInstall(target string) {
 	win2()
 	imgArch := desiredArch()
 	peArch := systemArch()
-	logWrite(0, "[StartInstall]开始重装流程，目标系统=%s，镜像期望架构=%s，PE架构=%s", target, imgArch, peArch)
+	log.LogWrite(0, "[StartInstall]开始重装流程，目标系统=%s，镜像期望架构=%s，PE架构=%s", target, imgArch, peArch)
 	uiSetProgress(0)
 	uiSetStatus("正在寻找镜像...")
 	imgPath, ok := retryLoopWithResult("镜像准备", func() (string, error) {
@@ -126,7 +127,7 @@ func StartInstall(target string) {
 			_ = os.MkdirAll(dstDir, 0o755)
 			dstPath := filepath.Join(dstDir, filepath.Base(imgPath))
 
-			logWrite(0, "[StartInstall]转移镜像到其它分区：%s -> %s", imgPath, dstPath)
+			log.LogWrite(0, "[StartInstall]转移镜像到其它分区：%s -> %s", imgPath, dstPath)
 			if err := Copy(imgPath, dstPath, true, true); err != nil {
 				os.Remove(dstPath)
 				return err
@@ -138,10 +139,10 @@ func StartInstall(target string) {
 				if err := Remove(imgPath, false); err != nil {
 					return err
 				}
-				logWrite(0, "[StartInstall]已删除原镜像：%s", imgPath)
+				log.LogWrite(0, "[StartInstall]已删除原镜像：%s", imgPath)
 			}
 			imgPath = dstPath
-			logWrite(0, "[StartInstall]镜像已转移到其它分区，更新路径：%s", imgPath)
+			log.LogWrite(0, "[StartInstall]镜像已转移到其它分区，更新路径：%s", imgPath)
 			return nil
 		}
 
@@ -154,7 +155,7 @@ func StartInstall(target string) {
 		dstDir := filepath.Join(tmpRoot, "tempimg")
 		_ = os.MkdirAll(dstDir, 0o755)
 		dstPath := filepath.Join(dstDir, filepath.Base(imgPath))
-		logWrite(0, "[StartInstall]转移镜像到TEMP：%s -> %s", imgPath, dstPath)
+		log.LogWrite(0, "[StartInstall]转移镜像到TEMP：%s -> %s", imgPath, dstPath)
 		if err := Copy(imgPath, dstPath, true, true); err != nil {
 			os.Remove(dstPath)
 			return err
@@ -166,10 +167,10 @@ func StartInstall(target string) {
 			if err := Remove(imgPath, false); err != nil {
 				return err
 			}
-			logWrite(0, "[StartInstall]已删除原镜像：%s", imgPath)
+			log.LogWrite(0, "[StartInstall]已删除原镜像：%s", imgPath)
 		}
 		imgPath = dstPath
-		logWrite(0, "[StartInstall]镜像已转移到TEMP，更新路径：%s", imgPath)
+		log.LogWrite(0, "[StartInstall]镜像已转移到TEMP，更新路径：%s", imgPath)
 		return nil
 	}) {
 		return
@@ -200,7 +201,7 @@ func StartInstall(target string) {
 
 	uiSetProgress(100)
 	uiSetStatus("即将重启进入PE...")
-	logWrite(0, "[StartInstall]准备完成，重启进入PE")
+	log.LogWrite(0, "[StartInstall]准备完成，重启进入PE")
 	Message("准备进入pe,测试模式", "请查看日志确定无误后手动重启")
 	//Shutdown(true)
 }
@@ -222,14 +223,14 @@ func findOrDownloadImage(target, arch string) (string, error) {
 func findLocalImage(target, arch string) (string, error) {
 	imgs, err := Findimg()
 	if err != nil {
-		logWrite(0, "[findLocalImage]全盘搜索镜像失败：%v", err)
+		log.LogWrite(0, "[findLocalImage]全盘搜索镜像失败：%v", err)
 		return "", err
 	}
 	if len(imgs) == 0 {
-		logWrite(0, "[findLocalImage]全盘未找到镜像")
+		log.LogWrite(0, "[findLocalImage]全盘未找到镜像")
 		return "", fmt.Errorf("未找到本地镜像")
 	}
-	logWrite(0, "[findLocalImage]搜索到镜像：%s", strings.Join(imgs, " | "))
+	log.LogWrite(0, "[findLocalImage]搜索到镜像：%s", strings.Join(imgs, " | "))
 
 	var matchTarget []string
 	for _, p := range imgs {
@@ -259,7 +260,7 @@ func findLocalImage(target, arch string) (string, error) {
 	if len(byArch) == 0 {
 		byArch = matchTarget
 	}
-	logWrite(0, "[findLocalImage]本地镜像筛选结果：%s", strings.Join(byArch, " | "))
+	log.LogWrite(0, "[findLocalImage]本地镜像筛选结果：%s", strings.Join(byArch, " | "))
 	return byArch[0], nil
 }
 
@@ -327,7 +328,7 @@ func chooseDownloadRoot() string {
 func downloadImage(target, arch string) (string, error) {
 	ent, err := GetWinImgs(target)
 	if err != nil {
-		logWrite(0, "[downloadImage]获取镜像列表失败：%v", err)
+		log.LogWrite(0, "[downloadImage]获取镜像列表失败：%v", err)
 		return "", err
 	}
 
@@ -338,11 +339,11 @@ func downloadImage(target, arch string) (string, error) {
 	if len(candidates) == 0 {
 		candidates = ent
 	}
-	logWrite(0, "[downloadImage]可用镜像数量：%d", len(candidates))
+	log.LogWrite(0, "[downloadImage]可用镜像数量：%d", len(candidates))
 
 	root := chooseDownloadRoot()
 	if root == "" {
-		logWrite(0, "[downloadImage]未找到可用下载分区")
+		log.LogWrite(0, "[downloadImage]未找到可用下载分区")
 		return "", fmt.Errorf("未找到可用下载分区")
 	}
 	dstDir := filepath.Join(root, "tempimg")
@@ -367,7 +368,7 @@ func downloadImage(target, arch string) (string, error) {
 				continue
 			}
 			if !httpStatus(link) {
-				logWrite(0, "[downloadImage]URL链接不可用：%s", link)
+				log.LogWrite(0, "[downloadImage]URL链接不可用：%s", link)
 				markFailedLink(link)
 				continue
 			}
@@ -381,10 +382,10 @@ func downloadImage(target, arch string) (string, error) {
 			// 已存在则校验
 			if st, err := os.Stat(dstPath); err == nil && !st.IsDir() && st.Size() > 0 {
 				if err := validateImageFile(it, dstPath); err != nil {
-					logWrite(0, "[downloadImage]镜像校验失败，删除重下：%s err=%v", dstPath, err)
+					log.LogWrite(0, "[downloadImage]镜像校验失败，删除重下：%s err=%v", dstPath, err)
 					_ = Remove(dstPath, false)
 				} else {
-					logWrite(0, "[downloadImage]镜像已存在：%s", dstPath)
+					log.LogWrite(0, "[downloadImage]镜像已存在：%s", dstPath)
 					uiSetProgress(60)
 					return dstPath, nil
 				}
@@ -398,7 +399,7 @@ func downloadImage(target, arch string) (string, error) {
 			uiSetProgress(0)
 			uiSetStatus("正在下载镜像... 0.0% 速度: 0.00 MB/s")
 
-			logWrite(0, "[downloadImage]开始下载镜像(URL)：%s -> %s", link, dstPath)
+			log.LogWrite(0, "[downloadImage]开始下载镜像(URL)：%s -> %s", link, dstPath)
 
 			pr := NewProgressReporter(
 				0, 60,
@@ -418,18 +419,18 @@ func downloadImage(target, arch string) (string, error) {
 				if vErr := validateImageFile(it, dstPath); vErr != nil {
 					markFailedLink(link)
 					_ = Remove(dstPath, false)
-					logWrite(0, "[downloadImage]镜像校验失败，删除重下：%s err=%v", dstPath, vErr)
+					log.LogWrite(0, "[downloadImage]镜像校验失败，删除重下：%s err=%v", dstPath, vErr)
 					errs = append(errs, fmt.Sprintf("URL校验失败 link=%s err=%v", link, vErr))
 					continue
 				}
-				logWrite(0, "[downloadImage]镜像下载完成：%s", dstPath)
+				log.LogWrite(0, "[downloadImage]镜像下载完成：%s", dstPath)
 				uiSetProgress(60)
 				return dstPath, nil
 			}
 
 			markFailedLink(link)
 			_ = Remove(dstPath, false)
-			logWrite(0, "[downloadImage]镜像下载失败(URL)：link=%s err=%v", link, err)
+			log.LogWrite(0, "[downloadImage]镜像下载失败(URL)：link=%s err=%v", link, err)
 			errs = append(errs, fmt.Sprintf("URL失败 link=%s err=%v", link, err))
 		}
 	}
@@ -462,16 +463,16 @@ func downloadImage(target, arch string) (string, error) {
 		// 已存在则校验
 		if st, err := os.Stat(dstPath); err == nil && !st.IsDir() && st.Size() > 0 {
 			if err := validateImageFile(it, dstPath); err != nil {
-				logWrite(0, "[downloadImage]镜像校验失败，删除重下：%s err=%v", dstPath, err)
+				log.LogWrite(0, "[downloadImage]镜像校验失败，删除重下：%s err=%v", dstPath, err)
 				_ = Remove(dstPath, false)
 			} else {
-				logWrite(0, "[downloadImage]镜像已存在：%s", dstPath)
+				log.LogWrite(0, "[downloadImage]镜像已存在：%s", dstPath)
 				uiSetProgress(60)
 				return dstPath, nil
 			}
 		}
 
-		logWrite(0, "[downloadImage]开始下载镜像(BT)：%s -> %s", link, dstDir)
+		log.LogWrite(0, "[downloadImage]开始下载镜像(BT)：%s -> %s", link, dstDir)
 
 		lastLog := time.Time{}
 		lastUI := time.Time{}
@@ -484,7 +485,7 @@ func downloadImage(target, arch string) (string, error) {
 				lastUI = now
 			}
 			if lastLog.IsZero() || now.Sub(lastLog) >= 1*time.Second || pct >= 100 {
-				logWrite(0, "[downloadImage]BT下载进度：%d%% 速度: %.2f MB/s", pct, float64(speed)/1024/1024)
+				log.LogWrite(0, "[downloadImage]BT下载进度：%d%% 速度: %.2f MB/s", pct, float64(speed)/1024/1024)
 				lastLog = now
 			}
 		})
@@ -507,7 +508,7 @@ func downloadImage(target, arch string) (string, error) {
 						_ = Remove(realPath, false)
 					} else {
 						// 整理失败：至少还能用 realPath
-						logWrite(0, "[downloadImage]BT下载后整理路径失败：real=%s dst=%s err=%v", realPath, dstPath, cErr)
+						log.LogWrite(0, "[downloadImage]BT下载后整理路径失败：real=%s dst=%s err=%v", realPath, dstPath, cErr)
 						finalPath = realPath
 					}
 				}
@@ -517,18 +518,18 @@ func downloadImage(target, arch string) (string, error) {
 			if vErr := validateImageFile(it, finalPath); vErr != nil {
 				markFailedLink(link)
 				_ = Remove(finalPath, false)
-				logWrite(0, "[downloadImage]镜像校验失败，删除重下：%s err=%v", finalPath, vErr)
+				log.LogWrite(0, "[downloadImage]镜像校验失败，删除重下：%s err=%v", finalPath, vErr)
 				errs = append(errs, fmt.Sprintf("BT校验失败 link=%s err=%v", link, vErr))
 				continue
 			}
 
-			logWrite(0, "[downloadImage]镜像下载完成(BT)：%s", finalPath)
+			log.LogWrite(0, "[downloadImage]镜像下载完成(BT)：%s", finalPath)
 			uiSetProgress(60)
 			return finalPath, nil
 		}
 
 		markFailedLink(link)
-		logWrite(0, "[downloadImage]镜像下载失败(BT)：link=%s err=%v", link, err)
+		log.LogWrite(0, "[downloadImage]镜像下载失败(BT)：link=%s err=%v", link, err)
 		errs = append(errs, fmt.Sprintf("BT失败 link=%s err=%v", link, err))
 	}
 
@@ -652,15 +653,15 @@ func ensurePEAndReboot(arch string) error {
 			if found && strings.TrimSpace(wim) != "" {
 				wimPath = wim
 				sdiPath = sdi
-				logWrite(0, "[ensurePEAndReboot]使用已有PE：%s", wimPath)
+				log.LogWrite(0, "[ensurePEAndReboot]使用已有PE：%s", wimPath)
 			}
 		}
 
 		if wimPath == "" {
-			logWrite(0, "[ensurePEAndReboot]未检测到PE文件，开始下载/准备PE")
+			log.LogWrite(0, "[ensurePEAndReboot]未检测到PE文件，开始下载/准备PE")
 			wp, id, err := downloadPE(arch, failedPEImages)
 			if err != nil {
-				logWrite(0, "[ensurePEAndReboot]下载PE失败：%v", err)
+				log.LogWrite(0, "[ensurePEAndReboot]下载PE失败：%v", err)
 				if attempt == maxAttempts {
 					uiShowError("错误", fmt.Sprintf("进入PE失败：%v", err))
 					os.Exit(-1)
@@ -670,17 +671,17 @@ func ensurePEAndReboot(arch string) error {
 			wimPath = wp
 			peID = id
 			sdiPath = resolveSdiPath(wimPath)
-			logWrite(0, "[ensurePEAndReboot]PE镜像准备完成：%s", wimPath)
+			log.LogWrite(0, "[ensurePEAndReboot]PE镜像准备完成：%s", wimPath)
 		}
 		if sdiPath == "" {
 			sdiPath = resolveSdiPath(wimPath)
 		}
 
 		uiSetStatus("正在写入自身到PE...")
-		logWrite(0, "[ensurePEAndReboot]准备Patwim：%s", wimPath)
+		log.LogWrite(0, "[ensurePEAndReboot]准备Patwim：%s", wimPath)
 
 		if err := Patwim(wimPath); err != nil {
-			logWrite(0, "[ensurePEAndReboot]ensurePEAndReboot Patwim失败：%v", err)
+			log.LogWrite(0, "[ensurePEAndReboot]ensurePEAndReboot Patwim失败：%v", err)
 			markFailedPEImage(failedPEImages, peID)
 			removePEArtifacts(wimPath, sdiPath)
 			if attempt == maxAttempts {
@@ -689,15 +690,15 @@ func ensurePEAndReboot(arch string) error {
 			}
 			continue
 		}
-		logWrite(0, "[ensurePEAndReboot]ensurePEAndReboot Patwim成功：%s", wimPath)
+		log.LogWrite(0, "[ensurePEAndReboot]ensurePEAndReboot Patwim成功：%s", wimPath)
 
 		uiSetStatus("正在设置下次启动进入PE...")
-		logWrite(0, "[ensurePEAndReboot]进入PE")
-		logWrite(0, sdiPath+"==="+wimPath)
+		log.LogWrite(0, "[ensurePEAndReboot]进入PE")
+		log.LogWrite(0, sdiPath+"==="+wimPath)
 
 		if sdiPath == "" {
 			if _, _, _, err := GoToPE(false); err != nil {
-				logWrite(0, "[ensurePEAndReboot]进入PE失败：%v", err)
+				log.LogWrite(0, "[ensurePEAndReboot]进入PE失败：%v", err)
 				markFailedPEImage(failedPEImages, peID)
 				removePEArtifacts(wimPath, sdiPath)
 				if attempt == maxAttempts {
@@ -710,7 +711,7 @@ func ensurePEAndReboot(arch string) error {
 		}
 
 		if _, _, _, err := GoToPE(false, sdiPath, wimPath); err != nil {
-			logWrite(0, "[ensurePEAndReboot]进入PE失败：%v", err)
+			log.LogWrite(0, "[ensurePEAndReboot]进入PE失败：%v", err)
 			markFailedPEImage(failedPEImages, peID)
 			removePEArtifacts(wimPath, sdiPath)
 			if attempt == maxAttempts {
@@ -748,7 +749,7 @@ func resolveSdiPath(wimPath string) string {
 func hasPEFiles(arch string) (bool, string, string) {
 	drives, err := ListDrive()
 	if err != nil {
-		logWrite(0, "[hasPEFiles]枚举盘符失败：%v", err)
+		log.LogWrite(0, "[hasPEFiles]枚举盘符失败：%v", err)
 		return false, "", ""
 	}
 
@@ -761,7 +762,7 @@ func hasPEFiles(arch string) (bool, string, string) {
 			if len(sdis) > 0 {
 				sdi = sdis[0]
 			}
-			logWrite(0, "[hasPEFiles]发现PETEMP中的PE文件：wim=%s sdi=%s", wim, sdi)
+			log.LogWrite(0, "[hasPEFiles]发现PETEMP中的PE文件：wim=%s sdi=%s", wim, sdi)
 			return true, wim, sdi
 		}
 	}
@@ -801,7 +802,7 @@ func hasPEFiles(arch string) (bool, string, string) {
 
 	bestWim := chooseBestWim(wimCands, arch)
 	bestSdi := sdiMap[bestWim]
-	logWrite(0, "[hasPEFiles]发现已有PE文件：wim=%s sdi=%s", bestWim, bestSdi)
+	log.LogWrite(0, "[hasPEFiles]发现已有PE文件：wim=%s sdi=%s", bestWim, bestSdi)
 	return true, bestWim, bestSdi
 }
 
@@ -850,7 +851,7 @@ func choosePETempRoot(needBytes int64) (string, error) {
 	if systemDrive != "" {
 		free, err := GetFreeSize(systemDrive)
 		if err == nil && int64(free) > needBytes {
-			logWrite(0, "[choosePETempRoot]PETEMP使用系统盘：%s", systemDrive)
+			log.LogWrite(0, "[choosePETempRoot]PETEMP使用系统盘：%s", systemDrive)
 			return systemDrive + `\`, nil
 		}
 	}
@@ -859,7 +860,7 @@ func choosePETempRoot(needBytes int64) (string, error) {
 		for _, p := range parts {
 			free, err := GetFreeSize(p)
 			if err == nil && int64(free) > needBytes {
-				logWrite(0, "[choosePETempRoot]PETEMP使用分区：%s", p)
+				log.LogWrite(0, "[choosePETempRoot]PETEMP使用分区：%s", p)
 				return p, nil
 			}
 		}
@@ -875,7 +876,7 @@ func ensureCleanDir(dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	logWrite(0, "[ensureCleanDir]准备PETEMP目录：%s", dir)
+	log.LogWrite(0, "[ensureCleanDir]准备PETEMP目录：%s", dir)
 	return nil
 }
 
@@ -920,11 +921,11 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 	if failedPEImages == nil {
 		failedPEImages = map[string]struct{}{}
 	}
-	logWrite(0, "[downloadPE]下载PE，目标架构=%s", arch)
+	log.LogWrite(0, "[downloadPE]下载PE，目标架构=%s", arch)
 
 	peList, err := GetWinPE()
 	if err != nil {
-		logWrite(0, "[downloadPE]获取PE列表失败：%v", err)
+		log.LogWrite(0, "[downloadPE]获取PE列表失败：%v", err)
 		return "", "", err
 	}
 
@@ -963,7 +964,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 				continue
 			}
 			if !httpStatus(link) {
-				logWrite(0, "[downloadPE]PE链接不可用：%s", link)
+				log.LogWrite(0, "[downloadPE]PE链接不可用：%s", link)
 				markFailedLink(link)
 				continue
 			}
@@ -1000,14 +1001,14 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 					if strings.TrimSpace(it.MD5) != "" {
 						ok, merr := matchMD5(exePath, it.MD5)
 						if merr == nil && ok {
-							logWrite(0, "[downloadPE]复用已存在WEPE安装包：%s", exePath)
+							log.LogWrite(0, "[downloadPE]复用已存在WEPE安装包：%s", exePath)
 							useExisting = true
 						} else {
-							logWrite(0, "[downloadPE]已存在WEPE安装包MD5不匹配，删除重下：%s", exePath)
+							log.LogWrite(0, "[downloadPE]已存在WEPE安装包MD5不匹配，删除重下：%s", exePath)
 							_ = Remove(exePath, false)
 						}
 					} else {
-						logWrite(0, "[downloadPE]复用已存在WEPE安装包(无MD5)：%s", exePath)
+						log.LogWrite(0, "[downloadPE]复用已存在WEPE安装包(无MD5)：%s", exePath)
 						useExisting = true
 					}
 				}
@@ -1022,7 +1023,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 
 					if err != nil {
 						markFailedLink(link)
-						logWrite(0, "[downloadPE]PE下载失败：%v", err)
+						log.LogWrite(0, "[downloadPE]PE下载失败：%v", err)
 						_ = Remove(exePath, false)
 						continue
 					}
@@ -1032,7 +1033,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 						ok, merr := matchMD5(exePath, it.MD5)
 						if merr != nil || !ok {
 							markFailedLink(link)
-							logWrite(0, "[downloadPE]PE下载后MD5校验失败：%s", exePath)
+							log.LogWrite(0, "[downloadPE]PE下载后MD5校验失败：%s", exePath)
 							_ = Remove(exePath, false)
 							continue
 						}
@@ -1042,7 +1043,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 				// 从 exe 抽 WIM
 				if err := PeelFile(exePath, fmt.Sprintf("%d", it.OffsetStart), fmt.Sprintf("%d", it.OffsetEnd), wimPath); err != nil {
 					markFailedLink(link)
-					logWrite(0, "[downloadPE]PE解包失败：%v", err)
+					log.LogWrite(0, "[downloadPE]PE解包失败：%v", err)
 					continue
 				}
 
@@ -1059,7 +1060,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 
 				if err != nil {
 					markFailedLink(link)
-					logWrite(0, "[downloadPE]PE下载失败：%v", err)
+					log.LogWrite(0, "[downloadPE]PE下载失败：%v", err)
 					_ = Remove(wimPath, false)
 					continue
 				}
@@ -1136,10 +1137,10 @@ func downloadPEFromLinks(links []string) (string, error) {
 	triedLink := false
 	for _, link := range out {
 		if !httpStatus(link) {
-			logWrite(0, "[downloadPEFromLinks]PE链接不可用：%s", link)
+			log.LogWrite(0, "[downloadPEFromLinks]PE链接不可用：%s", link)
 			continue
 		}
-		logWrite(0, "[downloadPEFromLinks]PE链接：%s\n", link)
+		log.LogWrite(0, "[downloadPEFromLinks]PE链接：%s\n", link)
 
 		if triedLink {
 			_ = Remove(wimPath+".part", false)
@@ -1154,7 +1155,7 @@ func downloadPEFromLinks(links []string) (string, error) {
 
 		if err != nil {
 			markFailedLink(link)
-			logWrite(0, "[downloadPEFromLinks]PE下载失败：%v,url:"+link, err)
+			log.LogWrite(0, "[downloadPEFromLinks]PE下载失败：%v,url:"+link, err)
 			_ = Remove(wimPath, false)
 			continue
 		}
@@ -1185,7 +1186,7 @@ func copySDIToPETEMP(peDir string) error {
 			return err
 		}
 	}
-	logWrite(0, "[copySDIToPETEMP]已复制SDI文件到PETEMP：%s", peDir)
+	log.LogWrite(0, "[copySDIToPETEMP]已复制SDI文件到PETEMP：%s", peDir)
 	return nil
 }
 
@@ -1225,7 +1226,7 @@ func tryLocalWepe(wepe []WinPEImg, arch string) (string, error) {
 	all = order(all)
 
 	searchDirs := localWepeSearchDirs()
-	logWrite(0, "[tryLocalWepe]本地WEPE搜索目录：%s", strings.Join(searchDirs, " | "))
+	log.LogWrite(0, "[tryLocalWepe]本地WEPE搜索目录：%s", strings.Join(searchDirs, " | "))
 	for _, dir := range searchDirs {
 		if dir == "" {
 			continue
@@ -1238,7 +1239,7 @@ func tryLocalWepe(wepe []WinPEImg, arch string) (string, error) {
 			if strings.TrimSpace(it.img.MD5) != "" {
 				ok, err := matchMD5(candPath, it.img.MD5)
 				if err != nil || !ok {
-					logWrite(0, "[tryLocalWepe]WEPE MD5 校验失败：%s", candPath)
+					log.LogWrite(0, "[tryLocalWepe]WEPE MD5 校验失败：%s", candPath)
 					continue
 				}
 			}
@@ -1264,7 +1265,7 @@ func tryLocalWepe(wepe []WinPEImg, arch string) (string, error) {
 			if err := copySDIToPETEMP(peDir); err != nil {
 				return "", err
 			}
-			logWrite(0, "[tryLocalWepe]本地WEPE准备完成：%s", wimPath)
+			log.LogWrite(0, "[tryLocalWepe]本地WEPE准备完成：%s", wimPath)
 			return wimPath, nil
 		}
 	}
@@ -1314,10 +1315,10 @@ func matchMD5(path, expect string) (bool, error) {
 func RunPEInstall() error {
 	uiSetProgress(0)
 	uiSetStatus("正在读取重装信息...")
-	logWrite(0, "[RunPEInstall]进入PE安装流程")
+	log.LogWrite(0, "[RunPEInstall]进入PE安装流程")
 	isWePE := IsWePE()
 	if isWePE {
-		logWrite(0, "[RunPEInstall]检测到微PE环境，使用非EX的分区工具调用")
+		log.LogWrite(0, "[RunPEInstall]检测到微PE环境，使用非EX的分区工具调用")
 	}
 	//进度回调
 	progressHandler := func(base, span int32, statusFmt, logFmt string) func(int) {
@@ -1337,7 +1338,7 @@ func RunPEInstall() error {
 			}
 			if logFmt != "" {
 				if lastLog.IsZero() || now.Sub(lastLog) >= 1*time.Second || v >= 100 {
-					logWrite(0, logFmt, v)
+					log.LogWrite(0, logFmt, v)
 					lastLog = now
 				}
 			}
@@ -1346,7 +1347,7 @@ func RunPEInstall() error {
 
 	targetRoot, diskPath, imagePath, volumeGuid, diskUniqueID, imageRel, savedTarget, savedArch, savedIndex, err := loadResData()
 	if err != nil {
-		logWrite(0, "[RunPEInstall]读取重装信息失败：%v", err)
+		log.LogWrite(0, "[RunPEInstall]读取重装信息失败：%v", err)
 		targetRoot, diskPath, imagePath = "", "", ""
 		os.Exit(0)
 	}
@@ -1361,7 +1362,7 @@ func RunPEInstall() error {
 	a := strings.TrimSpace(savedArch)
 	if imagePath == "" {
 		uiSetStatus("未找到重装镜像，尝试本地搜索...")
-		logWrite(0, "[RunPEInstall]尝试本地搜索镜像")
+		log.LogWrite(0, "[RunPEInstall]尝试本地搜索镜像")
 		if local, lerr := findLocalImage(t, a); lerr == nil {
 			imagePath = local
 		}
@@ -1374,14 +1375,14 @@ func RunPEInstall() error {
 			a = "64"
 		}
 		uiSetStatus("未找到本地镜像，尝试下载Win10...")
-		logWrite(0, "[RunPEInstall]本地无镜像，尝试下载Win10")
+		log.LogWrite(0, "[RunPEInstall]本地无镜像，尝试下载Win10")
 		if dl, derr := downloadImage(t, a); derr == nil {
 			imagePath = dl
 		} else {
 			return fmt.Errorf("未找到镜像且下载失败: %w", derr)
 		}
 	}
-	logWrite(0, "[RunPEInstall]最终使用镜像：%s", imagePath)
+	log.LogWrite(0, "[RunPEInstall]最终使用镜像：%s", imagePath)
 
 	if targetRoot == "" {
 		targetRoot = chooseInstallTargetRoot()
@@ -1389,7 +1390,7 @@ func RunPEInstall() error {
 			return fmt.Errorf("未找到可用系统分区")
 		}
 	}
-	logWrite(0, "[RunPEInstall]目标分区：%s", targetRoot)
+	log.LogWrite(0, "[RunPEInstall]目标分区：%s", targetRoot)
 
 	uiSetProgress(10)
 	uiSetStatus("正在准备分区...")
@@ -1443,7 +1444,7 @@ func RunPEInstall() error {
 			_ = os.MkdirAll(dstDir, 0755)
 			dstPath := filepath.Join(dstDir, filepath.Base(imagePath))
 
-			logWrite(0, "[RunPEInstall]镜像在目标分区上，尝试复制到其它卷：%s -> %s", imagePath, dstPath)
+			log.LogWrite(0, "[RunPEInstall]镜像在目标分区上，尝试复制到其它卷：%s -> %s", imagePath, dstPath)
 			if err := Copy(imagePath, dstPath, true, true); err != nil {
 				moveErrs = append(moveErrs, fmt.Sprintf("%s Copy失败:%v", altRoot, err))
 				_ = Remove(dstPath, false)
@@ -1458,15 +1459,15 @@ func RunPEInstall() error {
 
 			imagePath = dstPath
 			moved = true
-			logWrite(0, "[RunPEInstall]已将镜像复制到其它卷并更新路径：%s", imagePath)
+			log.LogWrite(0, "[RunPEInstall]已将镜像复制到其它卷并更新路径：%s", imagePath)
 			break
 		}
 
 		if !moved {
 			if len(moveErrs) > 0 {
-				logWrite(0, "[RunPEInstall]复制到其它卷失败/不可用，原因：%s", strings.Join(moveErrs, " | "))
+				log.LogWrite(0, "[RunPEInstall]复制到其它卷失败/不可用，原因：%s", strings.Join(moveErrs, " | "))
 			} else {
-				logWrite(0, "[RunPEInstall]无可用其它卷用于复制镜像，准备拆分TEMP分区")
+				log.LogWrite(0, "[RunPEInstall]无可用其它卷用于复制镜像，准备拆分TEMP分区")
 			}
 
 			sizeMB := int((int64(imageBytes) + 512*1024*1024) / (1024 * 1024))
@@ -1488,7 +1489,7 @@ func RunPEInstall() error {
 			}
 
 			newPath := filepath.Join(tempVol, filepath.Base(imagePath))
-			logWrite(0, "[RunPEInstall]仅能拆分分区保存镜像：%s -> %s", imagePath, newPath)
+			log.LogWrite(0, "[RunPEInstall]仅能拆分分区保存镜像：%s -> %s", imagePath, newPath)
 
 			if err := Copy(imagePath, newPath, true, true); err != nil {
 				return err
@@ -1497,7 +1498,7 @@ func RunPEInstall() error {
 				return err
 			}
 			imagePath = newPath
-			logWrite(0, "[RunPEInstall]已拆分TEMP并复制镜像，更新镜像路径：%s", imagePath)
+			log.LogWrite(0, "[RunPEInstall]已拆分TEMP并复制镜像，更新镜像路径：%s", imagePath)
 		}
 	}
 
@@ -1515,9 +1516,9 @@ func RunPEInstall() error {
 		formatCb(100)
 	}
 	if err != nil {
-		logWrite(0, "[RunPEInstall]格式化失败: %v", err)
+		log.LogWrite(0, "[RunPEInstall]格式化失败: %v", err)
 	}
-	logWrite(0, "[RunPEInstall]格式化完成：%s", targetRoot)
+	log.LogWrite(0, "[RunPEInstall]格式化完成：%s", targetRoot)
 
 	uiSetProgress(20)
 	uiSetStatus("正在解析镜像...")
@@ -1527,9 +1528,9 @@ func RunPEInstall() error {
 		index = savedIndex
 	} else if err == nil {
 		index = selectInstallIndex(infos)
-		logWrite(0, "[RunPEInstall]镜像索引列表：%s", formatImageInfos(infos))
+		log.LogWrite(0, "[RunPEInstall]镜像索引列表：%s", formatImageInfos(infos))
 	}
-	logWrite(0, "[RunPEInstall]选择镜像索引：%d", index)
+	log.LogWrite(0, "[RunPEInstall]选择镜像索引：%d", index)
 
 	uiSetStatus(fmt.Sprintf("正在应用镜像（索引 %d）...", index))
 
@@ -1548,7 +1549,7 @@ func RunPEInstall() error {
 			lastUI = now
 		}
 		if lastLog.IsZero() || now.Sub(lastLog) >= 1*time.Second || pct >= 100 {
-			logWrite(0, "[RunPEInstall]应用镜像进度：phase=%s pct=%.1f", phase, pct)
+			log.LogWrite(0, "[RunPEInstall]应用镜像进度：phase=%s pct=%.1f", phase, pct)
 			lastLog = now
 		}
 	}
@@ -1556,15 +1557,15 @@ func RunPEInstall() error {
 	switch strings.ToLower(filepath.Ext(imagePath)) {
 	case ".esd":
 		if err := ApplyEsdImage(imagePath, index, targetRoot); err != nil {
-			logWrite(0, "[RunPEInstall]flow ApplyEsdImage1失败"+err.Error())
+			log.LogWrite(0, "[RunPEInstall]flow ApplyEsdImage1失败"+err.Error())
 		}
 	case ".wim":
 		if err := ApplyWimImage(imagePath, index, targetRoot); err != nil {
-			logWrite(0, "[RunPEInstall]flow ApplyWimImage2失败"+err.Error())
+			log.LogWrite(0, "[RunPEInstall]flow ApplyWimImage2失败"+err.Error())
 		}
 	case ".iso":
 		if err := ApplyISOImage(imagePath, index, targetRoot); err != nil {
-			logWrite(0, "[RunPEInstall]flow ApplyISOImage3失败"+err.Error())
+			log.LogWrite(0, "[RunPEInstall]flow ApplyISOImage3失败"+err.Error())
 		}
 	default:
 		return fmt.Errorf("不支持的镜像类型: %s", imagePath)
@@ -1575,7 +1576,7 @@ func RunPEInstall() error {
 	if err := FixBoot(targetRoot, "", "zh-cn"); err != nil {
 		return err
 	}
-	logWrite(0, "[RunPEInstall]引导修复完成")
+	log.LogWrite(0, "[RunPEInstall]引导修复完成")
 
 	targetOS := strings.TrimSpace(savedTarget)
 	if targetOS == "" {
@@ -1587,7 +1588,7 @@ func RunPEInstall() error {
 	if err := postInstallTasks(targetRoot, targetOS); err != nil {
 		return err
 	}
-	logWrite(0, "[RunPEInstall]安装后处理完成")
+	log.LogWrite(0, "[RunPEInstall]安装后处理完成")
 
 	// 如果不是 PE 内创建的 tempVol，尝试通过 marker 找到我们创建的 TEMP 分区
 	if tempVol == "" {
@@ -1597,7 +1598,7 @@ func RunPEInstall() error {
 			}
 			if mr != "" && !strings.EqualFold(mr, targetRoot) {
 				tempVol = mr
-				logWrite(0, "[RunPEInstall]通过 marker 找到 TEMP 分区：%s", tempVol)
+				log.LogWrite(0, "[RunPEInstall]通过 marker 找到 TEMP 分区：%s", tempVol)
 			}
 		}
 	}
@@ -1606,7 +1607,7 @@ func RunPEInstall() error {
 		deleteCb := progressHandler(85, 5, "正在删除临时分区... %d%%", "删除临时分区进度：%d%%")
 		deleteCb(0)
 		if err := DeleteVolume(tempVol); err != nil {
-			logWrite(0, "[RunPEInstall]删除临时分区失败：%v", err)
+			log.LogWrite(0, "[RunPEInstall]删除临时分区失败：%v", err)
 		} else {
 			deleteCb(100)
 		}
@@ -1614,16 +1615,16 @@ func RunPEInstall() error {
 		mergeCb := progressHandler(90, 5, "正在合并临时分区... %d%%", "合并临时分区进度：%d%%")
 		mergeCb(0)
 		if err := MergeVolume(targetRoot, 0); err != nil {
-			logWrite(0, "[RunPEInstall]合并临时分区失败：%v", err)
+			log.LogWrite(0, "[RunPEInstall]合并临时分区失败：%v", err)
 		} else {
 			mergeCb(100)
-			logWrite(0, "[RunPEInstall]已合并临时分区回系统分区：%s", targetRoot)
+			log.LogWrite(0, "[RunPEInstall]已合并临时分区回系统分区：%s", targetRoot)
 		}
 	}
 
 	uiSetStatus("安装完成，正在重启...")
 	uiSetProgress(100)
-	logWrite(0, "[RunPEInstall]PE安装流程完成，准备重启")
+	log.LogWrite(0, "[RunPEInstall]PE安装流程完成，准备重启")
 	Message("安装完成,测试模式", "请查看日志确定无误后手动重启")
 	//Shutdown(true)
 	return nil
@@ -1633,7 +1634,7 @@ func RunPEInstall() error {
 func chooseInstallTargetRoot() string {
 	parts := Findpart()
 	if len(parts) > 0 {
-		logWrite(0, "[chooseInstallTargetRoot]选择未装系统分区：%s", parts[0])
+		log.LogWrite(0, "[chooseInstallTargetRoot]选择未装系统分区：%s", parts[0])
 		if nr, err := utils.NormalizeDrive(parts[0], 0); err == nil {
 			return nr
 		}
@@ -1645,7 +1646,7 @@ func chooseInstallTargetRoot() string {
 			continue
 		}
 		if GetDriveType(d) == driveFixed {
-			logWrite(0, "[chooseInstallTargetRoot]回退选择固定盘分区：%s", d)
+			log.LogWrite(0, "[chooseInstallTargetRoot]回退选择固定盘分区：%s", d)
 			if nr, err := utils.NormalizeDrive(d, 0); err == nil {
 				return nr
 			}
@@ -1686,14 +1687,14 @@ func postInstallTasks(targetRoot, targetOS string) error {
 	_ = Copy(unattend, filepath.Join(targetRoot, "Windows", "Panther", "Unattend.xml"), true, true)
 	_ = Copy(filepath.Join(baseDir, "tools", "HEU_KMS_Activator.exe"), filepath.Join(targetRoot, "HEU_KMS_Activator.exe"), true, true)
 	_, _ = CreateShortcut(filepath.Join(targetRoot, "Users", "Public", "Desktop")+`\\`, "应用商店", "https://store.ttraw.com")
-	logWrite(0, "[postInstallTasks]已写入应答文件/激活工具/快捷方式")
+	log.LogWrite(0, "[postInstallTasks]已写入应答文件/激活工具/快捷方式")
 
 	driveExe := filepath.Join(baseDir, "tools", "drive.exe")
 
 	if utils.FileExists(driveExe) {
 		_ = Copy(driveExe, filepath.Join(targetRoot, "drive.exe"), true, true)
 	}
-	logWrite(0, "[postInstallTasks]驱动安装工具准备完成")
+	log.LogWrite(0, "[postInstallTasks]驱动安装工具准备完成")
 	return nil
 }
 
@@ -1774,7 +1775,7 @@ func (p *ProgressReporter) Update(pct float64, speedBytes int64) {
 		p.logEvery = 1 * time.Second
 	}
 	if p.lastLog.IsZero() || now.Sub(p.lastLog) >= p.logEvery || pct >= 100 {
-		logWrite(0, p.logFmt, pct, float64(speedBytes)/1024.0/1024.0)
+		log.LogWrite(0, p.logFmt, pct, float64(speedBytes)/1024.0/1024.0)
 		p.lastLog = now
 	}
 }
@@ -1785,10 +1786,10 @@ func retryLoop(title string, fn func() error) bool {
 		if err := fn(); err == nil {
 			return true
 		} else {
-			logWrite(0, "[retryLoop]%s失败：%v", title, err)
+			log.LogWrite(0, "[retryLoop]%s失败：%v", title, err)
 			time.Sleep(2 * time.Second)
 			if attempt == 0 {
-				logWrite(0, "[retryLoop]%s失败，自动重试一次", title)
+				log.LogWrite(0, "[retryLoop]%s失败，自动重试一次", title)
 				continue
 			}
 			uiShowError("错误", title+"失败："+err.Error())
@@ -1805,10 +1806,10 @@ func retryLoopWithResult[T any](title string, fn func() (T, error)) (T, bool) {
 		if err == nil {
 			return v, true
 		}
-		logWrite(0, "[retryLoop]%s失败：%v", title, err)
+		log.LogWrite(0, "[retryLoop]%s失败：%v", title, err)
 		time.Sleep(2 * time.Second)
 		if attempt == 0 {
-			logWrite(0, "[retryLoop]%s失败，自动重试一次", title)
+			log.LogWrite(0, "[retryLoop]%s失败，自动重试一次", title)
 			continue
 		}
 		uiShowError("错误", title+"失败："+err.Error())
