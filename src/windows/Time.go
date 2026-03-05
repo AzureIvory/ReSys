@@ -1,6 +1,7 @@
 package windows
 
 import (
+	"ReSys/src/log"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -48,6 +49,7 @@ func queryNTP(serverAddr string, timeout time.Duration) (time.Time, error) {
 	d := net.Dialer{}
 	conn, err := d.DialContext(ctx, "udp", serverAddr)
 	if err != nil {
+		log.LogWrite(-1, "[queryNTP]连接NTP失败: server=%s err=%v", serverAddr, err)
 		return time.Time{}, fmt.Errorf("dial udp %s failed: %w", serverAddr, err)
 	}
 	defer conn.Close()
@@ -59,15 +61,18 @@ func queryNTP(serverAddr string, timeout time.Duration) (time.Time, error) {
 	req[0] = 0x23
 
 	if _, err := conn.Write(req); err != nil {
+		log.LogWrite(-1, "[queryNTP]发送NTP请求失败: server=%s err=%v", serverAddr, err)
 		return time.Time{}, fmt.Errorf("send ntp request failed: %w", err)
 	}
 
 	resp := make([]byte, 48)
 	n, err := conn.Read(resp)
 	if err != nil {
+		log.LogWrite(-1, "[queryNTP]读取NTP响应失败: server=%s err=%v", serverAddr, err)
 		return time.Time{}, fmt.Errorf("read ntp response failed: %w", err)
 	}
 	if n < 48 {
+		log.LogWrite(-1, "[queryNTP]NTP响应长度异常: server=%s len=%d", serverAddr, n)
 		return time.Time{}, fmt.Errorf("ntp response too short: %d", n)
 	}
 
@@ -77,6 +82,7 @@ func queryNTP(serverAddr string, timeout time.Duration) (time.Time, error) {
 	frac := uint64(binary.BigEndian.Uint32(resp[44:48]))
 
 	if sec < ntpEpochOffset {
+		log.LogWrite(-1, "[queryNTP]NTP秒值异常: server=%s sec=%d", serverAddr, sec)
 		return time.Time{}, fmt.Errorf("invalid ntp seconds: %d", sec)
 	}
 
@@ -107,8 +113,10 @@ func setSystemTimeUTC(t time.Time) error {
 	if r1 == 0 {
 		// e1 is syscall.Errno
 		if e1 != nil && e1 != syscall.Errno(0) {
+			log.LogWrite(-2, "[setSystemTimeUTC]设置系统时间失败: err=%v", e1)
 			return fmt.Errorf("SetSystemTime failed: %w (try running as Administrator)", e1)
 		}
+		log.LogWrite(-2, "[setSystemTimeUTC]设置系统时间失败: unknown error")
 		return errors.New("SetSystemTime failed: unknown error (try running as Administrator)")
 	}
 	return nil
@@ -130,10 +138,12 @@ func SyncTime() TimeSyncResult {
 	for _, server := range ntpServers {
 		utcTime, err := queryNTP(server, 3*time.Second)
 		if err != nil {
+			log.LogWrite(-1, "[SyncTime]NTP服务器不可用: server=%s err=%v", server, err)
 			lastErr = err
 			continue
 		}
 		if err := setSystemTimeUTC(utcTime); err != nil {
+			log.LogWrite(-2, "[SyncTime]同步时间失败: server=%s err=%v", server, err)
 			return TimeSyncResult{
 				Success: false,
 				Message: fmt.Sprintf("got UTC from %s but setting system time failed: %v", server, err),
@@ -144,6 +154,7 @@ func SyncTime() TimeSyncResult {
 		}
 
 		newT := time.Now().Format("2006-01-02 15:04:05.000 MST")
+		log.LogWrite(0, "[SyncTime]时间同步成功: server=%s old=%s new=%s", server, old, newT)
 		return TimeSyncResult{
 			Success: true,
 			Message: fmt.Sprintf("time sync success (UTC via %s, SetSystemTime)", server),
@@ -157,6 +168,7 @@ func SyncTime() TimeSyncResult {
 	if lastErr != nil {
 		msg = fmt.Sprintf("%s; last error: %v", msg, lastErr)
 	}
+	log.LogWrite(-2, "[SyncTime]时间同步失败: %s", msg)
 	return TimeSyncResult{
 		Success: false,
 		Message: msg,

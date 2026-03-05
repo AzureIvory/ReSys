@@ -1,6 +1,7 @@
 package main
 
 import (
+	log "ReSys/src/log"
 	"bytes"
 	_ "embed"
 	"fmt"
@@ -555,12 +556,12 @@ func MessageRetryExit(title, text string) bool {
 // icoToHICON 函数。
 func icoToHICON(ico []byte, want int32) (windows.Handle, error) {
 	if len(ico) < 6 {
-		logWrite(0, "[icoToHICON]icoToHICON ico长度不足: len=%d", len(ico))
+		log.LogWrite(0, "[icoToHICON]icoToHICON ico长度不足: len=%d", len(ico))
 		return 0, syscall.EINVAL
 	}
 	count := int(*(*uint16)(unsafe.Pointer(&ico[4])))
 	if count <= 0 {
-		logWrite(0, "[icoToHICON]icoToHICON 图标数量异常: count=%d", count)
+		log.LogWrite(0, "[icoToHICON]icoToHICON 图标数量异常: count=%d", count)
 		return 0, syscall.EINVAL
 	}
 	type entry struct {
@@ -604,14 +605,14 @@ func icoToHICON(ico []byte, want int32) (windows.Handle, error) {
 		}
 	}
 	if best < 0 {
-		logWrite(0, "[icoToHICON]icoToHICON 未找到合适的图标尺寸")
+		log.LogWrite(0, "[icoToHICON]icoToHICON 未找到合适的图标尺寸")
 		return 0, syscall.EINVAL
 	}
 	e := (*entry)(unsafe.Pointer(&ico[entriesOff+best*16]))
 	start := int(e.ImageOffset)
 	end := start + int(e.BytesInRes)
 	if start < 0 || end > len(ico) || start >= end {
-		logWrite(0, "[icoToHICON]icoToHICON 图标数据越界: start=%d end=%d len=%d", start, end, len(ico))
+		log.LogWrite(0, "[icoToHICON]icoToHICON 图标数据越界: start=%d end=%d len=%d", start, end, len(ico))
 		return 0, syscall.EINVAL
 	}
 	imgBits := ico[start:end]
@@ -628,7 +629,7 @@ func icoToHICON(ico []byte, want int32) (windows.Handle, error) {
 		LR_DEFAULTCOLOR,
 	)
 	if h == 0 {
-		logWrite(0, "[icoToHICON]icoToHICON CreateIconFromResourceEx失败: err=%v", err)
+		log.LogWrite(0, "[icoToHICON]icoToHICON CreateIconFromResourceEx失败: err=%v", err)
 		return 0, err
 	}
 	return windows.Handle(h), nil
@@ -638,7 +639,7 @@ func icoToHICON(ico []byte, want int32) (windows.Handle, error) {
 func decodeGIFFrames(gifBytes []byte) ([]Frame, error) {
 	g, err := gif.DecodeAll(bytes.NewReader(gifBytes))
 	if err != nil {
-		logWrite(0, "[decodeGIFFrames]decodeGIFFrames 解析GIF失败: err=%v", err)
+		log.LogWrite(0, "[decodeGIFFrames]decodeGIFFrames 解析GIF失败: err=%v", err)
 		return nil, err
 	}
 
@@ -655,7 +656,7 @@ func decodeGIFFrames(gifBytes []byte) ([]Frame, error) {
 
 		hbmp, w, h, err := rgbaToDIB(out)
 		if err != nil {
-			logWrite(0, "[decodeGIFFrames]decodeGIFFrames 转换DIB失败: err=%v", err)
+			log.LogWrite(0, "[decodeGIFFrames]decodeGIFFrames 转换DIB失败: err=%v", err)
 			return nil, err
 		}
 
@@ -695,7 +696,7 @@ func rgbaToDIB(img *image.RGBA) (windows.Handle, int32, int32, error) {
 	w := int32(img.Bounds().Dx())
 	h := int32(img.Bounds().Dy())
 	if w <= 0 || h <= 0 {
-		logWrite(0, "[rgbaToDIB]rgbaToDIB 图像尺寸异常: w=%d h=%d", w, h)
+		log.LogWrite(0, "[rgbaToDIB]rgbaToDIB 图像尺寸异常: w=%d h=%d", w, h)
 		return 0, 0, 0, fmt.Errorf("invalid image size")
 	}
 
@@ -720,7 +721,7 @@ func rgbaToDIB(img *image.RGBA) (windows.Handle, int32, int32, error) {
 		0,
 	)
 	if hbmp == 0 {
-		logWrite(0, "[rgbaToDIB]rgbaToDIB CreateDIBSection失败: err=%v", err)
+		log.LogWrite(0, "[rgbaToDIB]rgbaToDIB CreateDIBSection失败: err=%v", err)
 		return 0, 0, 0, err
 	}
 

@@ -394,6 +394,7 @@ static int api_overwrite(wimlib_api *api, WIMStruct *w, int write_flags, unsigne
 import "C"
 
 import (
+	"ReSys/src/log"
 	"errors"
 	"os"
 	"path/filepath"
@@ -463,31 +464,39 @@ type DirEntry struct {
 func LibwimLoad() (*Lib, error) {
 	exe, err := os.Executable()
 	if err != nil {
+		log.LogWrite(-2, "[LibwimLoad]获取可执行路径失败: err=%v", err)
 		return nil, err
 	}
 	dll := filepath.Join(filepath.Dir(exe), "tools", "libwim-15.dll")
 
 	p, freeP, err := allocWString(dll)
 	if err != nil {
+		log.LogWrite(-2, "[LibwimLoad]分配DLL路径失败: path=%s err=%v", dll, err)
 		return nil, err
 	}
 	defer freeP()
 
 	api := (*C.wimlib_api)(C.calloc(1, C.size_t(unsafe.Sizeof(C.wimlib_api{}))))
 	if api == nil {
-		return nil, errors.New("calloc wimlib_api failed")
+		err := errors.New("calloc wimlib_api failed")
+		log.LogWrite(-2, "[LibwimLoad]分配api结构失败: %v", err)
+		return nil, err
 	}
 
 	if r := C.wimlib_load(api, p); r != 0 {
 		C.free(unsafe.Pointer(api))
-		return nil, errors.New("load libwim-15.dll failed (missing file or missing symbols)")
+		err := errors.New("load libwim-15.dll failed (missing file or missing symbols)")
+		log.LogWrite(-2, "[LibwimLoad]加载libwim失败: path=%s", dll)
+		return nil, err
 	}
 
 	// global_init is idempotent; we still call it explicitly.
 	if code := int(C.api_global_init(api, 0)); code != 0 {
 		C.wimlib_unload(api)
 		C.free(unsafe.Pointer(api))
-		return nil, errors.New("wimlib_global_init failed: " + errStringFrom(api, code))
+		err := errors.New("wimlib_global_init failed: " + errStringFrom(api, code))
+		log.LogWrite(-2, "[LibwimLoad]初始化wimlib失败: err=%v", err)
+		return nil, err
 	}
 
 	return &Lib{api: api}, nil
@@ -687,6 +696,7 @@ func (w *WIM) ListPaths(image int, wimPath string, iterateFlags int) ([]DirEntry
 
 	p, freeP, err := allocWString(wimPath)
 	if err != nil {
+		log.LogWrite(-2, "[ListPaths]分配路径失败: wimPath=%s err=%v", wimPath, err)
 		return nil, err
 	}
 	defer freeP()

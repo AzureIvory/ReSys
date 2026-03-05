@@ -1,6 +1,7 @@
 package main
 
 import (
+	log "ReSys/src/log"
 	"ReSys/src/utils"
 	"encoding/binary"
 	"fmt"
@@ -19,7 +20,7 @@ import (
 func parseFS(fs string) (string, error) {
 	fs = strings.TrimSpace(fs)
 	if fs == "" {
-		logWrite(0, "[parseFS]parseFS 文件系统为空")
+		log.LogWrite(0, "[parseFS]parseFS 文件系统为空")
 		return "", fmt.Errorf("fs 不能为空")
 	}
 	fs = strings.ToUpper(fs)
@@ -27,7 +28,7 @@ func parseFS(fs string) (string, error) {
 	case "NTFS", "FAT32":
 		return fs, nil
 	default:
-		logWrite(0, "[parseFS]parseFS 不支持的文件系统: %s", fs)
+		log.LogWrite(0, "[parseFS]parseFS 不支持的文件系统: %s", fs)
 		return "", fmt.Errorf("不支持的 fs：%q（仅支持 NTFS/FAT32）", fs)
 	}
 }
@@ -36,7 +37,7 @@ func parseFS(fs string) (string, error) {
 func collectDriveLetters() (map[string]struct{}, error) {
 	drives, err := ListDrive()
 	if err != nil {
-		logWrite(0, "[collectDriveLetters]collectDriveLetters ListDrive失败: %v", err)
+		log.LogWrite(0, "[collectDriveLetters]collectDriveLetters ListDrive失败: %v", err)
 		return nil, err
 	}
 	set := make(map[string]struct{}, len(drives))
@@ -59,7 +60,7 @@ func collectDriveLetters() (map[string]struct{}, error) {
 func GetDiskPartitions(diskID string) (int, []string, error) {
 	diskID = strings.TrimSpace(diskID)
 	if diskID == "" {
-		logWrite(0, "[GetDiskPartitions]GetDiskPartitions diskID为空")
+		log.LogWrite(0, "[GetDiskPartitions]GetDiskPartitions diskID为空")
 		return 0, nil, fmt.Errorf("diskID 为空")
 	}
 
@@ -73,7 +74,7 @@ func GetDiskPartitions(diskID string) (int, []string, error) {
 		root := strings.ToUpper(diskID[:1]) + `:\`
 		dn, err := GetDiskNum(root)
 		if err != nil {
-			logWrite(0, "[GetDiskPartitions]GetDiskPartitions GetDiskNum失败: root=%s err=%v", root, err)
+			log.LogWrite(0, "[GetDiskPartitions]GetDiskPartitions GetDiskNum失败: root=%s err=%v", root, err)
 			return 0, nil, err
 		}
 		diskNum = dn
@@ -83,7 +84,7 @@ func GetDiskPartitions(diskID string) (int, []string, error) {
 		root := strings.ToUpper(diskID) + `:\`
 		dn, err := GetDiskNum(root)
 		if err != nil {
-			logWrite(0, "[GetDiskPartitions]GetDiskPartitions GetDiskNum失败: root=%s err=%v", root, err)
+			log.LogWrite(0, "[GetDiskPartitions]GetDiskPartitions GetDiskNum失败: root=%s err=%v", root, err)
 			return 0, nil, err
 		}
 		diskNum = dn
@@ -93,14 +94,14 @@ func GetDiskPartitions(diskID string) (int, []string, error) {
 		if m := re.FindStringSubmatch(diskID); len(m) == 2 {
 			n, err := strconv.ParseUint(m[1], 10, 32)
 			if err != nil {
-				logWrite(0, "[GetDiskPartitions]GetDiskPartitions 解析磁盘号失败: %v", err)
+				log.LogWrite(0, "[GetDiskPartitions]GetDiskPartitions 解析磁盘号失败: %v", err)
 				return 0, nil, fmt.Errorf("解析磁盘号失败: %w", err)
 			}
 			diskNum = uint32(n)
 		} else {
 			n, err := strconv.ParseUint(diskID, 10, 32)
 			if err != nil {
-				logWrite(0, "[GetDiskPartitions]GetDiskPartitions 解析磁盘号失败: %v", err)
+				log.LogWrite(0, "[GetDiskPartitions]GetDiskPartitions 解析磁盘号失败: %v", err)
 				return 0, nil, fmt.Errorf("解析磁盘号失败: %w", err)
 			}
 			diskNum = uint32(n)
@@ -109,7 +110,7 @@ func GetDiskPartitions(diskID string) (int, []string, error) {
 
 	drives, err := ListDrive()
 	if err != nil {
-		logWrite(0, "[GetDiskPartitions]GetDiskPartitions ListDrive失败: %v", err)
+		log.LogWrite(0, "[GetDiskPartitions]GetDiskPartitions ListDrive失败: %v", err)
 		return 0, nil, err
 	}
 
@@ -486,7 +487,7 @@ func ListDrive() ([]string, error) {
 			drives = append(drives, syscall.UTF16ToString(buf[i:j]))
 			i = j + 1
 		}
-		logWrite(0, fmt.Sprintf("[ListDrive] 枚举磁盘: %v\n", drives))
+		log.LogWrite(0, fmt.Sprintf("[ListDrive] 枚举磁盘: %v\n", drives))
 		return drives, nil
 	}
 
@@ -1612,7 +1613,7 @@ func Format(letter, fs, label string, quick bool) error {
 	}
 
 	out, err := RunDiskpart(lines)
-	logWrite(0, out)
+	log.LogWrite(0, out)
 	if err != nil {
 		return fmt.Errorf("format(diskpart) failed: %w\n输出:\n%s", err, out)
 	}

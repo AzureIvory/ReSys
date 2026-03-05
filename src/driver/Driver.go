@@ -1,6 +1,7 @@
 package main
 
 import (
+	"ReSys/src/log"
 	"bufio"
 	"errors"
 	"fmt"
@@ -110,6 +111,7 @@ type newDevAPI struct {
 func newNewDevAPI() (*newDevAPI, error) {
 	d := windows.NewLazySystemDLL("newdev.dll")
 	if err := d.Load(); err != nil {
+		log.LogWrite(-2, "[newNewDevAPI]加载newdev.dll失败: err=%v", err)
 		return nil, err
 	}
 	return &newDevAPI{
@@ -403,7 +405,10 @@ type DriverManager struct {
 // NewDriverManager 创建驱动管理器：SetupAPI 必有；NewDev 可选（加载失败则为 nil）。
 func NewDriverManager() (*DriverManager, error) {
 	s := newSetupAPI()
-	n, _ := newNewDevAPI() // 允许缺失
+	n, nErr := newNewDevAPI() // 允许缺失
+	if nErr != nil {
+		log.LogWrite(-1, "[NewDriverManager]newdev不可用，回退兼容流程: err=%v", nErr)
+	}
 	return &DriverManager{setup: s, newdev: n}, nil
 }
 
@@ -432,6 +437,7 @@ func (m *DriverManager) EnumerateOEMDrivers() ([]DriverInfo, error) {
 // - 导出策略：尽量定位到 DriverStore\FileRepository 中的真实 INF，然后复制整个驱动包目录；否则回退 INF 及关联文件。
 func (m *DriverManager) ExportDrivers(destination string, oemOnly bool) (int, error) {
 	if err := os.MkdirAll(destination, 0755); err != nil {
+		log.LogWrite(-2, "[ExportDrivers]创建目录失败: dir=%s err=%v", destination, err)
 		return 0, err
 	}
 

@@ -1,6 +1,7 @@
 package bitlocker
 
 import (
+	"ReSys/src/log"
 	"ReSys/src/utils"
 	"errors"
 	"fmt"
@@ -260,6 +261,7 @@ func Instance() (*FveApi, error) {
 	once.Do(func() {
 		api, err := newFveApi()
 		if err != nil {
+			log.LogWrite(-2, "[Instance]初始化FveApi失败: err=%v", err)
 			instErr = err
 			return
 		}
@@ -278,6 +280,7 @@ func newFveApi() (*FveApi, error) {
 
 	// 先 Load 一次，尽早发现 DLL 不存在（例如 Win7 非旗舰/企业版、或者组件缺失）
 	if err := dll.Load(); err != nil {
+		log.LogWrite(-2, "[newFveApi]加载fveapi.dll失败: err=%v", err)
 		return nil, fmt.Errorf("load fveapi.dll failed: %w", err)
 	}
 
@@ -317,6 +320,7 @@ func newFveApi() (*FveApi, error) {
 
 	for _, it := range procs {
 		if err := it.p.Find(); err != nil {
+			log.LogWrite(-2, "[newFveApi]缺少导出函数: proc=%s err=%v", it.name, err)
 			return nil, fmt.Errorf("proc not found: %s: %w", it.name, err)
 		}
 	}
