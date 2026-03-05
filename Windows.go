@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -500,7 +501,8 @@ func Shutdown(reboot bool) {
 	}
 	exec.Command("shutdown.exe", args...).Run()
 
-	//内核
+	//内核（有些pe可能常规方法无法重启，需要这个）
+	time.Sleep(2 * time.Second) // 这个重启是直接关机的，等待一下
 	enableShutdownPrivilege()
 	action := uintptr(ShutdownPowerOff)
 	if reboot {
@@ -850,135 +852,4 @@ func clearReadonly(path string) error {
 
 	attrs &^= syscall.FILE_ATTRIBUTE_READONLY
 	return syscall.SetFileAttributes(p, attrs)
-}
-
-// 加载离线注册表 hive
-// subKey：挂载点名称，如"OFFLINE_SYSTEM"
-// file:注册表 hive 文件的 完整路径
-// 需要有 SeBackupPrivilege / SeRestorePrivilege 之类的权限
-func RegLoadHive(subKey, file string) error {
-	subKeyPtr, err := syscall.UTF16PtrFromString(subKey)
-	if err != nil {
-		return err
-	}
-	filePtr, err := syscall.UTF16PtrFromString(file)
-	if err != nil {
-		return err
-	}
-	r0, _, e1 := procRegLoadKeyW.Call(
-		uintptr(HKEY_LOCAL_MACHINE),
-		uintptr(unsafe.Pointer(subKeyPtr)),
-		uintptr(unsafe.Pointer(filePtr)),
-	)
-	if r0 != 0 {
-		if e1 != nil && e1 != syscall.Errno(0) {
-			return fmt.Errorf("RegLoadKeyW(%s) failed: %v (code=%d)", subKey, e1, r0)
-		}
-		return fmt.Errorf("RegLoadKeyW(%s) failed: code=%d", subKey, r0)
-	}
-	return nil
-}
-
-// 卸载之前通过 RegLoadKeyW 加载的 hive
-// subKey：挂载点名称，如"OFFLINE_SYSTEM"
-func RegUnloadHive(subKey string) error {
-	subKeyPtr, err := syscall.UTF16PtrFromString(subKey)
-	if err != nil {
-		return err
-	}
-	r0, _, e1 := procRegUnLoadKeyW.Call(
-		uintptr(HKEY_LOCAL_MACHINE),
-		uintptr(unsafe.Pointer(subKeyPtr)),
-	)
-	if r0 != 0 {
-		if e1 != nil && e1 != syscall.Errno(0) {
-			return fmt.Errorf("RegUnLoadKeyW(%s) failed: %v (code=%d)", subKey, e1, r0)
-		}
-		return fmt.Errorf("RegUnLoadKeyW(%s) failed: code=%d", subKey, r0)
-	}
-	return nil
-}
-
-// 打开某个注册表子键，获得一个 可读句柄
-// root:根键,如syscall.Handle(HKEY_LOCAL_MACHINE)
-// path:子路径,如"SOFTWARE\Microsoft\Windows NT\CurrentVersion"
-func RegOpenKey(root syscall.Handle, path string) (syscall.Handle, error) {
-	pathPtr, err := syscall.UTF16PtrFromString(path)
-	if err != nil {
-		return 0, err
-	}
-	var h syscall.Handle
-	r0, _, e1 := procRegOpenKeyExW.Call(
-		uintptr(root),
-		uintptr(unsafe.Pointer(pathPtr)),
-		0,
-		uintptr(KEY_READ),
-		uintptr(unsafe.Pointer(&h)),
-	)
-	if r0 != 0 {
-		if e1 != nil && e1 != syscall.Errno(0) {
-			return 0, fmt.Errorf("RegOpenKeyExW(%s) failed: %v (code=%d)", path, e1, r0)
-		}
-		return 0, fmt.Errorf("RegOpenKeyExW(%s) failed: code=%d", path, r0)
-	}
-	return h, nil
-}
-
-func RegCloseKey(h syscall.Handle) {
-	if h == 0 {
-		return
-	}
-	_, _, _ = procRegCloseKey.Call(uintptr(h))
-}
-
-// 从指定键下读取一个 字符串类型的值
-// h:已经打开的注册表键句柄。
-// name:值名称
-func RegGetString(h syscall.Handle, name string) (string, error) {
-	namePtr, err := syscall.UTF16PtrFromString(name)
-	if err != nil {
-		return "", err
-	}
-
-	var typ uint32
-	var dataLen uint32
-
-	r0, _, e1 := procRegQueryValueExW.Call(
-		uintptr(h),
-		uintptr(unsafe.Pointer(namePtr)),
-		0,
-		uintptr(unsafe.Pointer(&typ)),
-		0,
-		uintptr(unsafe.Pointer(&dataLen)),
-	)
-	if r0 != 0 {
-		if e1 != nil && e1 != syscall.Errno(0) {
-			return "", fmt.Errorf("RegQueryValueExW(%s,len) failed: %v (code=%d)", name, e1, r0)
-		}
-		return "", fmt.Errorf("RegQueryValueExW(%s,len) failed: code=%d", name, r0)
-	}
-	if dataLen < 2 {
-		return "", nil
-	}
-
-	buf := make([]uint16, dataLen/2)
-	r0, _, e1 = procRegQueryValueExW.Call(
-		uintptr(h),
-		uintptr(unsafe.Pointer(namePtr)),
-		0,
-		uintptr(unsafe.Pointer(&typ)),
-		uintptr(unsafe.Pointer(&buf[0])),
-		uintptr(unsafe.Pointer(&dataLen)),
-	)
-	if r0 != 0 {
-		if e1 != nil && e1 != syscall.Errno(0) {
-			return "", fmt.Errorf("RegQueryValueExW(%s,data) failed: %v (code=%d)", name, e1, r0)
-		}
-		return "", fmt.Errorf("RegQueryValueExW(%s,data) failed: code=%d", name, r0)
-	}
-
-	n := 0
-	for ; n < len(buf) && buf[n] != 0; n++ {
-	}
-	return syscall.UTF16ToString(buf[:n]), nil
 }
