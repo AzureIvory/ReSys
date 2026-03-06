@@ -1,6 +1,7 @@
 package main
 
 import (
+	tools "ReSys/src/tools"
 	"errors"
 	"fmt"
 	"os"
@@ -17,11 +18,11 @@ func GetBootGUID() (string, error) {
 	}
 	bcdeditPath := GetSystemExe("bcdedit.exe")
 
-	out, err := runCmd(bcdeditPath, nil, nil, "", "/enum")
+	out, err := tools.RunCmd(bcdeditPath, nil, nil, "", "/enum")
 	if err != nil && (errors.Is(err, os.ErrNotExist) || errors.Is(err, exec.ErrNotFound)) {
 		if exe, e := os.Executable(); e == nil {
 			fallback := filepath.Join(filepath.Dir(exe), "tools", "bcdedit.exe")
-			out2, err2 := runCmd(fallback, nil, nil, "", "/enum")
+			out2, err2 := tools.RunCmd(fallback, nil, nil, "", "/enum")
 			// 用 fallback 的结果覆盖
 			out, err = out2, err2
 			bcdeditPath = fallback

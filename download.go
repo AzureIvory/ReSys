@@ -2,6 +2,7 @@ package main
 
 import (
 	log "ReSys/src/log"
+	tools "ReSys/src/tools"
 	"bufio"
 	"bytes"
 	"context"
@@ -528,7 +529,7 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 		go func() {
 			<-curlCtx.Done()
 			if cmd.Process != nil {
-				_, _ = runCmd("taskkill", nil, nil, "", "/F", "/T", "/PID", strconv.Itoa(cmd.Process.Pid))
+				_, _ = tools.RunCmd("taskkill", nil, nil, "", "/F", "/T", "/PID", strconv.Itoa(cmd.Process.Pid))
 			}
 		}()
 

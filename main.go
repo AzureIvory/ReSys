@@ -15,9 +15,10 @@ import (
 	"github.com/kdomanski/iso9660/util"
 	"golang.org/x/text/encoding/simplifiedchinese"
 
-	"ReSys/src/utils"
-	D"ReSys/src/dism"
+	D "ReSys/src/dism"
 	"ReSys/src/log"
+	tools "ReSys/src/tools"
+	"ReSys/src/utils"
 )
 
 var dism, _ = D.GetDism()
@@ -123,128 +124,6 @@ func UnpackISO(isoPath, dstDir string) error {
 	}
 	return nil
 }
-
-// 执行外部命令，返回stdout+stderr
-// input：不为 nil 时写入 stdin
-// onLine：不为 nil 时，每输出一行就回调一次。
-// dir：工作目录，为空则用 程序目录\tools 。
-func runCmd(bin string, input []byte, onLine func(string), dir string, args ...string) (string, error) {
-	cmd := exec.Command(bin, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-
-	// 目录：优先用传入的 dir；为空则用 程序目录\tools
-	toolDir := strings.TrimSpace(dir)
-	if toolDir == "" {
-		if exe, err := os.Executable(); err == nil {
-			toolDir = filepath.Join(filepath.Dir(exe), "tools")
-		}
-	}
-
-	// 设置工作目录 + 把该目录加到 PATH 前面
-	if toolDir != "" {
-		cmd.Dir = toolDir
-
-		env := os.Environ()
-		oldPath := os.Getenv("PATH")
-		sep := string(os.PathListSeparator)
-
-		newPath := toolDir
-		if oldPath != "" {
-			newPath = toolDir + sep + oldPath
-		}
-
-		replaced := false
-		for i := range env {
-			if strings.HasPrefix(strings.ToUpper(env[i]), "PATH=") {
-				env[i] = "PATH=" + newPath
-				replaced = true
-				break
-			}
-		}
-		if !replaced {
-			env = append(env, "PATH="+newPath)
-		}
-		cmd.Env = env
-	}
-
-	var buf bytes.Buffer
-
-	// 自定义writer
-	type lineWriter struct {
-		all    *bytes.Buffer
-		onLine func(string)
-		part   []byte
-	}
-
-	lw := &lineWriter{
-		all:    &buf,
-		onLine: onLine,
-		part:   make([]byte, 0, 256),
-	}
-
-	writeLine := func(l string) {
-		if lw.onLine != nil {
-			lw.onLine(l)
-		} else {
-			fmt.Println(l)
-		}
-	}
-
-	lwWrite := func(p []byte) {
-		lw.all.Write(p)
-
-		for _, b := range p {
-			if b == '\n' || b == '\r' {
-				if len(lw.part) > 0 {
-					line := string(lw.part)
-					writeLine(line)
-					lw.part = lw.part[:0]
-				}
-			} else {
-				lw.part = append(lw.part, b)
-			}
-		}
-	}
-
-	cmd.Stdout = writerFunc(func(p []byte) (int, error) {
-		lwWrite(p)
-		return len(p), nil
-	})
-	cmd.Stderr = cmd.Stdout
-
-	if input != nil {
-		cmd.Stdin = bytes.NewReader(input)
-	}
-
-	err := cmd.Run()
-
-	if len(lw.part) > 0 {
-		writeLine(string(lw.part))
-		lw.part = lw.part[:0]
-	}
-
-	raw := buf.Bytes()
-
-	decoded, decErr := simplifiedchinese.GBK.NewDecoder().Bytes(raw)
-	out := string(raw)
-	if decErr == nil {
-		out = string(decoded)
-	} else {
-		fmt.Println("[runCmdGBK] gbk decode failed, fallback raw:", decErr)
-	}
-
-	if err != nil {
-		log.LogWrite(0, "[runCmd]runCmd 执行失败: bin=%s args=%v err=%v", bin, args, err)
-		return out, fmt.Errorf("%s %v failed: %w\n%s", bin, args, err, out)
-	}
-	return out, nil
-}
-
-// 把匿名函数适配成 io.Writer
-type writerFunc func(p []byte) (int, error)
-
-// Write 函数。
-func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 
 // 获取固件类型（UEFI/BIOS）
 func GetFwType() (uint32, error) {
@@ -477,7 +356,7 @@ func FixUEFI(osRoot, sysHint, locale string) error {
 	}
 	bcdpath := utils.GetSystemExe("bcdboot.exe")
 
-	out, err := runCmd(bcdpath, nil, nil, "", args...)
+	out, err := tools.RunCmd(bcdpath, nil, nil, "", args...)
 	if err != nil {
 		fmt.Println("[FixUEFI] bcdboot failed")
 		fmt.Println(out)
@@ -497,17 +376,17 @@ func FixBIOS(osRoot, sysHint, locale string) error {
 	}
 
 	// 修复MBR/PBR
-	if out, err := runCmd("bootrec.exe", nil, nil, "", "/fixmbr"); err != nil {
+	if out, err := tools.RunCmd("bootrec.exe", nil, nil, "", "/fixmbr"); err != nil {
 		fmt.Println("[FixBIOS] bootrec /fixmbr failed (may be ok):", err)
 		fmt.Println(out)
 	} else {
 		fmt.Println("[FixBIOS] bootrec /fixmbr ok")
 		fmt.Println(out)
 	}
-	if out, err := runCmd("bootrec.exe", nil, nil, "", "/fixboot"); err != nil {
+	if out, err := tools.RunCmd("bootrec.exe", nil, nil, "", "/fixboot"); err != nil {
 		fmt.Println("[FixBIOS] bootrec /fixboot failed, try bootsect:", err)
 		fmt.Println(out)
-		if out2, err2 := runCmd("bootsect.exe", nil, nil, "", "/nt60", sysRoot, "/mbr"); err2 != nil {
+		if out2, err2 := tools.RunCmd("bootsect.exe", nil, nil, "", "/nt60", sysRoot, "/mbr"); err2 != nil {
 			fmt.Println("[FixBIOS] bootsect failed:", err2)
 			fmt.Println(out2)
 		} else {
@@ -527,7 +406,7 @@ func FixBIOS(osRoot, sysHint, locale string) error {
 	}
 	bcdpath := utils.GetSystemExe("bcdboot.exe")
 
-	out, err := runCmd(bcdpath, nil, nil, "", args...)
+	out, err := tools.RunCmd(bcdpath, nil, nil, "", args...)
 	if err != nil {
 		fmt.Println("[FixBIOS] bcdboot failed")
 		fmt.Println(out)
@@ -545,7 +424,7 @@ func GetBootMode() (int, int) {
 	if dirExists("tools\\BootMode.exe") != true {
 		return -1, -1
 	}
-	text, err := runCmd("tools\\BootMode.exe", nil, nil, "", "")
+	text, err := tools.RunCmd("tools\\BootMode.exe", nil, nil, "", "")
 	if err != nil {
 		return -1, -1
 	}

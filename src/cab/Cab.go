@@ -2,6 +2,7 @@ package cab
 
 import (
 	"ReSys/src/log"
+	tools "ReSys/src/tools"
 	"ReSys/src/utils"
 	"bytes"
 	"errors"
@@ -62,7 +63,7 @@ func (e *CabinetExtractor) Extract(cabPath, destDir string) ([]string, error) {
 	// - input：nil（expand 不需要 stdin）
 	// - onLine：nil（不需要逐行回调，想要的话也可以传回调）
 	// - dir：""
-	out, err := runCmd(e.expandPath, nil, nil, "", "-F:*", cabPath, destDir)
+	out, err := tools.RunCmd(e.expandPath, nil, nil, "", "-F:*", cabPath, destDir)
 	if err != nil {
 		msg := strings.TrimSpace(out)
 		if msg == "" {
@@ -89,7 +90,7 @@ func (e *CabinetExtractor) ListContents(cabPath string) ([]string, error) {
 		return nil, err
 	}
 
-	out, err := runCmd(e.expandPath, nil, nil, "", "-D", cabPath)
+	out, err := tools.RunCmd(e.expandPath, nil, nil, "", "-D", cabPath)
 	if err != nil {
 		msg := strings.TrimSpace(out)
 		if msg == "" {
@@ -255,7 +256,7 @@ func FindCabFilesRecursive(dir string) ([]string, error) {
 // 说明：有些版本/环境下 expand.exe -? 可能返回非 0，
 func verifyExpandAvailable(path string) bool {
 	// 有些版本/环境下 -? 可能返回非 0，但只要能启动就视为可用
-	_, err := runCmd(path, nil, nil, "", "-?")
+	_, err := tools.RunCmd(path, nil, nil, "", "-?")
 	if err == nil {
 		return true
 	}
