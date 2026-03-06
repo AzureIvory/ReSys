@@ -2,6 +2,7 @@ package dism
 
 import (
 	"ReSys/src/log"
+	tools "ReSys/src/tools"
 	"ReSys/src/utils"
 	"fmt"
 	"os"
@@ -87,6 +88,6 @@ func GetDism() (string, error) {
 
 // 验证dism.exe是否可用
 func verifyDism(dismpath string) bool {
-	_, err := runCmd(dism, nil, nil, "", "/?")
+	_, err := tools.RunCmd(dism, nil, nil, "", "/?")
 	return err == nil
 }

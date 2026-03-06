@@ -2,6 +2,7 @@ package main
 
 import (
 	"ReSys/src/log"
+	tools "ReSys/src/tools"
 	"errors"
 	"fmt"
 	"io"
@@ -762,89 +763,6 @@ func resolveImagePath(diskPath, volumeGuid, diskUniqueID, imagePath, imageRel st
 	return "", fmt.Errorf("未找到镜像文件")
 }
 
-// 返回有足够大小的分区数组
-// SSD>HDD>USB
-func Findpart() []string {
-	D, err := ListDrive()
-	if err != nil {
-		return nil
-	}
-
-	type cand struct {
-		path string
-		kind string
-		free uint64
-		pri  int
-	}
-
-	var cs []cand
-
-	for i := 0; i < len(D); i++ {
-		root := D[i]
-
-		freeBytes, err := GetFreeSize(root)
-		if err != nil {
-			continue
-		}
-		if freeBytes <= 7516192768 { // > 7g才算
-			continue
-		}
-
-		// 磁盘类型
-		kind, err := GetDiskKind(root)
-		if err != nil {
-			continue
-		}
-		if kind == "CDROM" || kind == "Unknown" {
-			continue
-		}
-
-		pri := 0
-		switch kind {
-		case "SSD":
-			pri = 3
-		case "HDD":
-			pri = 2
-		case "Removable":
-			pri = 1
-		default:
-			pri = 0
-		}
-		if pri == 0 {
-			continue
-		}
-
-		cs = append(cs, cand{
-			path: root,
-			kind: kind,
-			free: freeBytes,
-			pri:  pri,
-		})
-	}
-
-	// 排序
-	if len(cs) == 0 {
-		return nil
-	}
-
-	sort.Slice(cs, func(i, j int) bool {
-		if cs[i].pri != cs[j].pri {
-			return cs[i].pri > cs[j].pri // 类型优先级高的在前
-		}
-		if cs[i].free != cs[j].free {
-			return cs[i].free > cs[j].free // 同一类型剩余空间大的在前
-		}
-		return cs[i].path < cs[j].path
-	})
-
-	part := make([]string, 0, len(cs))
-	for _, c := range cs {
-		part = append(part, c.path)
-	}
-	log.LogWrite(0, "[Findpart]Findpart: %v", part)
-	return part
-}
-
 // 从多个候选里挑最合适的pe(一般不会用到)
 func chooseBestWim(paths []string, arch string) string {
 	if len(paths) == 0 {
@@ -1222,7 +1140,7 @@ func applyPEBoot(best peCand) error {
 	log.LogWrite(0, "[applyPEBoot]PE:", nm, "DRV:", lt, "SDI:", sdi, "WIM:", wim)
 
 	bcdeditPath := utils.GetSystemExe("bcdedit.exe")
-	out, err := runCmd(bcdeditPath, nil, nil, "")
+	out, err := tools.RunCmd(bcdeditPath, nil, nil, "")
 	if err != nil && (errors.Is(err, os.ErrNotExist) || errors.Is(err, exec.ErrNotFound)) {
 		exe, e := os.Executable()
 		if e == nil {
@@ -1231,7 +1149,7 @@ func applyPEBoot(best peCand) error {
 	}
 
 	// /device guid
-	out, err = runCmd(bcdeditPath, nil, nil, "", "/create", "/d", "pe", "/device")
+	out, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/create", "/d", "pe", "/device")
 	if err != nil {
 		return err
 	}
@@ -1243,17 +1161,17 @@ func applyPEBoot(best peCand) error {
 	gd1 := strings.ToLower(m1[1])
 
 	// ramdisksdi*
-	_, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd1+"}", "ramdisksdidevice", "partition="+lt+":")
+	_, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd1+"}", "ramdisksdidevice", "partition="+lt+":")
 	if err != nil {
 		return err
 	}
-	_, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd1+"}", "ramdisksdipath", sdi)
+	_, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd1+"}", "ramdisksdipath", sdi)
 	if err != nil {
 		return err
 	}
 
 	// /application osloader guid2
-	out, err = runCmd(bcdeditPath, nil, nil, "", "/create", "/d", "pe", "/application", "osloader")
+	out, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/create", "/d", "pe", "/application", "osloader")
 	if err != nil {
 		return err
 	}
@@ -1265,11 +1183,11 @@ func applyPEBoot(best peCand) error {
 
 	// device/osdevice
 	dev := fmt.Sprintf("ramdisk=[%s:]%s,{%s}", lt, wim, gd1)
-	_, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "device", dev)
+	_, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "device", dev)
 	if err != nil {
 		return err
 	}
-	_, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "osdevice", dev)
+	_, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "osdevice", dev)
 	if err != nil {
 		return err
 	}
@@ -1293,10 +1211,10 @@ func applyPEBoot(best peCand) error {
 		// 有些 WinPE 需要先 UpdateBootInfo 才会写出 PEFirmwareType
 		wpeutilPath := utils.GetSystemExe("wpeutil.exe")
 		if _, stErr := os.Stat(wpeutilPath); stErr == nil {
-			_, _ = runCmd(wpeutilPath, nil, nil, "", "UpdateBootInfo")
+			_, _ = tools.RunCmd(wpeutilPath, nil, nil, "", "UpdateBootInfo")
 		}
 
-		regOut, er2 := runCmd(regPath, nil, nil, "", "query",
+		regOut, er2 := tools.RunCmd(regPath, nil, nil, "", "query",
 			`HKLM\SYSTEM\CurrentControlSet\Control`, "/v", "PEFirmwareType")
 
 		if er2 == nil {
@@ -1316,7 +1234,7 @@ func applyPEBoot(best peCand) error {
 
 	// 用 bcdedit 判断 {fwbootmgr}（UEFI 通常存在）
 	if fw == 0 {
-		if _, e := runCmd(bcdeditPath, nil, nil, "", "/enum", "{fwbootmgr}"); e == nil {
+		if _, e := tools.RunCmd(bcdeditPath, nil, nil, "", "/enum", "{fwbootmgr}"); e == nil {
 			fw = 2
 		} else {
 			fw = 1
@@ -1328,27 +1246,27 @@ func applyPEBoot(best peCand) error {
 	if fw == 1 {
 		p1, p2 = p2, p1
 	}
-	if _, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "path", p1); err != nil {
-		if _, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "path", p2); err != nil {
+	if _, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "path", p1); err != nil {
+		if _, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "path", p2); err != nil {
 			return err
 		}
 	}
 
-	if _, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "systemroot", `\windows`); err != nil {
+	if _, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "systemroot", `\windows`); err != nil {
 		return err
 	}
-	if _, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "detecthal", "YES"); err != nil {
+	if _, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "detecthal", "YES"); err != nil {
 		return err
 	}
-	if _, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "winpe", "YES"); err != nil {
+	if _, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "winpe", "YES"); err != nil {
 		return err
 	}
-	if _, err = runCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "nx", "OptIn"); err != nil {
+	if _, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "nx", "OptIn"); err != nil {
 		return err
 	}
 
 	// 设置下次启动
-	if _, err = runCmd(bcdeditPath, nil, nil, "", "/bootsequence", "{"+gd2+"}"); err != nil {
+	if _, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/bootsequence", "{"+gd2+"}"); err != nil {
 		return err
 	}
 	return nil
@@ -1592,7 +1510,6 @@ func GetMemory() (float64, error) {
 
 const (
 	minImageBytes uint64 = 7 * 1024 * 1024 * 1024
-	tempLabel            = "TEMP"
 	tempMarkerRel        = `RESTALL\temp.marker`
 )
 
@@ -1600,70 +1517,6 @@ const (
 func ClearPartition(letter string) error {
 	// TODO: your implementation
 	return nil
-}
-
-// 优先：用连续未分配空间创建 TEMP 分区；失败再最后 SplitVolume(C)
-// needBytes：需要的空间
-func ensureTempVolumeForBytes(needBytes uint64) (string, error) {
-	// 给点余量
-	const extra uint64 = 512 * 1024 * 1024
-	if needBytes < minImageBytes {
-		needBytes = minImageBytes
-	}
-	needBytes += extra
-
-	// 1) 先用未分配空间（全盘扫描，支持“另一块盘全未分配”的情况）
-	extent, err := PickFreeExtent(needBytes, ExtentPickPolicy{
-		PreferNonSystemDisk: true,
-		PreferLargestExtent: true,
-	})
-	if err == nil && extent.SizeBytes >= needBytes {
-		letter, err2 := CreatePartitionFromFreeExtent(extent, needBytes, "ntfs", tempLabel)
-		if err2 == nil {
-			root, _ := utils.NormalizeDrive(letter, 0)
-			if root != "" {
-				// 写 marker
-				marker := filepath.Join(root, tempMarkerRel)
-				_ = os.MkdirAll(filepath.Dir(marker), 0o755)
-				_ = os.WriteFile(marker, []byte(time.Now().Format(time.RFC3339)), 0o644)
-				log.LogWrite(0, "[ensureTempVolumeForBytes]已使用未分配空间创建 TEMP 分区：%s", root)
-				return root, nil
-			}
-		} else {
-			log.LogWrite(0, "[ensureTempVolumeForBytes]CreatePartitionFromFreeExtent失败：%v", err2)
-		}
-	} else {
-		if err != nil {
-			log.LogWrite(0, "[ensureTempVolumeForBytes]PickFreeExtent未找到足够大的未分配段：%v", err)
-		}
-	}
-
-	// 2) 最后兜底：拆分系统盘
-	// 尝试先清理一下，增加 shrink 成功率
-	_ = ClearPartition("C")
-
-	sizeMB64 := (needBytes + 1024*1024 - 1) / (1024 * 1024)
-	sizeMB := int(sizeMB64)
-	if sizeMB < 1024 {
-		sizeMB = 1024
-	}
-
-	newVol, err := SplitVolume("C", sizeMB, "ntfs", tempLabel)
-	if err != nil {
-		return "", err
-	}
-	root, _ := utils.NormalizeDrive(newVol, 0)
-	if root == "" {
-		return "", fmt.Errorf("SplitVolume成功但未解析到新分区盘符: %v", newVol)
-	}
-
-	// 写 marker
-	marker := filepath.Join(root, tempMarkerRel)
-	_ = os.MkdirAll(filepath.Dir(marker), 0o755)
-	_ = os.WriteFile(marker, []byte(time.Now().Format(time.RFC3339)), 0o644)
-
-	log.LogWrite(0, "[ensureTempVolumeForBytes]已通过拆分C盘创建 TEMP 分区：%s", root)
-	return root, nil
 }
 
 // 扫描所有盘符找 marker，返回临时分区根路径（例如 "T:\\"）

@@ -1,6 +1,7 @@
 package main
 
 import (
+	disk "ReSys/src/disk"
 	log "ReSys/src/log"
 	"ReSys/src/utils"
 	"context"
@@ -148,7 +149,7 @@ func StartInstall(target string) {
 
 		// 2) 没有其它固定盘卷（或空间不足）：创建 TEMP（未分配优先，最后才拆分 C）
 		uiSetStatus("镜像在系统盘：正在创建TEMP分区并转移镜像...")
-		tmpRoot, err := ensureTempVolumeForBytes(need)
+		tmpRoot, err := disk.EnsureTempVolumeForBytes(need)
 		if err != nil {
 			return err
 		}
@@ -267,7 +268,7 @@ func findLocalImage(target, arch string) (string, error) {
 // 选择镜像下载盘符。
 func chooseDownloadRoot() string {
 	systemDrive := strings.ToUpper(os.Getenv("SystemDrive")) // "C:"
-	parts := Findpart()
+	parts := disk.Findpart()
 
 	// 多分区：直接用 Findpart
 	if len(parts) > 1 {
@@ -303,7 +304,7 @@ func chooseDownloadRoot() string {
 	}
 
 	// 还不够：用未分配创建 TEMP
-	tmp, err := ensureTempVolumeForBytes(minImageBytes)
+	tmp, err := disk.EnsureTempVolumeForBytes(minImageBytes)
 	if err == nil && tmp != "" {
 		return tmp
 	}
@@ -855,7 +856,7 @@ func choosePETempRoot(needBytes int64) (string, error) {
 			return systemDrive + `\`, nil
 		}
 	}
-	parts := Findpart()
+	parts := disk.Findpart()
 	if len(parts) > 0 {
 		for _, p := range parts {
 			free, err := GetFreeSize(p)
@@ -1632,7 +1633,7 @@ func RunPEInstall() error {
 
 // 选择安装目标分区
 func chooseInstallTargetRoot() string {
-	parts := Findpart()
+	parts := disk.Findpart()
 	if len(parts) > 0 {
 		log.LogWrite(0, "[chooseInstallTargetRoot]选择未装系统分区：%s", parts[0])
 		if nr, err := utils.NormalizeDrive(parts[0], 0); err == nil {

@@ -1,7 +1,9 @@
 package main
 
 import (
+	disk "ReSys/src/disk"
 	log "ReSys/src/log"
+	tools "ReSys/src/tools"
 	"ReSys/src/utils"
 	"bufio"
 	"bytes"
@@ -29,7 +31,7 @@ func ListImageInfos(imagePath string) ([]ImageMeta, error) {
 	}
 
 	// DISM
-	if out, err := runCmd(
+	if out, err := tools.RunCmd(
 		dism,
 		nil,
 		nil,
@@ -51,7 +53,7 @@ func ListImageInfos(imagePath string) ([]ImageMeta, error) {
 	// wimlib-imagex
 	exePath, _ := os.Executable()
 	exePath = filepath.Join(filepath.Dir(exePath), "tools\\wimlib-imagex.exe")
-	if out, err := runCmd(exePath, nil, nil, "", "info", imagePath); err == nil {
+	if out, err := tools.RunCmd(exePath, nil, nil, "", "info", imagePath); err == nil {
 		if imgs, perr := parseImageInfoText(out); perr == nil && len(imgs) > 0 {
 			log.LogWrite(0, "[ListImageInfos]ListImageInfos 使用 wimlib 结果")
 			return imgs, nil
@@ -145,7 +147,7 @@ func ApplyImage(imagePath string, index int, targetVol string) error {
 		}
 	}
 
-	if out, err := runCmd(exePath, nil, wimOnLine, "", wimArgs...); err == nil {
+	if out, err := tools.RunCmd(exePath, nil, wimOnLine, "", wimArgs...); err == nil {
 		fmt.Println("[ApplyImage] wimlib-imagex ok")
 		fmt.Println(out)
 		if ImageProgress != nil {
@@ -175,7 +177,7 @@ func ApplyImage(imagePath string, index int, targetVol string) error {
 		}
 	}
 
-	if out, err := runCmd(dism, nil, dismOnLine, "", dismArgs...); err == nil {
+	if out, err := tools.RunCmd(dism, nil, dismOnLine, "", dismArgs...); err == nil {
 		fmt.Println("[ApplyImage] DISM ok")
 		fmt.Println(out)
 		if ImageProgress != nil {
@@ -766,7 +768,7 @@ func ApplyEsdImage(esdPath string, index int, targetVol string) error {
 func ApplyISOImage(isoPath string, index int, targetVol string) error {
 	isoRoot, err := MountISO(isoPath, 30*time.Second)
 	if err != nil {
-		parts := Findpart()
+		parts := disk.Findpart()
 		if len(parts) == 0 {
 			log.LogWrite(0, "[ApplyISOImage]ApplyISOImage 未找到可用分区用于解包ISO")
 			return fmt.Errorf("未找到可用分区用于解包ISO！")

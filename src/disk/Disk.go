@@ -2,6 +2,7 @@ package disk
 
 import (
 	"ReSys/src/log"
+	tools "ReSys/src/tools"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -146,7 +147,7 @@ func runDiskpartScriptFile(script string) (string, error) {
 		return "", fmt.Errorf("close script failed: %w", err)
 	}
 	diskpart := diskpartBinary()
-	out, err := runCmd(diskpart, nil, nil, "", "/s", path)
+	out, err := tools.RunCmd(diskpart, nil, nil, "", "/s", path)
 	if err != nil {
 		return out, fmt.Errorf("diskpart failed: %w", err)
 	}
@@ -158,7 +159,7 @@ func runDiskpartScriptFile(script string) (string, error) {
 func runDiskpartDirect(script string) (string, error) {
 	script = strings.TrimRight(script, "\r\n") + "\r\nexit\r\n"
 	diskpart := diskpartBinary()
-	out, err := runCmd(diskpart, []byte(script), nil, "")
+	out, err := tools.RunCmd(diskpart, []byte(script), nil, "")
 	if err != nil {
 		return out, fmt.Errorf("diskpart direct failed: %w", err)
 	}

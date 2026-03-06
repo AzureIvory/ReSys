@@ -2,6 +2,7 @@ package main
 
 import (
 	"ReSys/src/registry"
+	tools "ReSys/src/tools"
 	"ReSys/src/utils"
 	"debug/pe"
 	"fmt"
@@ -814,7 +815,7 @@ func GetNtdllVer(imageFile string, index uint32) (uint16, uint16, uint16, error)
 		fmt.Sprintf("--dest-dir=%s", tempDir),
 		"--no-acls",
 	}
-	_, err := runCmd("wimlib-imagex.exe", nil, nil, "", args...)
+	_, err := tools.RunCmd("wimlib-imagex.exe", nil, nil, "", args...)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("wimlib 提取 ntdll.dll 失败: %w", err)
 	}

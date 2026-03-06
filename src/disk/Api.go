@@ -1371,3 +1371,69 @@ func GetFreeSize(vol string) (freeBytes uint64, err error) {
 	}
 	return freeAvail, nil
 }
+
+// 获取卷的文件系统类型和总大小（字节）
+func GetVolumeInfo(root string) (fsType string, totalBytes uint64, err error) {
+	if nr, err := utils.NormalizeDrive(root, 0); err == nil {
+		root = nr
+	}
+	if root == "" {
+		return "", 0, fmt.Errorf("empty root")
+	}
+	pRoot, e := syscall.UTF16PtrFromString(root)
+	if e != nil {
+		return "", 0, e
+	}
+
+	volName := make([]uint16, 256)
+	fsName := make([]uint16, 256)
+	var serial, maxCompLen, flags uint32
+
+	r1, _, e1 := procGetVolumeInformationW.Call(
+		uintptr(unsafe.Pointer(pRoot)),
+		uintptr(unsafe.Pointer(&volName[0])),
+		uintptr(len(volName)),
+		uintptr(unsafe.Pointer(&serial)),
+		uintptr(unsafe.Pointer(&maxCompLen)),
+		uintptr(unsafe.Pointer(&flags)),
+		uintptr(unsafe.Pointer(&fsName[0])),
+		uintptr(len(fsName)),
+	)
+	if r1 == 0 {
+		if e1 != nil && e1 != syscall.Errno(0) {
+			return "", 0, fmt.Errorf("GetVolumeInformationW: %w", e1)
+		}
+		return "", 0, fmt.Errorf("GetVolumeInformationW failed")
+	}
+	fsType = strings.ToUpper(syscall.UTF16ToString(fsName))
+
+	var freeBytes, total, freeTotal uint64
+	r2, _, e2 := procGetDiskFreeSpaceExW.Call(
+		uintptr(unsafe.Pointer(pRoot)),
+		uintptr(unsafe.Pointer(&freeBytes)),
+		uintptr(unsafe.Pointer(&total)),
+		uintptr(unsafe.Pointer(&freeTotal)),
+	)
+	if r2 == 0 {
+		if e2 != nil && e2 != syscall.Errno(0) {
+			return fsType, 0, fmt.Errorf("GetDiskFreeSpaceExW: %w", e2)
+		}
+		return fsType, 0, fmt.Errorf("GetDiskFreeSpaceExW failed")
+	}
+	return fsType, total, nil
+}
+
+// 列出当前系统中的所有光驱盘符。
+func ListCD() ([]string, error) {
+	roots, err := ListDrive()
+	if err != nil {
+		return nil, err
+	}
+	var cds []string
+	for _, r := range roots {
+		if GetDriveType(r) == driveCdrom {
+			cds = append(cds, r)
+		}
+	}
+	return cds, nil
+}
