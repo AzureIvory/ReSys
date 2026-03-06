@@ -1,9 +1,11 @@
 package main
 
 import (
-	disk "ReSys/src/disk"
-	log "ReSys/src/log"
+	"ReSys/src/disk"
+	"ReSys/src/log"
+	"ReSys/src/tools"
 	"ReSys/src/utils"
+	"ReSys/src/windows"
 	"context"
 	"crypto/md5"
 	"fmt"
@@ -53,7 +55,7 @@ func isFailedLink(link string) bool {
 // - 获取失败默认 64 位
 // - win11 强制 64 位
 func desiredArch() string {
-	version, _, _ := GetCurrentWinVersion()
+	version, _, _ := windows.GetCurrentWinVersion()
 	if version == 11 {
 		return "64"
 	}
@@ -129,15 +131,15 @@ func StartInstall(target string) {
 			dstPath := filepath.Join(dstDir, filepath.Base(imgPath))
 
 			log.LogWrite(0, "[StartInstall]转移镜像到其它分区：%s -> %s", imgPath, dstPath)
-			if err := Copy(imgPath, dstPath, true, true); err != nil {
-				os.Remove(dstPath)
+			if err := tools.Copy(imgPath, dstPath, true, true); err != nil {
+				tools.Remove(dstPath,false)
 				return err
 			}
 			if _, err := os.Stat(dstPath); err != nil {
 				return err
 			}
 			if !strings.EqualFold(imgPath, dstPath) {
-				if err := Remove(imgPath, false); err != nil {
+				if err := tools.Remove(imgPath, false); err != nil {
 					return err
 				}
 				log.LogWrite(0, "[StartInstall]已删除原镜像：%s", imgPath)
@@ -157,15 +159,15 @@ func StartInstall(target string) {
 		_ = os.MkdirAll(dstDir, 0o755)
 		dstPath := filepath.Join(dstDir, filepath.Base(imgPath))
 		log.LogWrite(0, "[StartInstall]转移镜像到TEMP：%s -> %s", imgPath, dstPath)
-		if err := Copy(imgPath, dstPath, true, true); err != nil {
-			os.Remove(dstPath)
+		if err := tools.Copy(imgPath, dstPath, true, true); err != nil {
+			tools.Remove(dstPath, false)
 			return err
 		}
 		if _, err := os.Stat(dstPath); err != nil {
 			return err
 		}
 		if !strings.EqualFold(imgPath, dstPath) {
-			if err := Remove(imgPath, false); err != nil {
+			if err := tools.Remove(imgPath, false); err != nil {
 				return err
 			}
 			log.LogWrite(0, "[StartInstall]已删除原镜像：%s", imgPath)
@@ -384,7 +386,7 @@ func downloadImage(target, arch string) (string, error) {
 			if st, err := os.Stat(dstPath); err == nil && !st.IsDir() && st.Size() > 0 {
 				if err := validateImageFile(it, dstPath); err != nil {
 					log.LogWrite(0, "[downloadImage]镜像校验失败，删除重下：%s err=%v", dstPath, err)
-					_ = Remove(dstPath, false)
+					_ = tools.Remove(dstPath, false)
 				} else {
 					log.LogWrite(0, "[downloadImage]镜像已存在：%s", dstPath)
 					uiSetProgress(60)
@@ -392,10 +394,10 @@ func downloadImage(target, arch string) (string, error) {
 				}
 			}
 			if triedLink {
-				_ = Remove(dstPath+".part", false)
+				_ = tools.Remove(dstPath+".part", false)
 			}
 
-			_ = Remove(dstPath, false)
+			_ = tools.Remove(dstPath, false)
 			triedLink = true
 			uiSetProgress(0)
 			uiSetStatus("正在下载镜像... 0.0% 速度: 0.00 MB/s")
@@ -419,7 +421,7 @@ func downloadImage(target, arch string) (string, error) {
 			if err == nil {
 				if vErr := validateImageFile(it, dstPath); vErr != nil {
 					markFailedLink(link)
-					_ = Remove(dstPath, false)
+					_ = tools.Remove(dstPath, false)
 					log.LogWrite(0, "[downloadImage]镜像校验失败，删除重下：%s err=%v", dstPath, vErr)
 					errs = append(errs, fmt.Sprintf("URL校验失败 link=%s err=%v", link, vErr))
 					continue
@@ -430,7 +432,7 @@ func downloadImage(target, arch string) (string, error) {
 			}
 
 			markFailedLink(link)
-			_ = Remove(dstPath, false)
+			_ = tools.Remove(dstPath, false)
 			log.LogWrite(0, "[downloadImage]镜像下载失败(URL)：link=%s err=%v", link, err)
 			errs = append(errs, fmt.Sprintf("URL失败 link=%s err=%v", link, err))
 		}
@@ -465,7 +467,7 @@ func downloadImage(target, arch string) (string, error) {
 		if st, err := os.Stat(dstPath); err == nil && !st.IsDir() && st.Size() > 0 {
 			if err := validateImageFile(it, dstPath); err != nil {
 				log.LogWrite(0, "[downloadImage]镜像校验失败，删除重下：%s err=%v", dstPath, err)
-				_ = Remove(dstPath, false)
+				_ = tools.Remove(dstPath, false)
 			} else {
 				log.LogWrite(0, "[downloadImage]镜像已存在：%s", dstPath)
 				uiSetProgress(60)
@@ -496,17 +498,17 @@ func downloadImage(target, arch string) (string, error) {
 
 			// 如果 BT 真实落盘不等于你期望的 dstPath，就整理到 dstPath（更利于后续统一处理）
 			if realPath != "" && !strings.EqualFold(realPath, dstPath) {
-				_ = Remove(dstPath, false)
+				_ = tools.Remove(dstPath, false)
 
 				// 同卷优先 rename（快且不占双份空间）
 				if rErr := os.Rename(realPath, dstPath); rErr == nil {
 					finalPath = dstPath
 				} else {
 					// rename 失败再 copy（跨卷/权限等）
-					if cErr := Copy(realPath, dstPath, true, true); cErr == nil {
+					if cErr := tools.Copy(realPath, dstPath, true, true); cErr == nil {
 						finalPath = dstPath
 						// copy 成功后可选择删除 realPath（可留作断点或日志，此处默认删除避免占空间）
-						_ = Remove(realPath, false)
+						_ = tools.Remove(realPath, false)
 					} else {
 						// 整理失败：至少还能用 realPath
 						log.LogWrite(0, "[downloadImage]BT下载后整理路径失败：real=%s dst=%s err=%v", realPath, dstPath, cErr)
@@ -518,7 +520,7 @@ func downloadImage(target, arch string) (string, error) {
 			// 校验用最终路径（realPath 或 dstPath）
 			if vErr := validateImageFile(it, finalPath); vErr != nil {
 				markFailedLink(link)
-				_ = Remove(finalPath, false)
+				_ = tools.Remove(finalPath, false)
 				log.LogWrite(0, "[downloadImage]镜像校验失败，删除重下：%s err=%v", finalPath, vErr)
 				errs = append(errs, fmt.Sprintf("BT校验失败 link=%s err=%v", link, vErr))
 				continue
@@ -904,13 +906,13 @@ func markFailedPEImage(failed map[string]struct{}, id string) {
 
 func removePEArtifacts(wimPath, sdiPath string) {
 	if strings.TrimSpace(wimPath) != "" {
-		_ = Remove(wimPath, false)
+		_ = tools.Remove(wimPath, false)
 		if strings.Contains(strings.ToLower(wimPath), `\petemp\`) {
-			_ = Remove(filepath.Dir(wimPath), true)
+			_ = tools.Remove(filepath.Dir(wimPath), true)
 		}
 	}
 	if strings.TrimSpace(sdiPath) != "" {
-		_ = Remove(sdiPath, false)
+		_ = tools.Remove(sdiPath, false)
 	}
 }
 
@@ -1006,7 +1008,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 							useExisting = true
 						} else {
 							log.LogWrite(0, "[downloadPE]已存在WEPE安装包MD5不匹配，删除重下：%s", exePath)
-							_ = Remove(exePath, false)
+							_ = tools.Remove(exePath, false)
 						}
 					} else {
 						log.LogWrite(0, "[downloadPE]复用已存在WEPE安装包(无MD5)：%s", exePath)
@@ -1025,7 +1027,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 					if err != nil {
 						markFailedLink(link)
 						log.LogWrite(0, "[downloadPE]PE下载失败：%v", err)
-						_ = Remove(exePath, false)
+						_ = tools.Remove(exePath, false)
 						continue
 					}
 
@@ -1035,7 +1037,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 						if merr != nil || !ok {
 							markFailedLink(link)
 							log.LogWrite(0, "[downloadPE]PE下载后MD5校验失败：%s", exePath)
-							_ = Remove(exePath, false)
+							_ = tools.Remove(exePath, false)
 							continue
 						}
 					}
@@ -1050,7 +1052,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 
 			} else {
 				if triedLink {
-					_ = Remove(wimPath+".part", false) // ✅切换链接清理
+					_ = tools.Remove(wimPath+".part", false) // 切换链接清理
 				}
 				triedLink = true
 				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
@@ -1062,7 +1064,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 				if err != nil {
 					markFailedLink(link)
 					log.LogWrite(0, "[downloadPE]PE下载失败：%v", err)
-					_ = Remove(wimPath, false)
+					_ = tools.Remove(wimPath, false)
 					continue
 				}
 			}
@@ -1144,7 +1146,7 @@ func downloadPEFromLinks(links []string) (string, error) {
 		log.LogWrite(0, "[downloadPEFromLinks]PE链接：%s\n", link)
 
 		if triedLink {
-			_ = Remove(wimPath+".part", false)
+			_ = tools.Remove(wimPath+".part", false)
 		}
 		triedLink = true
 
@@ -1157,7 +1159,7 @@ func downloadPEFromLinks(links []string) (string, error) {
 		if err != nil {
 			markFailedLink(link)
 			log.LogWrite(0, "[downloadPEFromLinks]PE下载失败：%v,url:"+link, err)
-			_ = Remove(wimPath, false)
+			_ = tools.Remove(wimPath, false)
 			continue
 		}
 
@@ -1183,7 +1185,7 @@ func copySDIToPETEMP(peDir string) error {
 	}
 	for _, sdi := range sdiFiles {
 		dst := filepath.Join(peDir, filepath.Base(sdi))
-		if err := Copy(sdi, dst, true, true); err != nil {
+		if err := tools.Copy(sdi, dst, true, true); err != nil {
 			return err
 		}
 	}
@@ -1259,7 +1261,7 @@ func tryLocalWepe(wepe []WinPEImg, arch string) (string, error) {
 					continue
 				}
 			} else {
-				if err := Copy(candPath, wimPath, true, true); err != nil {
+				if err := tools.Copy(candPath, wimPath, true, true); err != nil {
 					continue
 				}
 			}
@@ -1446,15 +1448,15 @@ func RunPEInstall() error {
 			dstPath := filepath.Join(dstDir, filepath.Base(imagePath))
 
 			log.LogWrite(0, "[RunPEInstall]镜像在目标分区上，尝试复制到其它卷：%s -> %s", imagePath, dstPath)
-			if err := Copy(imagePath, dstPath, true, true); err != nil {
+			if err := tools.Copy(imagePath, dstPath, true, true); err != nil {
 				moveErrs = append(moveErrs, fmt.Sprintf("%s Copy失败:%v", altRoot, err))
-				_ = Remove(dstPath, false)
+				_ = tools.Remove(dstPath, false)
 				continue
 			}
 
 			if dfi, derr := os.Stat(dstPath); derr != nil || dfi.Size() <= 0 {
 				moveErrs = append(moveErrs, fmt.Sprintf("%s 复制后校验失败:%v", altRoot, derr))
-				_ = Remove(dstPath, false)
+				_ = tools.Remove(dstPath, false)
 				continue
 			}
 
@@ -1492,7 +1494,7 @@ func RunPEInstall() error {
 			newPath := filepath.Join(tempVol, filepath.Base(imagePath))
 			log.LogWrite(0, "[RunPEInstall]仅能拆分分区保存镜像：%s -> %s", imagePath, newPath)
 
-			if err := Copy(imagePath, newPath, true, true); err != nil {
+			if err := tools.Copy(imagePath, newPath, true, true); err != nil {
 				return err
 			}
 			if _, err := os.Stat(newPath); err != nil {
@@ -1685,15 +1687,15 @@ func postInstallTasks(targetRoot, targetOS string) error {
 	if targetOS == targetWin7 {
 		unattend = filepath.Join(baseDir, "tools", "win7.xml")
 	}
-	_ = Copy(unattend, filepath.Join(targetRoot, "Windows", "Panther", "Unattend.xml"), true, true)
-	_ = Copy(filepath.Join(baseDir, "tools", "HEU_KMS_Activator.exe"), filepath.Join(targetRoot, "HEU_KMS_Activator.exe"), true, true)
-	_, _ = CreateShortcut(filepath.Join(targetRoot, "Users", "Public", "Desktop")+`\\`, "应用商店", "https://store.ttraw.com")
+	_ = tools.Copy(unattend, filepath.Join(targetRoot, "Windows", "Panther", "Unattend.xml"), true, true)
+	_ = tools.Copy(filepath.Join(baseDir, "tools", "HEU_KMS_Activator.exe"), filepath.Join(targetRoot, "HEU_KMS_Activator.exe"), true, true)
+	_, _ = tools.CreateShortcut(filepath.Join(targetRoot, "Users", "Public", "Desktop")+`\\`, "应用商店", "https://store.ttraw.com")
 	log.LogWrite(0, "[postInstallTasks]已写入应答文件/激活工具/快捷方式")
 
 	driveExe := filepath.Join(baseDir, "tools", "drive.exe")
 
 	if utils.FileExists(driveExe) {
-		_ = Copy(driveExe, filepath.Join(targetRoot, "drive.exe"), true, true)
+		_ = tools.Copy(driveExe, filepath.Join(targetRoot, "drive.exe"), true, true)
 	}
 	log.LogWrite(0, "[postInstallTasks]驱动安装工具准备完成")
 	return nil

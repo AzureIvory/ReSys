@@ -1,19 +1,15 @@
 package main
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 	"unsafe"
 
 	"github.com/kdomanski/iso9660/util"
-	"golang.org/x/text/encoding/simplifiedchinese"
 
 	D "ReSys/src/dism"
 	"ReSys/src/log"
@@ -178,6 +174,9 @@ func FindOS(hint string) (string, error) {
 }
 
 // 找 ESP分区
+// 适用于已经挂载了而且分配了盘符的情况
+// todo：还需要兼容多磁盘多系统多ESP的情况
+//todo：，在多个ESP时优先考虑同盘的，如果同盘没有才考虑其他盘，其他盘也没就创建ESP分区吧
 func FindESP(osRoot string) (string, error) {
 	roots, err := ListDrive()
 	if err != nil {
@@ -318,6 +317,7 @@ func FixBoot(osVol, sysVol, locale string) error {
 }
 
 // UEFI引导修复
+//todo 当EFI不存在时不应该直接用系统分区
 func FixUEFI(osRoot, sysHint, locale string) error {
 	winDir := osRoot + "Windows"
 
@@ -421,7 +421,7 @@ func FixBIOS(osRoot, sysHint, locale string) error {
 // 引导 ：0 BIOS 1 UEFI -1错误
 // 安全启动：0 关闭 1开启 -1错误
 func GetBootMode() (int, int) {
-	if dirExists("tools\\BootMode.exe") != true {
+	if utils.DirExists("tools\\BootMode.exe") != true {
 		return -1, -1
 	}
 	text, err := tools.RunCmd("tools\\BootMode.exe", nil, nil, "", "")

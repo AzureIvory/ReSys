@@ -65,6 +65,12 @@ func FileExists(path string) bool {
 	return false
 }
 
+// 目录/文件是否存在
+func DirExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 // NormalizeDrive 统一盘符/路径格式。
 // mode 说明：
 //

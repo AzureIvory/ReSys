@@ -2,7 +2,8 @@ package main
 
 import (
 	"ReSys/src/log"
-	tools "ReSys/src/tools"
+	"ReSys/src/tools"
+	"ReSys/src/windows"
 	"errors"
 	"fmt"
 	"io"
@@ -16,7 +17,6 @@ import (
 	"strings"
 	"sync"
 	"syscall"
-	"time"
 	"unicode"
 	"unsafe"
 
@@ -53,7 +53,7 @@ func detectArch(root string, hasPFx86, hasSysWOW, systemLoaded bool) string {
 	}
 
 	// 只有Program Files就32位
-	if dirExists(filepath.Join(root, "Program Files")) {
+	if utils.DirExists(filepath.Join(root, "Program Files")) {
 		return "x86"
 	}
 	return "x86"
@@ -67,12 +67,6 @@ func systemArch() string {
 		return "64"
 	}
 	return "32"
-}
-
-// 目录/文件是否存在
-func dirExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
 }
 
 // 搜索文件
@@ -561,7 +555,7 @@ func loadResData() (targetRoot string, diskPath string, imagePath string, volume
 		}
 
 		// 有离线Windows说明这盘更可能就是要重装的系统盘
-		if _, werr := DetectWin(root); werr == nil {
+		if _, werr := windows.DetectWin(root); werr == nil {
 			score += 100
 		}
 
@@ -873,7 +867,7 @@ func collectPECands(dvs []string, opts []peOpt, wantArch, customSdi, customWim s
 		pattern = strings.ReplaceAll(pattern, "/", `\`)
 
 		if !hasGlob(pattern) {
-			if dirExists(pattern) {
+			if utils.DirExists(pattern) {
 				return []string{pattern}, nil
 			}
 			return nil, nil
@@ -886,7 +880,7 @@ func collectPECands(dvs []string, opts []peOpt, wantArch, customSdi, customWim s
 			ms, _ := filepath.Glob(pattern)
 			var out []string
 			for _, m := range ms {
-				if dirExists(m) {
+				if utils.DirExists(m) {
 					out = append(out, m)
 				}
 			}
@@ -898,7 +892,7 @@ func collectPECands(dvs []string, opts []peOpt, wantArch, customSdi, customWim s
 			ms, _ := filepath.Glob(pattern)
 			var out []string
 			for _, m := range ms {
-				if dirExists(m) {
+				if utils.DirExists(m) {
 					out = append(out, m)
 				}
 			}
@@ -1076,7 +1070,7 @@ func ensureSdiByCopy(root string, sPatRel string, wAbs string) (sAbs string, sRe
 			filepath.Join(base, "tools", "Boot.sdi"),
 		}
 		for _, p := range cands {
-			if dirExists(p) {
+			if utils.DirExists(p) {
 				return p, true
 			}
 		}
@@ -1121,14 +1115,14 @@ func ensureSdiByCopy(root string, sPatRel string, wAbs string) (sAbs string, sRe
 	dstRel := materializeSdiRel(sPatRel)
 	if dstRel == "" {
 		dstAbs := filepath.Join(filepath.Dir(wAbs), "boot.sdi")
-		if e := Copy(src, dstAbs, false, true); e != nil {
+		if e := tools.Copy(src, dstAbs, false, true); e != nil {
 			return "", "", e
 		}
 		return dstAbs, toRel(root, dstAbs), nil
 	}
 
 	dstAbs := filepath.Join(root, strings.TrimPrefix(dstRel, `\`))
-	if e := Copy(src, dstAbs, false, true); e != nil {
+	if e := tools.Copy(src, dstAbs, false, true); e != nil {
 		return "", "", e
 	}
 	return dstAbs, toRel(root, dstAbs), nil

@@ -1,7 +1,8 @@
 package main
 
 import (
-	tools "ReSys/src/tools"
+	"ReSys/src/tools"
+	"ReSys/src/utils"
 	"errors"
 	"fmt"
 	"os"
@@ -12,11 +13,11 @@ import (
 
 // 获取当前系统引导 GUID
 func GetBootGUID() (string, error) {
-	windir := windowsDir()
+	windir := utils.WindowsDir()
 	if windir == "" {
 		return "", fmt.Errorf("WINDIR/SystemRoot is empty")
 	}
-	bcdeditPath := GetSystemExe("bcdedit.exe")
+	bcdeditPath := utils.GetSystemExe("bcdedit.exe")
 
 	out, err := tools.RunCmd(bcdeditPath, nil, nil, "", "/enum")
 	if err != nil && (errors.Is(err, os.ErrNotExist) || errors.Is(err, exec.ErrNotFound)) {

@@ -1,49 +1,44 @@
 package tools
 
 import (
-
-	"ReSys/src/registry"
-	"ReSys/src/utils"
-	"debug/pe"
+	"bytes"
 	"fmt"
-	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
-	"bytes"
 	"unsafe"
-
 
 	"golang.org/x/text/encoding/simplifiedchinese"
 
 	"ReSys/src/log"
 )
 
-var(
-	ole32                = syscall.NewLazyDLL("ole32.dll")
-	procCoInitializeEx   = ole32.NewProc("CoInitializeEx")
-	procCoUninitialize   = ole32.NewProc("CoUninitialize")
-	procCoCreateInstance = ole32.NewProc("CoCreateInstance")
-	User32              = syscall.NewLazyDLL("user32.dll")
-	Advapi32            = syscall.NewLazyDLL("advapi32.dll")
+var (
+	ole32                  = syscall.NewLazyDLL("ole32.dll")
+	procCoInitializeEx     = ole32.NewProc("CoInitializeEx")
+	procCoUninitialize     = ole32.NewProc("CoUninitialize")
+	procCoCreateInstance   = ole32.NewProc("CoCreateInstance")
+	User32                 = syscall.NewLazyDLL("user32.dll")
+	Advapi32               = syscall.NewLazyDLL("advapi32.dll")
 	procExitWindowsEx      = User32.NewProc("ExitWindowsEx")
 	procOpenProcessToken   = Advapi32.NewProc("OpenProcessToken")
 	procLookupPrivilegeVal = Advapi32.NewProc("LookupPrivilegeValueW")
 	procAdjustTokenPriv    = Advapi32.NewProc("AdjustTokenPrivileges")
-	Ntdll             = syscall.NewLazyDLL("ntdll.dll")
-	procNtShutdownSystem = Ntdll.NewProc("NtShutdownSystem")
+	Ntdll                  = syscall.NewLazyDLL("ntdll.dll")
+	procNtShutdownSystem   = Ntdll.NewProc("NtShutdownSystem")
 )
-const(
+
+const (
 	COINIT_APARTMENTTHREADED = 0x2
 	CLSCTX_INPROC_SERVER     = 0x1
-	SE_PRIVILEGE_ENABLED    = 0x00000002
-	TOKEN_ADJUST_PRIVILEGES = 0x0020
-	TOKEN_QUERY             = 0x0008
+	SE_PRIVILEGE_ENABLED     = 0x00000002
+	TOKEN_ADJUST_PRIVILEGES  = 0x0020
+	TOKEN_QUERY              = 0x0008
 	// ExitWindowsEx flags
 	EWX_LOGOFF       = 0x00000000 //注销
 	EWX_SHUTDOWN     = 0x00000008 //关机
@@ -54,6 +49,7 @@ const(
 	ShutdownReboot   = 1          // 重启
 	ShutdownPowerOff = 2          // 关机断电
 )
+
 // CLSID / IID
 var (
 	CLSID_ShellLink  = GUID{0x00021401, 0x0000, 0x0000, [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
@@ -71,6 +67,7 @@ type GUID struct {
 	Data3 uint16
 	Data4 [8]byte
 }
+
 // IShellLinkW vtable
 type iShellLinkWVtbl struct {
 	QueryInterface      uintptr
@@ -99,6 +96,7 @@ type iShellLinkWVtbl struct {
 type IShellLinkW struct {
 	lpVtbl *iShellLinkWVtbl
 }
+
 // IPersistFile vtable（IUnknown + IPersist + IPersistFile）
 type iPersistFileVtbl struct {
 	QueryInterface uintptr
@@ -115,6 +113,7 @@ type iPersistFileVtbl struct {
 type IPersistFile struct {
 	lpVtbl *iPersistFileVtbl
 }
+
 // LUID / TOKEN_PRIVILEGES 结构体
 type luid struct {
 	LowPart  uint32
@@ -129,6 +128,7 @@ type tokenPrivileges struct {
 	PrivilegeCount uint32
 	Privileges     [1]luidAndAttributes
 }
+
 // 执行外部命令，返回stdout+stderr
 // input：不为 nil 时写入 stdin
 // onLine：不为 nil 时，每输出一行就回调一次。
@@ -244,15 +244,18 @@ func RunCmd(bin string, input []byte, onLine func(string), dir string, args ...s
 	}
 	return out, nil
 }
+
 // 把匿名函数适配成 io.Writer
 type writerFunc func(p []byte) (int, error)
 
 // Write 函数。
 func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
+
 // 判断 Windows 的 HRESULT 是否失败。
 func hresultFailed(hr uintptr) bool {
 	return int32(hr) < 0
 }
+
 // 在指定目录 dir 下创建一个快捷方式；
 // name 为快捷方式文件名，target 为目标（exe 路径或网址）。
 func CreateShortcut(dir, name, target string) (string, error) {
@@ -408,7 +411,7 @@ func createShellLinkCOM(linkPath, targetPath string) error {
 }
 
 // 开启当前进程的关机权限
-func enableShutdownPrivilege() error {
+func EnableShutdownPrivilege() error {
 	var hToken syscall.Token
 
 	hProc, err := syscall.GetCurrentProcess()
@@ -478,7 +481,7 @@ func Shutdown(reboot bool) {
 	}
 
 	// ExitWindowsEx
-	if err := enableShutdownPrivilege(); err == nil {
+	if err := EnableShutdownPrivilege(); err == nil {
 		procExitWindowsEx.Call(
 			uintptr(flag),
 			0,
@@ -505,11 +508,30 @@ func Shutdown(reboot bool) {
 
 	//内核（有些pe可能常规方法无法重启，需要这个）
 	time.Sleep(2 * time.Second) // 这个重启是直接关机的，等待一下
-	enableShutdownPrivilege()
+	EnableShutdownPrivilege()
 	action := uintptr(ShutdownPowerOff)
 	if reboot {
 		action = uintptr(ShutdownReboot)
 	}
 	procNtShutdownSystem.Call(action)
 
+}
+
+// CheckNetwork：尝试连几个 DNS 的 tcp/53，有一个通就算在线
+func CheckNetwork_DNS() bool {
+	addrs := []string{
+		"223.5.5.5:53",
+		"119.29.29.29:53",
+		"8.8.8.8:53",
+		"1.1.1.1:53",
+	}
+
+	for _, a := range addrs {
+		c, err := net.DialTimeout("tcp", a, 2*time.Second)
+		if err == nil {
+			_ = c.Close()
+			return true
+		}
+	}
+	return false
 }

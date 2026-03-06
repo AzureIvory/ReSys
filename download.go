@@ -1,8 +1,8 @@
 package main
 
 import (
-	log "ReSys/src/log"
-	tools "ReSys/src/tools"
+	"ReSys/src/log"
+	"ReSys/src/tools"
 	"bufio"
 	"bytes"
 	"context"
@@ -606,7 +606,7 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 		}
 
 		if err == nil {
-			_ = Remove(dstPath, false)
+			_ = tools.Remove(dstPath, false)
 			if err := os.Rename(tmpPath, dstPath); err != nil {
 				return fmt.Errorf("rename %s -> %s: %w", tmpPath, dstPath, err)
 			}
@@ -642,7 +642,7 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 		if err != nil {
 			log.LogWrite(0, "[DownloadFile]DownloadFile curl失败: url=%s dst=%s err=%v", url, dstPath, err)
 			if withResume {
-				_ = os.Remove(tmpPath)
+				_ = os.tools.Remove(tmpPath)
 			}
 			if withResume || hasPart {
 				withResume = false
@@ -667,7 +667,7 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 		}
 
 		if st.Size() > total {
-			_ = Remove(dstPath, false)
+			_ = tools.Remove(dstPath, false)
 			log.LogWrite(0, "[DownloadFile]DownloadFile 大小异常: got=%d expect=%d url=%s", st.Size(), total, url)
 			return fmt.Errorf("下载文件大小异常: got=%d expect=%d", st.Size(), total)
 		}

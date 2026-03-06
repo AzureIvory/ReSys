@@ -129,7 +129,7 @@ func IsWinPE() bool {
 	}
 
 	// 特征4：X:\MININT
-	if dirExists(`X:\MININT`) {
+	if utils.DirExists(`X:\MININT`) {
 		return true
 	}
 

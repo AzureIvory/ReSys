@@ -213,7 +213,7 @@ func ensureWimWritable(wim string) error {
 	}
 
 	if err := tryOpenRW(); err != nil {
-		if e2 := clearReadonly(wim); e2 != nil {
+		if e2 := tools.ClearReadonly(wim); e2 != nil {
 			log.LogWrite(0, "[ensureWimWritable]ensureWimWritable 去只读失败: wim=%s err=%v", wim, e2)
 			return fmt.Errorf("WIM不可写(打开失败): %v；去只读失败: %v", err, e2)
 		}
@@ -231,7 +231,7 @@ func ensureWimWritable(wim string) error {
 	}
 	name := tf.Name()
 	_ = tf.Close()
-	_ = Remove(name, false)
+	_ = tools.Remove(name, false)
 
 	return nil
 }
@@ -679,12 +679,12 @@ func Patwim(wim string) error {
 		updated, err := appendExecLine(b, line)
 		if err != nil {
 			log.LogWrite(0, "[Patwim]Patwim appendExecLine失败: idx=%d err=%v", idx, err)
-			_ = Remove(tmp, true)
+			_ = tools.Remove(tmp, true)
 			return fmt.Errorf("修改ini失败 idx=%d: %w", idx, err)
 		}
 		if err := os.WriteFile(inip, updated, 0o644); err != nil {
 			log.LogWrite(0, "[Patwim]Patwim 写入ini失败: idx=%d err=%v", idx, err)
-			_ = Remove(tmp, true)
+			_ = tools.Remove(tmp, true)
 			return fmt.Errorf("写入ini失败 idx=%d: %w", idx, err)
 		}
 
@@ -695,7 +695,7 @@ func Patwim(wim string) error {
 		}, "\n") + "\n"
 
 		iout, ie := runCmdWithTimeout(wimlib, []string{"update", wim, strconv.Itoa(idx)}, iniScript, 10*time.Minute)
-		_ = Remove(tmp, true)
+		_ = tools.Remove(tmp, true)
 		if ie != nil {
 			log.LogWrite(0, "[Patwim]Patwim update ini失败: wim=%s idx=%d err=%v", wim, idx, ie)
 			return fmt.Errorf("写ini失败 idx=%d: %v\n%s", idx, ie, iout)
@@ -726,7 +726,7 @@ func verifyPatwimWrite(wimlib, wim string, idx int, resList []wimRes, line strin
 		return fmt.Errorf("创建临时目录失败: %w", err)
 	}
 	defer func() {
-		_ = Remove(tmp, true)
+		_ = tools.Remove(tmp, true)
 	}()
 
 	iniPath := `\Windows\Pecmd.ini`
