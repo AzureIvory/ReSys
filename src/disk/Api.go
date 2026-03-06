@@ -1,20 +1,220 @@
-package main
+package disk
 
 import (
-	log "ReSys/src/log"
-	"ReSys/src/utils"
+	"ReSys/src/log"
 	"encoding/binary"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 	"unsafe"
+
+	"ReSys/src/utils"
 )
+
+var (
+	Kernel32                    = syscall.NewLazyDLL("kernel32.dll")
+	procGetVolumeInformationW   = Kernel32.NewProc("GetVolumeInformationW")
+	procGetDiskFreeSpaceExW     = Kernel32.NewProc("GetDiskFreeSpaceExW")
+	procGetLogicalDriveStringsW = Kernel32.NewProc("GetLogicalDriveStringsW")
+	procGetDriveTypeW           = Kernel32.NewProc("GetDriveTypeW")
+	procFindFirstVolumeW        = Kernel32.NewProc("FindFirstVolumeW")
+	procFindNextVolumeW         = Kernel32.NewProc("FindNextVolumeW")
+	procFindVolumeClose         = Kernel32.NewProc("FindVolumeClose")
+	procGetVolumePathNamesW     = Kernel32.NewProc("GetVolumePathNamesForVolumeNameW")
+	Fmifs                       = syscall.NewLazyDLL("fmifs.dll")
+	procFormatEx                = Fmifs.NewProc("FormatEx")
+)
+
+// CLSID / IID
+var (
+	CLSID_ShellLink  = GUID{0x00021401, 0x0000, 0x0000, [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
+	IID_IShellLinkW  = GUID{0x000214F9, 0x0000, 0x0000, [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
+	IID_IPersistFile = GUID{0x0000010b, 0x0000, 0x0000, [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
+	GPTTypeEfiSystem = GUID{0xC12A7328, 0xF81F, 0x11D2, [8]byte{0xBA, 0x4B, 0x00, 0xA0, 0xC9, 0x3E, 0xC9, 0x3B}}
+	GPTTypeMsr       = GUID{0xE3C9E316, 0x0B5C, 0x4DB8, [8]byte{0x81, 0x7D, 0xF9, 0x2D, 0xF0, 0x02, 0x15, 0xAE}}
+	GPTTypeBasicData = GUID{0xEBD0A0A2, 0xB9E5, 0x4433, [8]byte{0x87, 0xC0, 0x68, 0xB6, 0xB7, 0x26, 0x99, 0xC7}}
+	GPTTypeRecovery  = GUID{0xDE94BBA4, 0x06D1, 0x4D40, [8]byte{0xA1, 0x6A, 0xBF, 0xD5, 0x01, 0x79, 0xD6, 0xAC}}
+)
+
+const (
+	//盘符类型
+	driveUnknown = 0 //未知
+	driveNoRoot  = 1 //无根目录
+	driveRemov   = 2 //可移动介质
+	driveFixed   = 3 //固定磁盘
+	driveRemote  = 4 //网络驱动器
+	driveCdrom   = 5 //光盘
+	driveRamdisk = 6 //RAM盘
+
+	//磁盘相关
+	ioctlVolumeGetVolumeDiskExtents = 0x00560000 // IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS
+	ioctlDiskGetDriveLayoutEx       = 0x00070050 // IOCTL_DISK_GET_DRIVE_LAYOUT_EX
+	ioctlDiskGetLengthInfo          = 0x0007405C // IOCTL_DISK_GET_LENGTH_INFO
+	partitionStyleMBR               = 0          // PARTITION_STYLE_MBR
+	partitionStyleGPT               = 1          // PARTITION_STYLE_GPT
+	partitionStyleRAW               = 2          // PARTITION_STYLE_RAW
+	ioctlStorageQueryProperty       = 0x002D1400 // IOCTL_STORAGE_QUERY_PROPERTY
+
+	// STORAGE_BUS_TYPE
+	busTypeUnknown = 0
+	busTypeScsi    = 1
+	busTypeAtapi   = 2
+	busTypeAta     = 3
+	busTypeUsb     = 7
+	busTypeSata    = 8
+	busTypeSas     = 9
+
+	// STORAGE_PROPERTY_ID
+	storagePropertyDevice      = 0 // StorageDeviceProperty
+	storagePropertySeekPenalty = 7 // StorageDeviceSeekPenaltyProperty
+	// STORAGE_QUERY_TYPE
+	storageQueryStandard = 0 // PropertyStandardQuery
+)
+
+// DISK_EXTENT
+type diskExtent struct {
+	DiskNumber     uint32
+	_              uint32
+	StartingOffset int64
+	ExtentLength   int64
+}
+
+// VOLUME_DISK_EXTENTS
+type volumeDiskExtents struct {
+	NumberOfDiskExtents uint32
+	_                   uint32
+	Extents             [1]diskExtent
+}
+
+// STORAGE_PROPERTY_QUERY
+type storagePropertyQuery struct {
+	PropertyId           uint32
+	QueryType            uint32
+	AdditionalParameters [1]byte
+}
+
+// 对应 STORAGE_DEVICE_DESCRIPTOR（只用到 BusType）
+type storageDeviceDescriptor struct {
+	Version               uint32
+	Size                  uint32
+	DeviceType            byte
+	DeviceTypeModifier    byte
+	RemovableMedia        byte
+	CommandQueueing       byte
+	VendorIdOffset        uint32
+	ProductIdOffset       uint32
+	ProductRevisionOffset uint32
+	SerialNumberOffset    uint32
+	BusType               uint32
+	RawPropertiesLength   uint32
+	// RawDeviceProperties[1] 后面用大 buffer 覆盖
+}
+
+// 对应 STORAGE_DEVICE_SEEK_PENALTY_DESCRIPTOR
+type storageDeviceSeekPenaltyDescriptor struct {
+	Version           uint32
+	Size              uint32
+	IncursSeekPenalty byte
+	Reserved          [3]byte // 对齐填充
+}
+type GUID struct {
+	Data1 uint32
+	Data2 uint16
+	Data3 uint16
+	Data4 [8]byte
+}
+type getLengthInformation struct {
+	Length int64
+}
+type PartitionInfo struct {
+	DiskNumber     int
+	OffsetBytes    uint64
+	SizeBytes      uint64
+	PartitionGuid  string
+	Type           string
+	HasVolume      bool
+	VolumeGuidPath string
+	DriveLetter    string
+}
+type driveLayoutInformationMbr struct {
+	Signature uint32
+	CheckSum  uint32
+}
+type driveLayoutInformationGpt struct {
+	DiskId               GUID
+	StartingUsableOffset int64
+	UsableLength         int64
+	MaxPartitionCount    uint32
+	_                    uint32
+}
+type partitionInformationMbr struct {
+	PartitionType       byte
+	BootIndicator       byte
+	RecognizedPartition byte
+	_                   byte
+	HiddenSectors       uint32
+}
+
+type partitionInformationGpt struct {
+	PartitionType GUID
+	PartitionId   GUID
+	Attributes    uint64
+	Name          [36]uint16
+}
+type partitionInformationEx struct {
+	PartitionStyle     uint32
+	StartingOffset     int64
+	PartitionLength    int64
+	PartitionNumber    uint32
+	RewritePartition   byte
+	IsServicePartition byte
+	_                  [2]byte
+}
+type DiskInfo struct {
+	DiskNumber     int
+	SizeBytes      uint64
+	PartitionStyle string
+	UniqueId       string
+	IsSystemDisk   bool
+}
+type VolumeInfo struct {
+	DriveLetter    string
+	RootPath       string
+	VolumeGuidPath string
+	FileSystem     string
+	Label          string
+	SizeBytes      uint64
+	FreeBytes      uint64
+	DiskNumber     int
+	PartitionGuid  string
+	OffsetBytes    uint64
+}
+type diskExtentRaw struct {
+	DiskNumber     uint32
+	_              uint32 // padding for 8-byte alignment
+	StartingOffset int64
+	ExtentLength   int64
+}
+
+type volumeDiskExtentsRaw struct {
+	NumberOfDiskExtents uint32
+	_                   uint32 // padding
+	Extents             [1]diskExtentRaw
+}
+type FreeExtent struct {
+	DiskNumber  int
+	OffsetBytes uint64
+	SizeBytes   uint64
+}
+type ExtentPickPolicy struct {
+	PreferNonSystemDisk    bool
+	PreferLargestExtent    bool
+	PreferSameDiskAsTarget bool
+}
 
 // parseFS 解析并校验文件系统类型，只允许 NTFS/FAT32（大小写不敏感）。
 // 返回标准化后的文件系统名称；不支持则返回错误并记录日志。
@@ -55,164 +255,14 @@ func collectDriveLetters() (map[string]struct{}, error) {
 	return set, nil
 }
 
-// 根据物理磁盘号或盘符获取分区数量和盘符列表。
-// diskID: 可传 "0"/"1" 或 "PhysicalDrive0"，也可传 "C"/"C:"/"C:\"。
-// 返回：盘符数量、盘符数组
-func GetDiskPartitions(diskID string) (int, []string, error) {
-	diskID = strings.TrimSpace(diskID)
-	if diskID == "" {
-		log.LogWrite(0, "[GetDiskPartitions]GetDiskPartitions diskID为空")
-		return 0, nil, fmt.Errorf("diskID 为空")
-	}
-
-	isColon := func(b byte) bool { return b == ':' } // ASCII
-	diskID = strings.ReplaceAll(diskID, "：", ":")
-
-	var diskNum uint32
-	switch {
-	case len(diskID) >= 2 && isColon(diskID[1]) &&
-		((diskID[0] >= 'A' && diskID[0] <= 'Z') || (diskID[0] >= 'a' && diskID[0] <= 'z')):
-		root := strings.ToUpper(diskID[:1]) + `:\`
-		dn, err := GetDiskNum(root)
-		if err != nil {
-			log.LogWrite(0, "[GetDiskPartitions]GetDiskPartitions GetDiskNum失败: root=%s err=%v", root, err)
-			return 0, nil, err
-		}
-		diskNum = dn
-
-	case len(diskID) == 1 &&
-		((diskID[0] >= 'A' && diskID[0] <= 'Z') || (diskID[0] >= 'a' && diskID[0] <= 'z')):
-		root := strings.ToUpper(diskID) + `:\`
-		dn, err := GetDiskNum(root)
-		if err != nil {
-			log.LogWrite(0, "[GetDiskPartitions]GetDiskPartitions GetDiskNum失败: root=%s err=%v", root, err)
-			return 0, nil, err
-		}
-		diskNum = dn
-
-	default:
-		re := regexp.MustCompile(`(?i)physicaldrive(\d+)`)
-		if m := re.FindStringSubmatch(diskID); len(m) == 2 {
-			n, err := strconv.ParseUint(m[1], 10, 32)
-			if err != nil {
-				log.LogWrite(0, "[GetDiskPartitions]GetDiskPartitions 解析磁盘号失败: %v", err)
-				return 0, nil, fmt.Errorf("解析磁盘号失败: %w", err)
-			}
-			diskNum = uint32(n)
-		} else {
-			n, err := strconv.ParseUint(diskID, 10, 32)
-			if err != nil {
-				log.LogWrite(0, "[GetDiskPartitions]GetDiskPartitions 解析磁盘号失败: %v", err)
-				return 0, nil, fmt.Errorf("解析磁盘号失败: %w", err)
-			}
-			diskNum = uint32(n)
-		}
-	}
-
-	drives, err := ListDrive()
+// 判断盘符类型。
+func GetDriveType(root string) uint32 {
+	pRoot, err := syscall.UTF16PtrFromString(root)
 	if err != nil {
-		log.LogWrite(0, "[GetDiskPartitions]GetDiskPartitions ListDrive失败: %v", err)
-		return 0, nil, err
+		return driveUnknown
 	}
-
-	letters := make([]string, 0, len(drives))
-	for _, root := range drives {
-		n, err := GetDiskNum(root)
-		if err != nil {
-			continue
-		}
-		if n == diskNum {
-			r := strings.TrimSpace(root)
-			if len(r) > 0 {
-				ch := strings.ToUpper(string(r[0]))
-				if ch[0] >= 'A' && ch[0] <= 'Z' {
-					letters = append(letters, ch+":")
-				}
-			}
-		}
-	}
-
-	return len(letters), letters, nil
-}
-
-// 获取卷的文件系统类型和总大小（字节）
-func GetVolumeInfo(root string) (fsType string, totalBytes uint64, err error) {
-	if nr, err := utils.NormalizeDrive(root, 0); err == nil {
-		root = nr
-	}
-	if root == "" {
-		return "", 0, fmt.Errorf("empty root")
-	}
-	pRoot, e := syscall.UTF16PtrFromString(root)
-	if e != nil {
-		return "", 0, e
-	}
-
-	volName := make([]uint16, 256)
-	fsName := make([]uint16, 256)
-	var serial, maxCompLen, flags uint32
-
-	r1, _, e1 := procGetVolumeInformationW.Call(
-		uintptr(unsafe.Pointer(pRoot)),
-		uintptr(unsafe.Pointer(&volName[0])),
-		uintptr(len(volName)),
-		uintptr(unsafe.Pointer(&serial)),
-		uintptr(unsafe.Pointer(&maxCompLen)),
-		uintptr(unsafe.Pointer(&flags)),
-		uintptr(unsafe.Pointer(&fsName[0])),
-		uintptr(len(fsName)),
-	)
-	if r1 == 0 {
-		if e1 != nil && e1 != syscall.Errno(0) {
-			return "", 0, fmt.Errorf("GetVolumeInformationW: %w", e1)
-		}
-		return "", 0, fmt.Errorf("GetVolumeInformationW failed")
-	}
-	fsType = strings.ToUpper(syscall.UTF16ToString(fsName))
-
-	var freeBytes, total, freeTotal uint64
-	r2, _, e2 := procGetDiskFreeSpaceExW.Call(
-		uintptr(unsafe.Pointer(pRoot)),
-		uintptr(unsafe.Pointer(&freeBytes)),
-		uintptr(unsafe.Pointer(&total)),
-		uintptr(unsafe.Pointer(&freeTotal)),
-	)
-	if r2 == 0 {
-		if e2 != nil && e2 != syscall.Errno(0) {
-			return fsType, 0, fmt.Errorf("GetDiskFreeSpaceExW: %w", e2)
-		}
-		return fsType, 0, fmt.Errorf("GetDiskFreeSpaceExW failed")
-	}
-	return fsType, total, nil
-}
-
-// 读取指定卷的剩余空间
-func GetFreeSize(vol string) (freeBytes uint64, err error) {
-	root, _ := utils.NormalizeDrive(vol, 0)
-	if root == "" {
-		return 0, fmt.Errorf("empty volume")
-	}
-
-	pRoot, e := syscall.UTF16PtrFromString(root)
-	if e != nil {
-		return 0, e
-	}
-
-	var freeAvail, total, freeTotal uint64
-
-	r, _, e2 := procGetDiskFreeSpaceExW.Call(
-		uintptr(unsafe.Pointer(pRoot)),
-		uintptr(unsafe.Pointer(&freeAvail)), // 当前用户可用空间
-		uintptr(unsafe.Pointer(&total)),     // 卷总大小
-		uintptr(unsafe.Pointer(&freeTotal)), // 卷总空闲（包括管理员保留）
-	)
-	if r == 0 {
-		if e2 != nil && e2 != syscall.Errno(0) {
-			return 0, fmt.Errorf("GetDiskFreeSpaceExW: %w", e2)
-		}
-		return 0, fmt.Errorf("GetDiskFreeSpaceExW failed")
-	}
-	return freeAvail, nil
+	r, _, _ := procGetDriveTypeW.Call(uintptr(unsafe.Pointer(pRoot)))
+	return uint32(r)
 }
 
 // 根据分区取第一个物理磁盘号
@@ -270,71 +320,6 @@ func GetDiskNum(vol string) (uint32, error) {
 	//直接用 Extents[0].DiskNumber，兼容32/64
 	diskNum := vde.Extents[0].DiskNumber
 	return diskNum, nil
-}
-
-// 根据分区取磁盘的分区格式（MBR/GPT/RAW）
-// 返回: style ("MBR"/"GPT"/"RAW")、磁盘号 (PhysicalDriveN)、错误
-func GetDiskInfo(vol string) (string, uint32, error) {
-	diskNum, err := GetDiskNum(vol)
-	if err != nil {
-		return "", 0, err
-	}
-
-	diskPath := fmt.Sprintf(`\\.\PhysicalDrive%d`, diskNum)
-	pDisk, err := syscall.UTF16PtrFromString(diskPath)
-	if err != nil {
-		return "", 0, err
-	}
-
-	hDisk, err := syscall.CreateFile(
-		pDisk,
-		syscall.GENERIC_READ,
-		syscall.FILE_SHARE_READ|syscall.FILE_SHARE_WRITE,
-		nil,
-		syscall.OPEN_EXISTING,
-		0,
-		0,
-	)
-	if err != nil {
-		return "", 0, fmt.Errorf("CreateFile %s failed: %w", diskPath, err)
-	}
-	defer syscall.CloseHandle(hDisk)
-
-	out := make([]byte, 4096)
-	var bytesRet uint32
-	err = syscall.DeviceIoControl(
-		hDisk,
-		ioctlDiskGetDriveLayoutEx,
-		nil,
-		0,
-		&out[0],
-		uint32(len(out)),
-		&bytesRet,
-		nil,
-	)
-	if err != nil {
-		return "", 0, fmt.Errorf("DeviceIoControl IOCTL_DISK_GET_DRIVE_LAYOUT_EX failed: %w", err)
-	}
-	if bytesRet < 4 {
-		return "", 0, fmt.Errorf("unexpected DRIVE_LAYOUT_INFORMATION_EX size: %d", bytesRet)
-	}
-
-	styleVal := binary.LittleEndian.Uint32(out[0:4])
-	var style string
-	switch styleVal {
-	case partitionStyleMBR:
-		style = "MBR"
-	case partitionStyleGPT:
-		style = "GPT"
-	case partitionStyleRAW:
-		style = "RAW"
-	default:
-		style = "UNKNOWN"
-	}
-
-	normVol, _ := utils.NormalizeDrive(vol, 0)
-	fmt.Printf("[GetDiskInfo] vol=%s disk=%d style=%s\n", normVol, diskNum, style)
-	return style, diskNum, nil
 }
 
 // GetDiskKind 判断指定卷所在物理盘是 SSD / HDD / 移动设备 / 光驱。
@@ -466,6 +451,151 @@ func GetDiskKind(vol string) (string, error) {
 	return "Unknown", nil
 }
 
+// 根据分区取磁盘的分区格式（MBR/GPT/RAW）
+// 返回: style ("MBR"/"GPT"/"RAW")、磁盘号 (PhysicalDriveN)、错误
+func GetDiskInfo(vol string) (string, uint32, error) {
+	diskNum, err := GetDiskNum(vol)
+	if err != nil {
+		return "", 0, err
+	}
+
+	diskPath := fmt.Sprintf(`\\.\PhysicalDrive%d`, diskNum)
+	pDisk, err := syscall.UTF16PtrFromString(diskPath)
+	if err != nil {
+		return "", 0, err
+	}
+
+	hDisk, err := syscall.CreateFile(
+		pDisk,
+		syscall.GENERIC_READ,
+		syscall.FILE_SHARE_READ|syscall.FILE_SHARE_WRITE,
+		nil,
+		syscall.OPEN_EXISTING,
+		0,
+		0,
+	)
+	if err != nil {
+		return "", 0, fmt.Errorf("CreateFile %s failed: %w", diskPath, err)
+	}
+	defer syscall.CloseHandle(hDisk)
+
+	out := make([]byte, 4096)
+	var bytesRet uint32
+	err = syscall.DeviceIoControl(
+		hDisk,
+		ioctlDiskGetDriveLayoutEx,
+		nil,
+		0,
+		&out[0],
+		uint32(len(out)),
+		&bytesRet,
+		nil,
+	)
+	if err != nil {
+		return "", 0, fmt.Errorf("DeviceIoControl IOCTL_DISK_GET_DRIVE_LAYOUT_EX failed: %w", err)
+	}
+	if bytesRet < 4 {
+		return "", 0, fmt.Errorf("unexpected DRIVE_LAYOUT_INFORMATION_EX size: %d", bytesRet)
+	}
+
+	styleVal := binary.LittleEndian.Uint32(out[0:4])
+	var style string
+	switch styleVal {
+	case partitionStyleMBR:
+		style = "MBR"
+	case partitionStyleGPT:
+		style = "GPT"
+	case partitionStyleRAW:
+		style = "RAW"
+	default:
+		style = "UNKNOWN"
+	}
+
+	normVol, _ := utils.NormalizeDrive(vol, 0)
+	fmt.Printf("[GetDiskInfo] vol=%s disk=%d style=%s\n", normVol, diskNum, style)
+	return style, diskNum, nil
+}
+
+// 根据物理磁盘号或盘符获取分区数量和盘符列表。
+// diskID: 可传 "0"/"1" 或 "PhysicalDrive0"，也可传 "C"/"C:"/"C:\"。
+// 返回：盘符数量、盘符数组
+func GetDiskPartitions(diskID string) (int, []string, error) {
+	diskID = strings.TrimSpace(diskID)
+	if diskID == "" {
+		log.LogWrite(0, "[GetDiskPartitions]GetDiskPartitions diskID为空")
+		return 0, nil, fmt.Errorf("diskID 为空")
+	}
+
+	isColon := func(b byte) bool { return b == ':' } // ASCII
+	diskID = strings.ReplaceAll(diskID, "：", ":")
+
+	var diskNum uint32
+	switch {
+	case len(diskID) >= 2 && isColon(diskID[1]) &&
+		((diskID[0] >= 'A' && diskID[0] <= 'Z') || (diskID[0] >= 'a' && diskID[0] <= 'z')):
+		root := strings.ToUpper(diskID[:1]) + `:\`
+		dn, err := GetDiskNum(root)
+		if err != nil {
+			log.LogWrite(0, "[GetDiskPartitions]GetDiskPartitions GetDiskNum失败: root=%s err=%v", root, err)
+			return 0, nil, err
+		}
+		diskNum = dn
+
+	case len(diskID) == 1 &&
+		((diskID[0] >= 'A' && diskID[0] <= 'Z') || (diskID[0] >= 'a' && diskID[0] <= 'z')):
+		root := strings.ToUpper(diskID) + `:\`
+		dn, err := GetDiskNum(root)
+		if err != nil {
+			log.LogWrite(0, "[GetDiskPartitions]GetDiskPartitions GetDiskNum失败: root=%s err=%v", root, err)
+			return 0, nil, err
+		}
+		diskNum = dn
+
+	default:
+		re := regexp.MustCompile(`(?i)physicaldrive(\d+)`)
+		if m := re.FindStringSubmatch(diskID); len(m) == 2 {
+			n, err := strconv.ParseUint(m[1], 10, 32)
+			if err != nil {
+				log.LogWrite(0, "[GetDiskPartitions]GetDiskPartitions 解析磁盘号失败: %v", err)
+				return 0, nil, fmt.Errorf("解析磁盘号失败: %w", err)
+			}
+			diskNum = uint32(n)
+		} else {
+			n, err := strconv.ParseUint(diskID, 10, 32)
+			if err != nil {
+				log.LogWrite(0, "[GetDiskPartitions]GetDiskPartitions 解析磁盘号失败: %v", err)
+				return 0, nil, fmt.Errorf("解析磁盘号失败: %w", err)
+			}
+			diskNum = uint32(n)
+		}
+	}
+
+	drives, err := ListDrive()
+	if err != nil {
+		log.LogWrite(0, "[GetDiskPartitions]GetDiskPartitions ListDrive失败: %v", err)
+		return 0, nil, err
+	}
+
+	letters := make([]string, 0, len(drives))
+	for _, root := range drives {
+		n, err := GetDiskNum(root)
+		if err != nil {
+			continue
+		}
+		if n == diskNum {
+			r := strings.TrimSpace(root)
+			if len(r) > 0 {
+				ch := strings.ToUpper(string(r[0]))
+				if ch[0] >= 'A' && ch[0] <= 'Z' {
+					letters = append(letters, ch+":")
+				}
+			}
+		}
+	}
+
+	return len(letters), letters, nil
+}
+
 // 返回当前系统所有逻辑盘根路径，如 "C:\", "D:\" 等。
 func ListDrive() ([]string, error) {
 	// GetLogicalDriveStringsW 正常拿
@@ -511,31 +641,6 @@ func ListDrive() ([]string, error) {
 		return nil, fmt.Errorf("failed to list drives")
 	}
 	return drives, nil
-}
-
-// 判断盘符类型。
-func GetDriveType(root string) uint32 {
-	pRoot, err := syscall.UTF16PtrFromString(root)
-	if err != nil {
-		return driveUnknown
-	}
-	r, _, _ := procGetDriveTypeW.Call(uintptr(unsafe.Pointer(pRoot)))
-	return uint32(r)
-}
-
-// 列出当前系统中的所有光驱盘符。
-func ListCD() ([]string, error) {
-	roots, err := ListDrive()
-	if err != nil {
-		return nil, err
-	}
-	var cds []string
-	for _, r := range roots {
-		if GetDriveType(r) == driveCdrom {
-			cds = append(cds, r)
-		}
-	}
-	return cds, nil
 }
 
 // formatGUID 将 GUID 结构格式化为标准字符串：xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx。
@@ -949,6 +1054,59 @@ func ListDiskPartitions(diskNumber int) ([]PartitionInfo, error) {
 	return parts, nil
 }
 
+// 获取卷所在磁盘号 + 卷的起始偏移/长度（用于计算 /offset）。
+// 只取第一个 extent（常见卷场景足够用；动态卷/多 extent 需要更复杂处理）
+func getVolumeExtentBytes(vol string) (diskNum uint32, startBytes int64, lengthBytes int64, err error) {
+	volPath, err := volumeHandlePath(vol)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	pVol, err := syscall.UTF16PtrFromString(volPath)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	hVol, err := syscall.CreateFile(
+		pVol,
+		0,
+		syscall.FILE_SHARE_READ|syscall.FILE_SHARE_WRITE,
+		nil,
+		syscall.OPEN_EXISTING,
+		0,
+		0,
+	)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("CreateFile volume %s failed: %w", volPath, err)
+	}
+	defer syscall.CloseHandle(hVol)
+
+	out := make([]byte, 1024)
+	var bytesRet uint32
+	err = syscall.DeviceIoControl(
+		hVol,
+		ioctlVolumeGetVolumeDiskExtents,
+		nil,
+		0,
+		&out[0],
+		uint32(len(out)),
+		&bytesRet,
+		nil,
+	)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("DeviceIoControl IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS failed: %w", err)
+	}
+	if bytesRet < uint32(unsafe.Sizeof(volumeDiskExtentsRaw{})) {
+		return 0, 0, 0, fmt.Errorf("VOLUME_DISK_EXTENTS too small: %d", bytesRet)
+	}
+
+	vde := (*volumeDiskExtentsRaw)(unsafe.Pointer(&out[0]))
+	if vde.NumberOfDiskExtents == 0 {
+		return 0, 0, 0, fmt.Errorf("no disk extents for volume %s", volPath)
+	}
+	ext := vde.Extents[0]
+	return ext.DiskNumber, ext.StartingOffset, ext.ExtentLength, nil
+}
+
 // ListVolumes 枚举系统所有卷（Volume{...}），并补充挂载点、文件系统与容量信息。
 // 同时尝试将卷映射回所属磁盘与分区 GUID。
 func ListVolumes() ([]VolumeInfo, error) {
@@ -1137,509 +1295,6 @@ func PickFreeExtent(needBytes uint64, policy ExtentPickPolicy) (FreeExtent, erro
 	return candidates[0], nil
 }
 
-// CreatePartitionFromFreeExtent 在指定空闲区间上创建新分区并格式化，返回新分配的盘符。
-// sizeBytes 为 0 或超出空闲区间时会自动收敛到可用大小；fs/label 用于 format 参数。
-// 通过 diskpart 执行：create partition + format + assign，并轮询检测新盘符出现。
-func CreatePartitionFromFreeExtent(extent FreeExtent, sizeBytes uint64, fs, label string) (string, error) {
-	if extent.SizeBytes == 0 {
-		return "", fmt.Errorf("free extent size is 0")
-	}
-	if sizeBytes == 0 || sizeBytes > extent.SizeBytes {
-		sizeBytes = extent.SizeBytes
-	}
-	fs2, err := parseFS(fs)
-	if err != nil {
-		return "", err
-	}
-	fs2 = strings.ToLower(fs2)
-
-	sizeMB64 := sizeBytes / (1024 * 1024)
-	if sizeMB64 == 0 {
-		return "", fmt.Errorf("sizeBytes too small")
-	}
-	maxInt := int(^uint(0) >> 1)
-	if sizeMB64 > uint64(maxInt) {
-		return "", fmt.Errorf("sizeBytes too large")
-	}
-	sizeMB := int(sizeMB64)
-
-	label = cleanLabel(label)
-	lblArg := ""
-	if strings.TrimSpace(label) != "" {
-		lblArg = " label=" + diskpartQuote(label)
-	}
-
-	beforeLetters, err := collectDriveLetters()
-	if err != nil {
-		return "", err
-	}
-
-	offsetKB := (extent.OffsetBytes + 1023) / 1024
-	lines := []string{
-		fmt.Sprintf("select disk %d", extent.DiskNumber),
-		fmt.Sprintf("create partition primary offset=%d size=%d align=1024", offsetKB, sizeMB),
-		fmt.Sprintf("format fs=%s%s quick", fs2, lblArg),
-		"assign",
-	}
-
-	out, err := RunDiskpart(lines)
-	if err != nil {
-		return "", fmt.Errorf("create partition(diskpart) failed: %w\n输出:\n%s", err, out)
-	}
-	if e := diskpartDetectError(out, "create/format/assign"); e != nil {
-		return "", e
-	}
-
-	for i := 0; i < 6; i++ {
-		afterLetters, err := collectDriveLetters()
-		if err != nil {
-			return "", err
-		}
-		for l := range afterLetters {
-			if _, ok := beforeLetters[l]; !ok {
-				return l, nil
-			}
-		}
-		time.Sleep(300 * time.Millisecond)
-	}
-	return "", fmt.Errorf("create finished but cannot determine new drive letter")
-}
-
-// 把diskpart命令写入临时文件并执行。
-// 返回diskpart的输出，便于日志记录/排错。
-func RunDiskpart(lines []string) (string, error) {
-	if len(lines) == 0 {
-		return "", fmt.Errorf("empty diskpart script")
-	}
-
-	script := strings.Join(lines, "\r\n") + "\r\n"
-	out, err := runDiskpartScriptFile(script)
-	if err == nil {
-		return out, nil
-	}
-
-	outDirect, directErr := runDiskpartDirect(script)
-	if directErr == nil {
-		return outDirect, nil
-	}
-	return outDirect, fmt.Errorf("diskpart failed (script file): %w; direct failed: %v\n直接执行输出:\n%s", err, directErr, outDirect)
-}
-
-// runDiskpartScriptFile 函数。
-func runDiskpartScriptFile(script string) (string, error) {
-	name := fmt.Sprintf("dp_fmt_%d.txt", time.Now().UnixNano())
-	baseDir := ""
-	if exe, err := os.Executable(); err == nil {
-		baseDir = filepath.Dir(exe)
-	}
-	if baseDir == "" {
-		baseDir = os.TempDir()
-	}
-	path := filepath.Join(baseDir, name)
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
-		return "", fmt.Errorf("create script in workdir failed: %w", err)
-	}
-	defer Remove(path, false) //用完就删除
-
-	if _, err := f.WriteString(script); err != nil {
-		_ = f.Close()
-		return "", fmt.Errorf("write script failed: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		return "", fmt.Errorf("close script failed: %w", err)
-	}
-	diskpart := diskpartBinary()
-	out, err := runCmd(diskpart, nil, nil, "", "/s", path)
-	if err != nil {
-		return out, fmt.Errorf("diskpart failed: %w", err)
-	}
-	return out, nil
-
-}
-
-// runDiskpartDirect 函数。
-func runDiskpartDirect(script string) (string, error) {
-	script = strings.TrimRight(script, "\r\n") + "\r\nexit\r\n"
-	diskpart := diskpartBinary()
-	out, err := runCmd(diskpart, []byte(script), nil, "")
-	if err != nil {
-		return out, fmt.Errorf("diskpart direct failed: %w", err)
-	}
-	return out, nil
-}
-
-// diskpartBinary 函数。
-func diskpartBinary() string {
-	return utils.GetSystemExe("diskpart.exe")
-}
-
-// 获取卷所在磁盘号 + 卷的起始偏移/长度（用于计算 /offset）。
-// 只取第一个 extent（常见卷场景足够用；动态卷/多 extent 需要更复杂处理）。
-type diskExtentRaw struct {
-	DiskNumber     uint32
-	_              uint32 // padding for 8-byte alignment
-	StartingOffset int64
-	ExtentLength   int64
-}
-
-type volumeDiskExtentsRaw struct {
-	NumberOfDiskExtents uint32
-	_                   uint32 // padding
-	Extents             [1]diskExtentRaw
-}
-
-// getVolumeExtentBytes 函数。
-func getVolumeExtentBytes(vol string) (diskNum uint32, startBytes int64, lengthBytes int64, err error) {
-	volPath, err := volumeHandlePath(vol)
-	if err != nil {
-		return 0, 0, 0, err
-	}
-	pVol, err := syscall.UTF16PtrFromString(volPath)
-	if err != nil {
-		return 0, 0, 0, err
-	}
-
-	hVol, err := syscall.CreateFile(
-		pVol,
-		0,
-		syscall.FILE_SHARE_READ|syscall.FILE_SHARE_WRITE,
-		nil,
-		syscall.OPEN_EXISTING,
-		0,
-		0,
-	)
-	if err != nil {
-		return 0, 0, 0, fmt.Errorf("CreateFile volume %s failed: %w", volPath, err)
-	}
-	defer syscall.CloseHandle(hVol)
-
-	out := make([]byte, 1024)
-	var bytesRet uint32
-	err = syscall.DeviceIoControl(
-		hVol,
-		ioctlVolumeGetVolumeDiskExtents,
-		nil,
-		0,
-		&out[0],
-		uint32(len(out)),
-		&bytesRet,
-		nil,
-	)
-	if err != nil {
-		return 0, 0, 0, fmt.Errorf("DeviceIoControl IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS failed: %w", err)
-	}
-	if bytesRet < uint32(unsafe.Sizeof(volumeDiskExtentsRaw{})) {
-		return 0, 0, 0, fmt.Errorf("VOLUME_DISK_EXTENTS too small: %d", bytesRet)
-	}
-
-	vde := (*volumeDiskExtentsRaw)(unsafe.Pointer(&out[0]))
-	if vde.NumberOfDiskExtents == 0 {
-		return 0, 0, 0, fmt.Errorf("no disk extents for volume %s", volPath)
-	}
-	ext := vde.Extents[0]
-	return ext.DiskNumber, ext.StartingOffset, ext.ExtentLength, nil
-}
-
-// cleanLabel 对卷标做基础清洗，保证可安全写入脚本或命令参数。
-func cleanLabel(label string) string {
-	label = strings.TrimSpace(label)
-	if label == "" {
-		return "NO_LABEL"
-	}
-	// 防止破坏参数解析
-	label = strings.ReplaceAll(label, "\r", " ")
-	label = strings.ReplaceAll(label, "\n", " ")
-	label = strings.ReplaceAll(label, `"`, `'`)
-	return label
-}
-
-// diskpartQuote 按 diskpart 语法为标签补齐引号。
-func diskpartQuote(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return s
-	}
-	// diskpart 支持 label="xx xx"，先去掉引号避免脚本被破坏
-	s = strings.ReplaceAll(s, `"`, "")
-	if strings.ContainsAny(s, " \t") {
-		return `"` + s + `"`
-	}
-	return s
-}
-
-// diskpart 有时 exit code 仍是 0，但输出里已经报错；这里做一层保底检测。
-func diskpartDetectError(out, op string) error {
-	low := strings.ToLower(out)
-	bad := []string{
-		"diskpart has encountered an error",
-		"virtual disk service error",
-		"the operation failed",
-		"the request is not supported",
-		"there is not enough usable free space",
-		"may not be shrunk",
-		"may not be extended",
-		"cannot be extended",
-		"cannot be shrunk",
-	}
-	for _, b := range bad {
-		if strings.Contains(low, b) {
-			return fmt.Errorf("%s(diskpart) failed\n输出:\n%s", op, out)
-		}
-	}
-	return nil
-}
-
-// ShrinkVolume 将某个卷从右侧收缩指定大小(MB)，在卷尾释放出未分配空间。
-// 返回：diskpart 输出，便于日志记录。
-func ShrinkVolume(vol string, sizeMB int) (string, error) {
-	volLetter, err := utils.NormalizeDrive(vol, 1)
-	if err != nil {
-		return "", err
-	}
-	if sizeMB <= 0 {
-		return "", fmt.Errorf("sizeMB 必须大于 0")
-	}
-
-	// diskpart: select volume C  /  shrink desired=1000
-	lines := []string{
-		fmt.Sprintf("select volume %s", volLetter),
-		fmt.Sprintf("shrink desired=%d", sizeMB),
-	}
-
-	out, err := RunDiskpart(lines)
-	if err != nil {
-		return out, fmt.Errorf("shrink(diskpart) failed: %w\n输出:\n%s", err, out)
-	}
-	if e := diskpartDetectError(out, "shrink"); e != nil {
-		return out, e
-	}
-	return out, nil
-}
-
-// CreatePartitionAfterVolume：在 vol 卷尾紧邻的未分配空间上创建主分区、快速格式化、自动分配盘符。
-// sizeMB：期望新分区大小(MB)。如果因为对齐导致 size 放不下，会做小幅降级重试。
-// 返回：新分区盘符（例如 "E:"）和错误。
-func CreatePartitionAfterVolume(vol string, sizeMB int, fs, label string) (string, error) {
-	volLetter, err := utils.NormalizeDrive(vol, 1)
-	if err != nil {
-		return "", err
-	}
-	if sizeMB <= 0 {
-		return "", fmt.Errorf("sizeMB 必须大于 0")
-	}
-
-	fs2, err := parseFS(fs)
-	if err != nil {
-		return "", err
-	}
-	fs2 = strings.ToLower(fs2)
-
-	label = cleanLabel(label)
-	lblArg := ""
-	if strings.TrimSpace(label) != "" {
-		lblArg = " label=" + diskpartQuote(label)
-	}
-
-	// 推断新盘符
-	beforeLetters, err := collectDriveLetters()
-	if err != nil {
-		return "", err
-	}
-
-	// 获取卷所在磁盘与卷区间
-	diskNum, startBytes, lengthBytes, err := getVolumeExtentBytes(volLetter + ":")
-	if err != nil {
-		return "", err
-	}
-	endBytes := startBytes + lengthBytes
-	const mb = int64(1024 * 1024)
-	offsetMB := (endBytes + mb - 1) / mb
-	offsetKB := offsetMB * 1024
-	createSize := sizeMB
-	if endBytes%mb != 0 && sizeMB > 1 {
-		createSize = sizeMB - 1
-	}
-	formatLine := fmt.Sprintf("format fs=%s%s", fs2, lblArg)
-	formatLine += " quick"
-
-	// 创建分区可能因对齐、空间边界等失败
-	trySizes := []int{createSize}
-	if createSize > 2 {
-		trySizes = append(trySizes, createSize-1)
-	}
-	if createSize > 3 {
-		trySizes = append(trySizes, createSize-2)
-	}
-
-	var outCreate string
-	var lastErr error
-
-	for _, sz := range trySizes {
-		lines := []string{
-			fmt.Sprintf("select disk %d", diskNum),
-			fmt.Sprintf("create partition primary offset=%d size=%d align=1024", offsetKB, sz),
-			formatLine,
-			"assign",
-		}
-
-		out, err := RunDiskpart(lines)
-		if err == nil {
-			if e := diskpartDetectError(out, "create/format/assign"); e == nil {
-				outCreate = out
-				lastErr = nil
-				break
-			} else {
-				err = e
-			}
-		}
-		lastErr = fmt.Errorf("create partition(diskpart) failed: %w\n输出:\n%s", err, out)
-	}
-
-	// 如果指定 size 一直失败，尝试让 diskpart 用从 offset 起的全部空间
-	if lastErr != nil {
-		lines := []string{
-			fmt.Sprintf("select disk %d", diskNum),
-			fmt.Sprintf("create partition primary offset=%d align=1024", offsetKB),
-			formatLine,
-			"assign",
-		}
-		out, err := RunDiskpart(lines)
-		if err != nil {
-			return "", fmt.Errorf("create partition(diskpart) failed: %w\n输出:\n%s", err, out)
-		}
-		if e := diskpartDetectError(out, "create/format/assign"); e != nil {
-			return "", e
-		}
-		outCreate = out
-	}
-
-	// 推断新盘符
-	for i := 0; i < 6; i++ {
-		afterLetters, err := collectDriveLetters()
-		if err != nil {
-			return "", err
-		}
-		for l := range afterLetters {
-			if _, ok := beforeLetters[l]; !ok {
-				return l, nil
-			}
-		}
-		time.Sleep(300 * time.Millisecond)
-	}
-
-	return "", fmt.Errorf("create finished but cannot determine new drive letter (check Disk Management)\ncreate输出:\n%s", outCreate)
-}
-
-// 使用 diskpart 将某个卷收缩指定大小(MB)，然后在释放出的未分配空间上新建分区并快速格式化。
-// 返回：新分区盘符（例如 "E:"）和错误。
-func SplitVolume(vol string, sizeMB int, fs, label string) (string, error) {
-	if sizeMB <= 0 {
-		return "", fmt.Errorf("sizeMB 必须大于 0")
-	}
-
-	outShrink, err := ShrinkVolume(vol, sizeMB)
-	if err != nil {
-		return "", err
-	}
-
-	newLetter, err := CreatePartitionAfterVolume(vol, sizeMB, fs, label)
-	if err != nil {
-		return "", fmt.Errorf("%w\nshrink输出:\n%s", err, outShrink)
-	}
-	return newLetter, nil
-}
-
-// 合并分区：将目标卷卷尾紧邻的未分配空间扩展到指定卷。
-// sizeMB: 扩展大小（MB），<=0 表示使用全部
-func MergeVolume(vol string, sizeMB int) error {
-	volLetter, err := utils.NormalizeDrive(vol, 1)
-	if err != nil {
-		return err
-	}
-
-	lines := []string{
-		fmt.Sprintf("select volume %s", volLetter),
-	}
-	if sizeMB > 0 {
-		lines = append(lines, fmt.Sprintf("extend size=%d", sizeMB))
-	} else {
-		lines = append(lines, "extend")
-	}
-
-	out, err := RunDiskpart(lines)
-	if err != nil {
-		return fmt.Errorf("merge/extend(diskpart) failed: %w\n输出:\n%s", err, out)
-	}
-	if e := diskpartDetectError(out, "extend"); e != nil {
-		return e
-	}
-	return nil
-}
-
-// 删除指定卷（转为未分配空间）。
-func DeleteVolume(vol string) error {
-	volLetter, err := utils.NormalizeDrive(vol, 1)
-	if err != nil {
-		return err
-	}
-
-	lines := []string{
-		fmt.Sprintf("select volume %s", volLetter),
-		"delete volume override",
-	}
-
-	out, err := RunDiskpart(lines)
-	if err != nil {
-		return fmt.Errorf("delete(diskpart) failed: %w\n输出:\n%s", err, out)
-	}
-	if e := diskpartDetectError(out, "delete volume"); e != nil {
-		return e
-	}
-	return nil
-}
-
-// 按盘符格式化卷：先尝试 FormatEX；失败则回退到 diskpart。
-func Format(letter, fs, label string, quick bool) error {
-	volLetter, err := utils.NormalizeDrive(letter, 1)
-	if err != nil {
-		return err
-	}
-
-	fsCanon, err := parseFS(fs)
-	if err != nil {
-		return err
-	}
-
-	label = cleanLabel(label)
-	fs2 := strings.ToLower(fsCanon)
-
-	lblArg := ""
-	if strings.TrimSpace(label) != "" {
-		lblArg = " label=" + diskpartQuote(label)
-	}
-
-	line := fmt.Sprintf("format fs=%s%s", fs2, lblArg)
-	if quick {
-		line += " quick"
-	}
-
-	lines := []string{
-		fmt.Sprintf("select volume %s", volLetter),
-		line,
-	}
-
-	out, err := RunDiskpart(lines)
-	log.LogWrite(0, out)
-	if err != nil {
-		return fmt.Errorf("format(diskpart) failed: %w\n输出:\n%s", err, out)
-	}
-	if e := diskpartDetectError(out, "format"); e != nil {
-		return e
-	}
-	return nil
-}
-
 // 调用 Windows API FormatEx 格式化卷。
 func FormatEX(letter, fs, label string, quick bool) error {
 	root, _ := utils.NormalizeDrive(letter, 0)
@@ -1679,4 +1334,40 @@ func FormatEX(letter, fs, label string, quick bool) error {
 		return fmt.Errorf("FormatEx failed: %w", e)
 	}
 	return nil
+}
+
+func boolToUintptr(v bool) uintptr {
+	if v {
+		return 1
+	}
+	return 0
+}
+
+// 读取指定卷的剩余空间
+func GetFreeSize(vol string) (freeBytes uint64, err error) {
+	root, _ := utils.NormalizeDrive(vol, 0)
+	if root == "" {
+		return 0, fmt.Errorf("empty volume")
+	}
+
+	pRoot, e := syscall.UTF16PtrFromString(root)
+	if e != nil {
+		return 0, e
+	}
+
+	var freeAvail, total, freeTotal uint64
+
+	r, _, e2 := procGetDiskFreeSpaceExW.Call(
+		uintptr(unsafe.Pointer(pRoot)),
+		uintptr(unsafe.Pointer(&freeAvail)), // 当前用户可用空间
+		uintptr(unsafe.Pointer(&total)),     // 卷总大小
+		uintptr(unsafe.Pointer(&freeTotal)), // 卷总空闲（包括管理员保留）
+	)
+	if r == 0 {
+		if e2 != nil && e2 != syscall.Errno(0) {
+			return 0, fmt.Errorf("GetDiskFreeSpaceExW: %w", e2)
+		}
+		return 0, fmt.Errorf("GetDiskFreeSpaceExW failed")
+	}
+	return freeAvail, nil
 }

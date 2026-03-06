@@ -1,7 +1,6 @@
 package main
 
 import (
-	log "ReSys/src/log"
 	"bytes"
 	"errors"
 	"fmt"
@@ -17,9 +16,11 @@ import (
 	"golang.org/x/text/encoding/simplifiedchinese"
 
 	"ReSys/src/utils"
+	D"ReSys/src/dism"
+	"ReSys/src/log"
 )
 
-var dism, _ = GetDism()
+var dism, _ = D.GetDism()
 
 // 用于显示进度条。
 var ImageProgress func(phase string, percent float64, raw string)
