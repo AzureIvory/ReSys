@@ -11,9 +11,10 @@ import (
 
 	"github.com/kdomanski/iso9660/util"
 
+	"ReSys/src/disk"
 	D "ReSys/src/dism"
 	"ReSys/src/log"
-	tools "ReSys/src/tools"
+	"ReSys/src/tools"
 	"ReSys/src/utils"
 )
 
@@ -63,7 +64,7 @@ func MountISO(isoPath string, wait time.Duration) (string, error) {
 	}
 
 	// 记录现有CD盘符
-	before, err := ListCD()
+	before, err := disk.ListCD()
 	if err != nil {
 		log.LogWrite(0, "[MountISO]MountISO 获取CD盘符失败: err=%v", err)
 		return "", fmt.Errorf("list cdrom before mount: %w", err)
@@ -85,7 +86,7 @@ func MountISO(isoPath string, wait time.Duration) (string, error) {
 	for time.Now().Before(deadline) {
 		time.Sleep(500 * time.Millisecond)
 
-		now, err := ListCD()
+		now, err := disk.ListCD()
 		if err != nil {
 			log.LogWrite(0, "[MountISO]MountISO 获取CD盘符失败: err=%v", err)
 			continue
@@ -147,14 +148,14 @@ func FindOS(hint string) (string, error) {
 		}
 	}
 
-	roots, err := ListDrive()
+	roots, err := disk.ListDrive()
 	if err != nil {
 		return "", fmt.Errorf("ListDrive: %w", err)
 	}
 
 	var cand string
 	for _, r := range roots {
-		dt := GetDriveType(r)
+		dt := disk.GetDriveType(r)
 		// 跳过CD和网络盘
 		if dt != driveFixed && dt != driveRemov {
 			continue
@@ -176,9 +177,9 @@ func FindOS(hint string) (string, error) {
 // 找 ESP分区
 // 适用于已经挂载了而且分配了盘符的情况
 // todo：还需要兼容多磁盘多系统多ESP的情况
-//todo：，在多个ESP时优先考虑同盘的，如果同盘没有才考虑其他盘，其他盘也没就创建ESP分区吧
+// todo：，在多个ESP时优先考虑同盘的，如果同盘没有才考虑其他盘，其他盘也没就创建ESP分区吧
 func FindESP(osRoot string) (string, error) {
-	roots, err := ListDrive()
+	roots, err := disk.ListDrive()
 	if err != nil {
 		return "", fmt.Errorf("ListDrive: %w", err)
 	}
@@ -192,7 +193,7 @@ func FindESP(osRoot string) (string, error) {
 	)
 
 	for _, r := range roots {
-		dt := GetDriveType(r)
+		dt := disk.GetDriveType(r)
 		if dt != driveFixed && dt != driveRemov {
 			continue
 		}
@@ -205,7 +206,7 @@ func FindESP(osRoot string) (string, error) {
 			continue
 		}
 
-		fs, size, err := GetVolumeInfo(root)
+		fs, size, err := disk.GetVolumeInfo(root)
 		if err != nil {
 			continue
 		}
@@ -283,7 +284,7 @@ func FixBoot(osVol, sysVol, locale string) error {
 	}
 
 	// 检测OS卷所在磁盘的分区格式
-	diskStyle, diskNum, err := GetDiskInfo(osRoot)
+	diskStyle, diskNum, err := disk.GetDiskInfo(osRoot)
 	if err != nil {
 		fmt.Println("[FixBoot] GetDiskInfo failed, will fallback:", err)
 	} else {
@@ -317,7 +318,7 @@ func FixBoot(osVol, sysVol, locale string) error {
 }
 
 // UEFI引导修复
-//todo 当EFI不存在时不应该直接用系统分区
+// todo 当EFI不存在时不应该直接用系统分区
 func FixUEFI(osRoot, sysHint, locale string) error {
 	winDir := osRoot + "Windows"
 
@@ -325,7 +326,7 @@ func FixUEFI(osRoot, sysHint, locale string) error {
 	if sysHint != "" {
 		r, _ := utils.NormalizeDrive(sysHint, 0)
 		if r != "" {
-			if fs, _, err := GetVolumeInfo(r); err == nil && fs == "FAT32" {
+			if fs, _, err := disk.GetVolumeInfo(r); err == nil && fs == "FAT32" {
 				sysRoot = r
 				fmt.Println("[FixUEFI] use sysVol hint:", sysRoot)
 			} else {

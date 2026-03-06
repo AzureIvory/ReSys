@@ -114,7 +114,7 @@ func StartInstall(target string) {
 		)
 		const extra uint64 = 512 * 1024 * 1024
 		for _, r := range otherInstallVolumes(sysRoot) {
-			freeBytes, err := GetFreeSize(r)
+			freeBytes, err := disk.GetFreeSize(r)
 			if err != nil {
 				continue
 			}
@@ -132,7 +132,7 @@ func StartInstall(target string) {
 
 			log.LogWrite(0, "[StartInstall]转移镜像到其它分区：%s -> %s", imgPath, dstPath)
 			if err := tools.Copy(imgPath, dstPath, true, true); err != nil {
-				tools.Remove(dstPath,false)
+				tools.Remove(dstPath, false)
 				return err
 			}
 			if _, err := os.Stat(dstPath); err != nil {
@@ -295,12 +295,12 @@ func chooseDownloadRoot() string {
 
 	// 先尝试直接用 C
 	if root != "" {
-		if free, err := GetFreeSize(root); err == nil && free >= minImageBytes {
+		if free, err := disk.GetFreeSize(root); err == nil && free >= minImageBytes {
 			return root
 		}
 		// 不够 -> 清理 -> 再试
-		_ = ClearPartition("C")
-		if free, err := GetFreeSize(root); err == nil && free >= minImageBytes {
+		//_ = ClearPartition("C")
+		if free, err := disk.GetFreeSize(root); err == nil && free >= minImageBytes {
 			return root
 		}
 	}
@@ -312,12 +312,12 @@ func chooseDownloadRoot() string {
 	}
 
 	// 兜底
-	drives, _ := ListDrive()
+	drives, _ := disk.ListDrive()
 	for _, d := range drives {
 		if systemDrive != "" && strings.EqualFold(strings.TrimSuffix(d, `\`), systemDrive) {
 			continue
 		}
-		if GetDriveType(d) == driveFixed {
+		if disk.GetDriveType(d) == driveFixed {
 			return d
 		}
 	}
@@ -750,7 +750,7 @@ func resolveSdiPath(wimPath string) string {
 
 // 扫描当前磁盘是否已存在可用 PE 引导文件。
 func hasPEFiles(arch string) (bool, string, string) {
-	drives, err := ListDrive()
+	drives, err := disk.ListDrive()
 	if err != nil {
 		log.LogWrite(0, "[hasPEFiles]枚举盘符失败：%v", err)
 		return false, "", ""
@@ -852,7 +852,7 @@ func IsWePE() bool {
 func choosePETempRoot(needBytes int64) (string, error) {
 	systemDrive := strings.ToUpper(os.Getenv("SystemDrive"))
 	if systemDrive != "" {
-		free, err := GetFreeSize(systemDrive)
+		free, err := disk.GetFreeSize(systemDrive)
 		if err == nil && int64(free) > needBytes {
 			log.LogWrite(0, "[choosePETempRoot]PETEMP使用系统盘：%s", systemDrive)
 			return systemDrive + `\`, nil
@@ -861,7 +861,7 @@ func choosePETempRoot(needBytes int64) (string, error) {
 	parts := disk.Findpart()
 	if len(parts) > 0 {
 		for _, p := range parts {
-			free, err := GetFreeSize(p)
+			free, err := disk.GetFreeSize(p)
 			if err == nil && int64(free) > needBytes {
 				log.LogWrite(0, "[choosePETempRoot]PETEMP使用分区：%s", p)
 				return p, nil
@@ -1286,7 +1286,7 @@ func localWepeSearchDirs() []string {
 	if userProfile != "" {
 		out = append(out, filepath.Join(userProfile, "Downloads"))
 	}
-	drives, _ := ListDrive()
+	drives, _ := disk.ListDrive()
 	for _, d := range drives {
 		out = append(out, filepath.Join(d, "PETEMP"))
 	}
@@ -1429,11 +1429,11 @@ func RunPEInstall() error {
 			if strings.EqualFold(altRoot, "X:\\") || strings.EqualFold(strings.TrimRight(altRoot, `\`), "X:") {
 				continue
 			}
-			if GetDriveType(altRoot) != driveFixed {
+			if disk.GetDriveType(altRoot) != driveFixed {
 				continue
 			}
 
-			freeBytes, ferr := GetFreeSize(altRoot)
+			freeBytes, ferr := disk.GetFreeSize(altRoot)
 			if ferr != nil {
 				moveErrs = append(moveErrs, fmt.Sprintf("%s GetFreeSize失败:%v", altRoot, ferr))
 				continue
@@ -1481,7 +1481,7 @@ func RunPEInstall() error {
 			splitCb := progressHandler(10, 5, "正在拆分分区... %d%%", "拆分分区进度：%d%%")
 			var newVol string
 			splitCb(0)
-			newVol, err = SplitVolume(targetRoot, sizeMB, "ntfs", "TEMP")
+			newVol, err = disk.SplitVolume(targetRoot, sizeMB, "ntfs", "TEMP")
 			if err != nil {
 				return err
 			}
@@ -1514,7 +1514,7 @@ func RunPEInstall() error {
 	formatCb := progressHandler(formatBase, formatSpan, "正在格式化分区... %d%%", "格式化进度：%d%%")
 
 	formatCb(0)
-	err = Format(strings.ReplaceAll(strings.ReplaceAll(targetRoot, "\\", ""), ":", ""), "ntfs", "Windows", true)
+	err = disk.Format(strings.ReplaceAll(strings.ReplaceAll(targetRoot, "\\", ""), ":", ""), "ntfs", "Windows", true)
 	if err == nil {
 		formatCb(100)
 	}
@@ -1609,7 +1609,7 @@ func RunPEInstall() error {
 	if tempVol != "" {
 		deleteCb := progressHandler(85, 5, "正在删除临时分区... %d%%", "删除临时分区进度：%d%%")
 		deleteCb(0)
-		if err := DeleteVolume(tempVol); err != nil {
+		if err := disk.DeleteVolume(tempVol); err != nil {
 			log.LogWrite(0, "[RunPEInstall]删除临时分区失败：%v", err)
 		} else {
 			deleteCb(100)
@@ -1617,7 +1617,7 @@ func RunPEInstall() error {
 
 		mergeCb := progressHandler(90, 5, "正在合并临时分区... %d%%", "合并临时分区进度：%d%%")
 		mergeCb(0)
-		if err := MergeVolume(targetRoot, 0); err != nil {
+		if err := disk.MergeVolume(targetRoot, 0); err != nil {
 			log.LogWrite(0, "[RunPEInstall]合并临时分区失败：%v", err)
 		} else {
 			mergeCb(100)
@@ -1643,12 +1643,12 @@ func chooseInstallTargetRoot() string {
 		}
 		return ""
 	}
-	drives, _ := ListDrive()
+	drives, _ := disk.ListDrive()
 	for _, d := range drives {
 		if strings.HasPrefix(strings.ToUpper(d), "X:") {
 			continue
 		}
-		if GetDriveType(d) == driveFixed {
+		if disk.GetDriveType(d) == driveFixed {
 			log.LogWrite(0, "[chooseInstallTargetRoot]回退选择固定盘分区：%s", d)
 			if nr, err := utils.NormalizeDrive(d, 0); err == nil {
 				return nr
@@ -1661,14 +1661,14 @@ func chooseInstallTargetRoot() string {
 
 // 列出除目标分区外的其他固定磁盘分区。
 func otherInstallVolumes(targetRoot string) []string {
-	drives, _ := ListDrive()
+	drives, _ := disk.ListDrive()
 	var out []string
 	for _, d := range drives {
 		root, _ := utils.NormalizeDrive(d, 0)
 		if root == "" || strings.EqualFold(root, targetRoot) {
 			continue
 		}
-		if GetDriveType(root) == driveFixed {
+		if disk.GetDriveType(root) == driveFixed {
 			out = append(out, root)
 		}
 	}

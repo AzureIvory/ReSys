@@ -1,6 +1,7 @@
 package main
 
 import (
+	"ReSys/src/disk"
 	"ReSys/src/log"
 	"ReSys/src/tools"
 	"ReSys/src/windows"
@@ -178,7 +179,7 @@ func FindFile(root string, pattern string, maxDepth int) ([]string, error) {
 
 // 全盘寻找镜像,跳过小于1g
 func Findimg() ([]string, error) {
-	drives, err := ListDrive()
+	drives, err := disk.ListDrive()
 	if err != nil {
 		return nil, err
 	}
@@ -233,7 +234,7 @@ func Findimg() ([]string, error) {
 
 	for _, root := range drives {
 		root := root
-		if GetDriveType(root) == driveCdrom {
+		if disk.GetDriveType(root) == driveCdrom {
 			continue
 		}
 		for _, pattern := range patterns {
@@ -335,7 +336,7 @@ func Findimg() ([]string, error) {
 // pattern：文件名，支持通配符，支持*.esd|*.wim|*.iso
 // maxDepth：搜索子目录的层数
 func FindFileAll(pattern string, maxDepth int) []string {
-	drives, err := ListDrive()
+	drives, err := disk.ListDrive()
 	if err != nil || len(drives) == 0 {
 		return []string{}
 	}
@@ -450,9 +451,9 @@ func writeResFile(imagePath string, target, arch string, index int) error {
 		if imageRel != "" && !strings.HasPrefix(imageRel, `\`) {
 			imageRel = `\` + imageRel
 		}
-		if diskNum, err := GetDiskNum(imageRoot); err == nil {
+		if diskNum, err := disk.GetDiskNum(imageRoot); err == nil {
 			diskPath = fmt.Sprintf(`\\.\PhysicalDrive%d`, diskNum)
-			if disks, derr := ListPhysicalDisks(); derr == nil {
+			if disks, derr := disk.ListPhysicalDisks(); derr == nil {
 				for _, d := range disks {
 					if d.DiskNumber == int(diskNum) {
 						diskUniqueID = strings.TrimSpace(d.UniqueId)
@@ -461,7 +462,7 @@ func writeResFile(imagePath string, target, arch string, index int) error {
 				}
 			}
 		}
-		if vols, verr := ListVolumes(); verr == nil {
+		if vols, verr := disk.ListVolumes(); verr == nil {
 			for _, v := range vols {
 				vRoot, _ := utils.NormalizeDrive(v.RootPath, 0)
 				if strings.EqualFold(vRoot, imageRoot) {
@@ -512,7 +513,7 @@ func writeResFile(imagePath string, target, arch string, index int) error {
 // 从所有盘符读取 restall_win.dat。
 // 返回：目标盘符、物理磁盘路径、镜像路径、卷 GUID、磁盘唯一 ID、镜像相对路径。
 func loadResData() (targetRoot string, diskPath string, imagePath string, volumeGuid string, diskUniqueID string, imageRel string, targetOS string, arch string, index int, err error) {
-	drives, err := ListDrive()
+	drives, err := disk.ListDrive()
 	if err != nil {
 		return "", "", "", "", "", "", "", "", 0, err
 	}
@@ -541,11 +542,11 @@ func loadResData() (targetRoot string, diskPath string, imagePath string, volume
 		score := 0
 
 		// 固定盘更可信
-		if GetDriveType(root) == driveFixed {
+		if disk.GetDriveType(root) == driveFixed {
 			score += 10
 		}
 
-		kind, _ := GetDiskKind(root)
+		kind, _ := disk.GetDiskKind(root)
 		if kind == "SSD" {
 			score += 30
 		} else if kind == "HDD" {
@@ -670,7 +671,7 @@ func resolveImagePath(diskPath, volumeGuid, diskUniqueID, imagePath, imageRel st
 
 	volumeGuid = strings.TrimSpace(volumeGuid)
 	if volumeGuid != "" {
-		vols, err := ListVolumes()
+		vols, err := disk.ListVolumes()
 		if err != nil {
 			log.LogWrite(0, "[resolveImagePath]读取卷GUID失败：%v", err)
 		} else {
@@ -693,13 +694,13 @@ func resolveImagePath(diskPath, volumeGuid, diskUniqueID, imagePath, imageRel st
 	diskUniqueID = strings.TrimSpace(diskUniqueID)
 	if diskUniqueID != "" {
 
-		disks, err := ListPhysicalDisks()
+		disks, err := disk.ListPhysicalDisks()
 		if err != nil {
 			log.LogWrite(0, "[resolveImagePath]读取物理磁盘唯一ID失败：%v", err)
 		} else {
 			for _, d := range disks {
 				if strings.EqualFold(strings.TrimSpace(d.UniqueId), diskUniqueID) {
-					if _, roots, err := GetDiskPartitions(fmt.Sprintf("%d", d.DiskNumber)); err == nil {
+					if _, roots, err := disk.GetDiskPartitions(fmt.Sprintf("%d", d.DiskNumber)); err == nil {
 						for _, root := range roots {
 							if cand, ok := tryRoot(root); ok {
 								return cand, nil
@@ -716,7 +717,7 @@ func resolveImagePath(diskPath, volumeGuid, diskUniqueID, imagePath, imageRel st
 	}
 
 	if diskPath != "" {
-		_, roots, err := GetDiskPartitions(diskPath)
+		_, roots, err := disk.GetDiskPartitions(diskPath)
 		if err == nil && len(roots) > 0 {
 			for _, root := range roots {
 				if cand, ok := tryRoot(root); ok {
@@ -729,7 +730,7 @@ func resolveImagePath(diskPath, volumeGuid, diskUniqueID, imagePath, imageRel st
 		}
 	}
 
-	roots, _ := ListDrive()
+	roots, _ := disk.ListDrive()
 	for _, root := range roots {
 		imgDat := filepath.Join(root, "restall_img.dat")
 		if _, err := os.Stat(imgDat); err != nil {
@@ -1280,7 +1281,7 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 		return false, "", "", err
 	}
 
-	dvs, err := ListDrive()
+	dvs, err := disk.ListDrive()
 	if err != nil {
 		log.LogWrite(0, "[GoToPE]GoToPE ListDrive失败："+err.Error())
 		return false, "", "", err
@@ -1515,7 +1516,7 @@ func ClearPartition(letter string) error {
 
 // 扫描所有盘符找 marker，返回临时分区根路径（例如 "T:\\"）
 func findTempRootByMarker() string {
-	drives, _ := ListDrive()
+	drives, _ := disk.ListDrive()
 	for _, d := range drives {
 		root, _ := utils.NormalizeDrive(d, 0)
 		if root == "" {

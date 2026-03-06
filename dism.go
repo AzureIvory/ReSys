@@ -18,23 +18,27 @@ import (
 	"unicode/utf16"
 )
 
+// DismProgress 表示 DISM 或 WIM 操作的进度状态。
 type DismProgress struct {
-	Percentage uint8
-	Status     string
+	Percentage uint8  // 当前进度百分比
+	Status     string // 当前状态描述
 }
 
+// ImageInfo 描述 WIM/ESD 中单个镜像条目的基本信息。
 type ImageInfo struct {
-	Index            uint32
-	Name             string
-	SizeBytes        uint64
-	InstallationType string
+	Index            uint32 // 镜像索引
+	Name             string // 镜像名称
+	SizeBytes        uint64 // 镜像大小（字节）
+	InstallationType string // 安装类型，例如 Client / Server
 }
 
+// Dism 提供镜像应用、捕获、驱动注入、CAB 安装等能力。
 type Dism struct{}
 
+// NewDism 创建一个 Dism 实例。
 func NewDism() Dism { return Dism{} }
 
-// 非阻塞发进度，避免调用方不读导致死锁
+// sendProgress 以非阻塞方式发送进度，避免调用方未消费通道时造成死锁。
 func sendProgress(ch chan<- DismProgress, pct uint8, status string) {
 	if ch == nil {
 		return
@@ -49,35 +53,42 @@ func sendProgress(ch chan<- DismProgress, pct uint8, status string) {
 // wimgapi 高层封装（apply/capture/...）
 // =======================
 
+// ApplyImage 将指定索引的镜像应用到目标目录。
 func (Dism) ApplyImage(imageFile, applyDir string, index uint32, progressCh chan<- DismProgress) error {
 	api, err := NewWimg("")
 	if err != nil {
 		return fmt.Errorf("wimgapi init failed: %w", err)
 	}
 
+	// 以只读方式打开 WIM/ESD 文件。
 	hWim, _, err := api.CreateFile(imageFile, WIM_GENERIC_READ, WIM_OPEN_EXISTING, 0, WIM_COMPRESS_NONE)
 	if err != nil {
 		return fmt.Errorf("WIMCreateFile(read) failed: %w", err)
 	}
 	defer api.CloseHandle(hWim)
 
+	// 设置临时目录，提升兼容性。
 	_ = api.SetTemporaryPath(hWim, os.TempDir())
 
+	// 注册回调以便获取底层进度。
 	_, _ = api.RegisterCallback(hWim)
 	defer api.UnregisterCallback(hWim)
 
+	// 启动轮询，将底层进度映射到 0..100。
 	stop, wg := startWimProgressPoll(api, progressCh, "Applying...", 0, 100)
 	defer func() {
 		close(stop)
 		wg.Wait()
 	}()
 
+	// 加载指定索引的镜像。
 	hImg, err := api.LoadImage(hWim, index)
 	if err != nil {
 		return fmt.Errorf("WIMLoadImage(%d) failed: %w", index, err)
 	}
 	defer api.CloseHandle(hImg)
 
+	// 应用镜像到目标目录。
 	if err := api.ApplyImage(hImg, applyDir, 0); err != nil {
 		return fmt.Errorf("WIMApplyImage failed: %w", err)
 	}
@@ -86,30 +97,35 @@ func (Dism) ApplyImage(imageFile, applyDir string, index uint32, progressCh chan
 	return nil
 }
 
+// CaptureImage 以 LZX 压缩格式捕获目录为 WIM 镜像。
 func (Dism) CaptureImage(imageFile, captureDir, name, description string, progressCh chan<- DismProgress) error {
 	return captureImageCommon(imageFile, captureDir, name, description, WIM_COMPRESS_LZX, progressCh)
 }
 
+// AppendImage 向现有 WIM 追加一个镜像。
+// 约定：当目标文件存在时，Capture 行为等同追加。
 func (Dism) AppendImage(imageFile, captureDir, name, description string, progressCh chan<- DismProgress) error {
-	// 约定：WIM 文件存在时 Capture 会追加（与 Rust 模块一致）
 	return captureImageCommon(imageFile, captureDir, name, description, WIM_COMPRESS_LZX, progressCh)
 }
 
+// CaptureImageESD 以 LZMS 压缩格式捕获目录，适合生成 ESD。
 func (Dism) CaptureImageESD(imageFile, captureDir, name, description string, progressCh chan<- DismProgress) error {
 	return captureImageCommon(imageFile, captureDir, name, description, WIM_COMPRESS_LZMS, progressCh)
 }
 
+// AppendImageESD 向现有 ESD/WIM 中追加镜像，使用 LZMS 压缩。
 func (Dism) AppendImageESD(imageFile, captureDir, name, description string, progressCh chan<- DismProgress) error {
 	return captureImageCommon(imageFile, captureDir, name, description, WIM_COMPRESS_LZMS, progressCh)
 }
 
+// captureImageCommon 执行通用的镜像捕获流程。
 func captureImageCommon(imageFile, captureDir, name, description string, compression uint32, progressCh chan<- DismProgress) error {
 	api, err := NewWimg("")
 	if err != nil {
 		return fmt.Errorf("wimgapi init failed: %w", err)
 	}
 
-	// 用 OPEN_ALWAYS：存在则打开，不存在则创建
+	// 使用 OPEN_ALWAYS：文件存在则打开，不存在则创建。
 	hWim, _, err := api.CreateFile(imageFile, WIM_GENERIC_WRITE, WIM_OPEN_ALWAYS, 0, compression)
 	if err != nil {
 		return fmt.Errorf("WIMCreateFile(write) failed: %w", err)
@@ -121,29 +137,32 @@ func captureImageCommon(imageFile, captureDir, name, description string, compres
 	_, _ = api.RegisterCallback(hWim)
 	defer api.UnregisterCallback(hWim)
 
+	// 捕获阶段进度映射到 0..100。
 	stop, wg := startWimProgressPoll(api, progressCh, "Capturing...", 0, 100)
 	defer func() {
 		close(stop)
 		wg.Wait()
 	}()
 
+	// 从目录捕获镜像。
 	hImg, err := api.CaptureImage(hWim, captureDir, 0)
 	if err != nil {
 		return fmt.Errorf("WIMCaptureImage failed: %w", err)
 	}
 	defer api.CloseHandle(hImg)
 
-	// 设置简单的 NAME/DESCRIPTION
+	// 写入最小可用的镜像元信息。
 	xml := buildImageInfoXML(name, description)
-	_ = api.SetImageInformation(hImg, xml) // 不强制失败（部分环境可能限制）
+	_ = api.SetImageInformation(hImg, xml) // 某些环境下可能受限，因此不强制失败。
 
 	sendProgress(progressCh, 100, "Done")
 	return nil
 }
 
-// 捕获为 SWM：先捕获 tmp.wim（LZX），再用 dism /Split-Image 分卷
+// CaptureImageSWM 捕获目录并分割为 SWM 分卷文件。
+// 实现方式：先捕获为临时 tmp.wim，再调用 dism /Split-Image 分卷。
 func (Dism) CaptureImageSWM(imageFile, captureDir, name, description string, splitSizeMB uint32, progressCh chan<- DismProgress) error {
-	// temp_wim = <basename>.tmp.wim
+	// 临时文件命名规则：<basename>.tmp.wim
 	base := imageFile
 	ext := filepath.Ext(imageFile)
 	if strings.EqualFold(ext, ".swm") {
@@ -153,7 +172,7 @@ func (Dism) CaptureImageSWM(imageFile, captureDir, name, description string, spl
 
 	sendProgress(progressCh, 0, "正在捕获镜像...")
 
-	// 捕获阶段映射到 0..80
+	// 捕获阶段映射到 0..80。
 	api, err := NewWimg("")
 	if err != nil {
 		return fmt.Errorf("wimgapi init failed: %w", err)
@@ -185,7 +204,7 @@ func (Dism) CaptureImageSWM(imageFile, captureDir, name, description string, spl
 
 	sendProgress(progressCh, 80, "正在分割镜像...")
 
-	// 分割阶段映射到 80..100
+	// 分割阶段映射到 80..100。
 	args := []string{
 		"/Split-Image",
 		"/ImageFile:" + tempWim,
@@ -202,6 +221,7 @@ func (Dism) CaptureImageSWM(imageFile, captureDir, name, description string, spl
 	return nil
 }
 
+// startWimProgressPoll 启动一个后台轮询协程，持续读取 wimgapi 进度并映射到指定百分比区间。
 func startWimProgressPoll(api *API, progressCh chan<- DismProgress, prefix string, startPct, spanPct uint8) (stop chan struct{}, wg *sync.WaitGroup) {
 	stop = make(chan struct{})
 	wg = &sync.WaitGroup{}
@@ -224,6 +244,7 @@ func startWimProgressPoll(api *API, progressCh chan<- DismProgress, prefix strin
 				}
 				last = p
 
+				// 将底层 0..100 进度缩放到调用方定义的区间。
 				scaled := startPct + uint8(uint32(p)*uint32(spanPct)/100)
 				if scaled > 100 {
 					scaled = 100
@@ -236,13 +257,14 @@ func startWimProgressPoll(api *API, progressCh chan<- DismProgress, prefix strin
 	return stop, wg
 }
 
+// buildImageInfoXML 构造可供 WIMSetImageInformation 使用的最小 XML 片段。
 func buildImageInfoXML(name, desc string) string {
 	name = escapeXML(name)
 	desc = escapeXML(desc)
-	// WIMSetImageInformation 接受 XML 字符串；这里给一个最小可用的 IMAGE 块
 	return fmt.Sprintf(`<IMAGE><NAME>%s</NAME><DESCRIPTION>%s</DESCRIPTION></IMAGE>`, name, desc)
 }
 
+// escapeXML 对 XML 特殊字符进行转义。
 func escapeXML(s string) string {
 	s = strings.ReplaceAll(s, "&", "&amp;")
 	s = strings.ReplaceAll(s, "<", "&lt;")
@@ -256,8 +278,8 @@ func escapeXML(s string) string {
 // dism.exe 封装（驱动/CAB）
 // =======================
 
+// AddDriversOffline 向离线镜像注入驱动，并递归扫描驱动目录。
 func (Dism) AddDriversOffline(imagePath, driverPath string) error {
-	// /Recurse：递归目录
 	args := []string{
 		"/Image:" + imagePath,
 		"/Add-Driver",
@@ -267,6 +289,7 @@ func (Dism) AddDriversOffline(imagePath, driverPath string) error {
 	return runDismWithProgress(args, nil)
 }
 
+// AddDriversOfflineWithProgress 向离线镜像注入驱动，并上报进度。
 func (Dism) AddDriversOfflineWithProgress(imagePath, driverPath string, progressCh chan<- DismProgress) error {
 	args := []string{
 		"/Image:" + imagePath,
@@ -277,6 +300,7 @@ func (Dism) AddDriversOfflineWithProgress(imagePath, driverPath string, progress
 	return runDismWithProgress(args, progressCh)
 }
 
+// AddPackageOffline 向离线镜像安装单个 CAB 包。
 func (Dism) AddPackageOffline(imagePath, cabPath string) error {
 	args := []string{
 		"/Image:" + imagePath,
@@ -286,7 +310,8 @@ func (Dism) AddPackageOffline(imagePath, cabPath string) error {
 	return runDismWithProgress(args, nil)
 }
 
-// 批量安装目录下所有 .cab，返回 (success, fail, err)
+// AddPackagesOfflineFromDir 批量安装目录下所有 .cab 文件。
+// 返回值分别为：成功数量、失败数量、整体错误。
 func (Dism) AddPackagesOfflineFromDir(imagePath, cabDir string, progressCh chan<- DismProgress) (int, int, error) {
 	var cabs []string
 	err := filepath.WalkDir(cabDir, func(p string, d os.DirEntry, walkErr error) error {
@@ -312,6 +337,7 @@ func (Dism) AddPackagesOfflineFromDir(imagePath, cabDir string, progressCh chan<
 	total := len(cabs)
 
 	for i, cab := range cabs {
+		// 将每个 CAB 的安装过程映射到总进度的一段区间。
 		start := uint8(i * 100 / total)
 		end := uint8((i + 1) * 100 / total)
 		span := end - start
@@ -325,7 +351,7 @@ func (Dism) AddPackagesOfflineFromDir(imagePath, cabDir string, progressCh chan<
 		}
 		if e := runDismWithProgressScaled(args, progressCh, start, span); e != nil {
 			fail++
-			// 继续装下一个
+			// 单个包失败时继续安装后续包。
 			continue
 		}
 		success++
@@ -335,12 +361,15 @@ func (Dism) AddPackagesOfflineFromDir(imagePath, cabDir string, progressCh chan<
 	return success, fail, nil
 }
 
+// 匹配 DISM 输出中的百分比，例如 "42.3%"、"100%"。
 var reDISMPercent = regexp.MustCompile(`(?i)(\d{1,3})(?:\.\d+)?\s*%`)
 
+// runDismWithProgress 使用 DISM 执行命令，并将进度映射到 0..100。
 func runDismWithProgress(args []string, progressCh chan<- DismProgress) error {
 	return runDismWithProgressScaled(args, progressCh, 0, 100)
 }
 
+// runDismWithProgressScaled 使用 DISM 执行命令，并将原始百分比缩放到指定区间。
 func runDismWithProgressScaled(args []string, progressCh chan<- DismProgress, startPct, spanPct uint8) error {
 	if dism == "" {
 		return errors.New("global variable 'dism' is empty")
@@ -348,7 +377,7 @@ func runDismWithProgressScaled(args []string, progressCh chan<- DismProgress, st
 
 	cmd := exec.Command(dism, args...)
 
-	// 合并 stderr -> stdout，便于流式解析进度
+	// 将 stderr 合并到 stdout，便于统一做流式解析。
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
@@ -357,7 +386,8 @@ func runDismWithProgressScaled(args []string, progressCh chan<- DismProgress, st
 
 	var out bytes.Buffer
 	sc := bufio.NewScanner(stdout)
-	// DISM 有时行很长，扩容 buffer
+
+	// DISM 某些输出行较长，手动扩容 Scanner 缓冲区。
 	sc.Buffer(make([]byte, 0, 64*1024), 2*1024*1024)
 
 	if err := cmd.Start(); err != nil {
@@ -373,7 +403,7 @@ func runDismWithProgressScaled(args []string, progressCh chan<- DismProgress, st
 		out.WriteString(line)
 		out.WriteByte('\n')
 
-		// 解析百分比
+		// 解析输出中的百分比。
 		if m := reDISMPercent.FindStringSubmatch(line); len(m) == 2 {
 			n, _ := strconv.Atoi(m[1])
 			if n < 0 {
@@ -382,6 +412,8 @@ func runDismWithProgressScaled(args []string, progressCh chan<- DismProgress, st
 			if n > 100 {
 				n = 100
 			}
+
+			// 将 DISM 原始进度缩放到调用方约定区间。
 			p := startPct + uint8(uint32(n)*uint32(spanPct)/100)
 			if p > 100 {
 				p = 100
@@ -395,7 +427,7 @@ func runDismWithProgressScaled(args []string, progressCh chan<- DismProgress, st
 	_ = sc.Err()
 
 	if err := cmd.Wait(); err != nil {
-		// 把输出带上，方便定位
+		// 失败时附带完整输出，便于定位问题。
 		return fmt.Errorf("dism failed: %w\n%s", err, out.String())
 	}
 	return nil
@@ -405,8 +437,10 @@ func runDismWithProgressScaled(args []string, progressCh chan<- DismProgress, st
 // 镜像信息（WIM XML 解析）
 // =======================
 
+// GetImageInfo 读取镜像文件中的镜像列表信息。
+// 优先通过 wimgapi 获取完整 XML，失败时退回到文件头解析。
 func (Dism) GetImageInfo(imageFile string) ([]ImageInfo, error) {
-	// 1) 优先用 wimgapi 的 WIMGetImageInformation 拿全量 XML
+	// 1) 优先使用 WIMGetImageInformation 获取全量 XML。
 	api, err := NewWimg("")
 	if err == nil {
 		hWim, _, e := api.CreateFile(imageFile, WIM_GENERIC_READ, WIM_OPEN_EXISTING, 0, WIM_COMPRESS_NONE)
@@ -422,10 +456,11 @@ func (Dism) GetImageInfo(imageFile string) ([]ImageInfo, error) {
 		}
 	}
 
-	// 2) 兜底：直接从文件头读 XML 元数据（同 Rust 逻辑）
+	// 2) 兜底：直接从文件头定位 XML 元数据区域并解析。
 	return parseWimXMLMetadataFromFile(imageFile)
 }
 
+// parseWimXMLMetadataFromFile 直接从 WIM 文件中读取 XML 元数据块。
 func parseWimXMLMetadataFromFile(imageFile string) ([]ImageInfo, error) {
 	f, err := os.Open(imageFile)
 	if err != nil {
@@ -433,17 +468,20 @@ func parseWimXMLMetadataFromFile(imageFile string) ([]ImageInfo, error) {
 	}
 	defer f.Close()
 
+	// WIM 头部固定读取 208 字节。
 	header := make([]byte, 208)
 	if _, err := f.Read(header); err != nil {
 		return nil, err
 	}
 
-	// "MSWIM\0\0\0"
+	// 校验 WIM 文件签名："MSWIM\0\0\0"
 	if len(header) < 8 || !bytes.Equal(header[:8], []byte("MSWIM\x00\x00\x00")) {
 		return nil, errors.New("not a valid WIM file signature")
 	}
 
-	// 同 Rust：xml_offset=48..56, xml_size=56..64 (little-endian u64)
+	// 与 Rust 版本保持一致：
+	// xml_offset = 48..56
+	// xml_size   = 56..64
 	xmlOffset := leU64(header[48:56])
 	xmlSize := leU64(header[56:64])
 	if xmlOffset == 0 || xmlSize == 0 || xmlSize > 100_000_000 {
@@ -465,6 +503,7 @@ func parseWimXMLMetadataFromFile(imageFile string) ([]ImageInfo, error) {
 	return parseWimXML(xmlStr)
 }
 
+// leU64 按小端序将 8 字节切片解码为 uint64。
 func leU64(b []byte) uint64 {
 	if len(b) < 8 {
 		return 0
@@ -479,13 +518,15 @@ func leU64(b []byte) uint64 {
 		uint64(b[7])<<56
 }
 
+// decodeUTF16LEex 将 UTF-16LE 字节流解码为 Go 字符串。
+// 支持可选 BOM，并自动去除尾部 0。
 func decodeUTF16LEex(data []byte) (string, error) {
 	if len(data) < 2 {
 		return "", errors.New("data too short")
 	}
 
 	start := 0
-	// BOM: FF FE
+	// 跳过 UTF-16LE BOM：FF FE
 	if len(data) >= 2 && data[0] == 0xFF && data[1] == 0xFE {
 		start = 2
 	}
@@ -501,7 +542,7 @@ func decodeUTF16LEex(data []byte) (string, error) {
 		u16 = append(u16, u)
 	}
 
-	// trim trailing 0
+	// 去除结尾的空字符。
 	for len(u16) > 0 && u16[len(u16)-1] == 0 {
 		u16 = u16[:len(u16)-1]
 	}
@@ -509,6 +550,8 @@ func decodeUTF16LEex(data []byte) (string, error) {
 	return string(utf16.Decode(u16)), nil
 }
 
+// parseWimXML 从 WIM XML 中提取镜像条目列表。
+// 这里使用轻量字符串解析，避免引入完整 XML 结构体映射。
 func parseWimXML(xml string) ([]ImageInfo, error) {
 	var images []ImageInfo
 
@@ -537,6 +580,7 @@ func parseWimXML(xml string) ([]ImageInfo, error) {
 		}
 		block := xml[absStart : absStart+imgEnd+len(`</IMAGE>`)]
 
+		// 优先使用 DISPLAYNAME，缺失时回退到 NAME。
 		name := firstNonEmpty(
 			extractXMLTag(block, "DISPLAYNAME"),
 			extractXMLTag(block, "NAME"),
@@ -572,6 +616,8 @@ func parseWimXML(xml string) ([]ImageInfo, error) {
 	return images, nil
 }
 
+// extractXMLTag 提取指定 XML 标签中的文本内容。
+// 若标签不存在或不完整，则返回空字符串。
 func extractXMLTag(xml, tag string) string {
 	open := "<" + tag + ">"
 	close := "</" + tag + ">"
@@ -589,6 +635,7 @@ func extractXMLTag(xml, tag string) string {
 	return strings.TrimSpace(xml[s : s+e])
 }
 
+// firstNonEmpty 返回第一个非空字符串。
 func firstNonEmpty(a, b string) string {
 	if strings.TrimSpace(a) != "" {
 		return a

@@ -642,7 +642,7 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 		if err != nil {
 			log.LogWrite(0, "[DownloadFile]DownloadFile curl失败: url=%s dst=%s err=%v", url, dstPath, err)
 			if withResume {
-				_ = os.tools.Remove(tmpPath)
+				_ = tools.Remove(tmpPath, false)
 			}
 			if withResume || hasPart {
 				withResume = false
