@@ -1,15 +1,13 @@
 package main
 
 import (
-	disk "ReSys/src/disk"
-	log "ReSys/src/log"
-	tools "ReSys/src/tools"
-	"ReSys/src/utils"
-	"bufio"
+	"ReSys/src/disk"
+	D "ReSys/src/dism"
+	"ReSys/src/log"
+	"ReSys/src/tools"
 	"bytes"
 	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -23,174 +21,7 @@ import (
 	"unicode/utf16"
 )
 
-// ListImageInfos 读取WIM/ESD中所有的信息（Index/Name/Description/Flags）。
-func ListImageInfos(imagePath string) ([]ImageMeta, error) {
-	if _, err := os.Stat(imagePath); err != nil {
-		log.LogWrite(0, "[ListImageInfos]ListImageInfos 镜像不存在: path=%s err=%v", imagePath, err)
-		return nil, fmt.Errorf("image not found: %w", err)
-	}
-
-	// DISM
-	if out, err := tools.RunCmd(
-		dism,
-		nil,
-		nil,
-		"",
-		"/English",
-		"/Get-WimInfo",
-		"/WimFile:"+imagePath,
-	); err == nil {
-		if imgs, perr := parseImageInfoText(out); perr == nil && len(imgs) > 0 {
-			log.LogWrite(0, "[ListImageInfos]ListImageInfos 使用 DISM 结果")
-			return imgs, nil
-		} else {
-			log.LogWrite(0, "[ListImageInfos]ListImageInfos DISM 解析失败，回退 wimlib: err=%v", perr)
-		}
-	} else {
-		log.LogWrite(0, "[ListImageInfos]ListImageInfos DISM 失败，回退 wimlib: err=%v", err)
-	}
-
-	// wimlib-imagex
-	exePath, _ := os.Executable()
-	exePath = filepath.Join(filepath.Dir(exePath), "tools\\wimlib-imagex.exe")
-	if out, err := tools.RunCmd(exePath, nil, nil, "", "info", imagePath); err == nil {
-		if imgs, perr := parseImageInfoText(out); perr == nil && len(imgs) > 0 {
-			log.LogWrite(0, "[ListImageInfos]ListImageInfos 使用 wimlib 结果")
-			return imgs, nil
-		} else {
-			log.LogWrite(0, "[ListImageInfos]ListImageInfos wimlib 解析失败: err=%v", perr)
-			return nil, perr
-		}
-	} else {
-		log.LogWrite(0, "[ListImageInfos]ListImageInfos DISM/WIMLIB 均失败: err=%v", err)
-		return nil, fmt.Errorf("both DISM and wimlib-imagex failed: %w", err)
-	}
-}
-
-// 从一行输出中提取百分比,失败返回 -1
-func extractPercent(line string) float64 {
-	idx := strings.Index(line, "%")
-	if idx == -1 {
-		return -1
-	}
-
-	i := idx - 1
-	for i >= 0 && ((line[i] >= '0' && line[i] <= '9') || line[i] == '.') {
-		i--
-	}
-	if i == idx-1 {
-		return -1
-	}
-	numStr := strings.TrimSpace(line[i+1 : idx])
-	v, err := strconv.ParseFloat(numStr, 64)
-	if err != nil {
-		return -1
-	}
-	if v < 0 {
-		v = 0
-	}
-	if v > 100 {
-		v = 100
-	}
-	return v
-}
-
-// 会优先使用wimlib-imagex，失败后DISM
-// imagePath:WIM 或 ESD 路径
-// index:镜像索引（1 开始）
-// targetVol:目标卷，如 "C:"、"C:\"
-func ApplyImage(imagePath string, index int, targetVol string) error {
-	if _, err := os.Stat(imagePath); err != nil {
-		return fmt.Errorf("image not found: %w", err)
-	}
-	if index <= 0 {
-		return fmt.Errorf("invalid image index: %d", index)
-	}
-
-	targetRoot, _ := utils.NormalizeDrive(targetVol, 0)
-	if targetRoot == "" {
-		return fmt.Errorf("invalid target volume: %q", targetVol)
-	}
-
-	// 先用 wimlib-imagex
-	wimArgs := []string{
-		"apply",
-		imagePath,
-		fmt.Sprintf("%d", index),
-		targetRoot,
-	}
-
-	exePath, _ := os.Executable()
-	exePath = filepath.Join(filepath.Dir(exePath), "tools\\wimlib-imagex.exe")
-
-	wimOnLine := func(line string) {
-		if ImageProgress == nil {
-			return
-		}
-
-		phase := ""
-		lower := strings.ToLower(line)
-
-		switch {
-		case strings.HasPrefix(lower, "creating files"):
-			phase = "Creating files"
-		case strings.HasPrefix(lower, "extracting file data"):
-			phase = "Extracting"
-		case strings.HasPrefix(lower, "applying metadata"):
-			phase = "Applying metadata"
-		default:
-		}
-
-		pct := extractPercent(line)
-		if pct >= 0 || phase != "" {
-			ImageProgress(phase, pct, line)
-		}
-	}
-
-	if out, err := tools.RunCmd(exePath, nil, wimOnLine, "", wimArgs...); err == nil {
-		fmt.Println("[ApplyImage] wimlib-imagex ok")
-		fmt.Println(out)
-		if ImageProgress != nil {
-			ImageProgress("wimlib", 100, "wimlib apply finished")
-		}
-		return nil
-	} else {
-		log.LogWrite(0, "[ApplyImage]ApplyImage 执行wimlib-imagex失败："+err.Error())
-		fmt.Println("[ApplyImage] wimlib-imagex failed, will try DISM")
-		fmt.Println(out)
-	}
-
-	dismArgs := []string{
-		"/Apply-Image",
-		"/ImageFile:" + imagePath,
-		fmt.Sprintf("/Index:%d", index),
-		"/ApplyDir:" + targetRoot,
-	}
-
-	dismOnLine := func(line string) {
-		if ImageProgress == nil {
-			return
-		}
-		pct := extractPercent(line)
-		if pct >= 0 {
-			ImageProgress("DISM", pct, line)
-		}
-	}
-
-	if out, err := tools.RunCmd(dism, nil, dismOnLine, "", dismArgs...); err == nil {
-		fmt.Println("[ApplyImage] DISM ok")
-		fmt.Println(out)
-		if ImageProgress != nil {
-			ImageProgress("DISM", 100, "DISM apply finished")
-		}
-		return nil
-	} else {
-		log.LogWrite(0, "[ApplyImage]ApplyImage 执行dism失败："+err.Error()+"  dism:"+dism)
-		fmt.Println("[ApplyImage] DISM failed")
-		fmt.Println(out)
-		return err
-	}
-}
+var Dism = D.NewDism()
 
 // ensureWimWritable 确保 WIM 文件可写。
 func ensureWimWritable(wim string) error {
@@ -756,12 +587,13 @@ func ApplyWimImage(wimPath string, index int, targetVol string) error {
 	if len(p) < 4 || !strings.EqualFold(strings.ToLower(filepath.Ext(p)), ".wim") {
 		return fmt.Errorf("不是WIM镜像: %s", wimPath)
 	}
-	return ApplyImage(wimPath, index, targetVol)
+
+	return Dism.ApplyImageCmd(wimPath, targetVol, uint32(index), nil)
 }
 
 // 安装ESD镜像到指定卷
 func ApplyEsdImage(esdPath string, index int, targetVol string) error {
-	return ApplyImage(esdPath, index, targetVol)
+	return Dism.ApplyImageCmd(esdPath, targetVol, uint32(index), nil)
 }
 
 // 安装ISO镜像到指定卷
@@ -826,116 +658,6 @@ func ApplyISOImage(isoPath string, index int, targetVol string) error {
 	return fmt.Errorf("ISO安装镜像类型不支持！")
 }
 
-// 解析DISM/wimlib-imagex info输出信息
-func parseImageInfoText(out string) ([]ImageMeta, error) {
-	var (
-		res []ImageMeta
-		cur *ImageMeta
-	)
-
-	sc := bufio.NewScanner(strings.NewReader(out))
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" {
-			continue
-		}
-
-		colon := strings.Index(line, ":")
-		if colon <= 0 {
-			continue
-		}
-		key := strings.TrimSpace(line[:colon])
-		val := strings.TrimSpace(line[colon+1:])
-
-		switch {
-		case key == "Index" || key == "Image Index":
-			if cur != nil && cur.Index != 0 {
-				finalizeImageMeta(cur)
-				res = append(res, *cur)
-			}
-			cur = &ImageMeta{}
-			if idx, err := strconv.Atoi(val); err == nil {
-				cur.Index = idx
-			}
-
-		case key == "Name":
-			if cur != nil {
-				cur.Name = val
-			}
-
-		case key == "Description":
-			if cur != nil {
-				cur.Description = val
-			}
-
-		case key == "Flags":
-			if cur != nil {
-				cur.Flags = val
-			}
-
-		case strings.HasPrefix(key, "Size"):
-			if cur != nil {
-				cur.SizeBytes = parseSizeBytes(val)
-			}
-
-		case strings.HasPrefix(key, "Edition"):
-			if cur != nil {
-				cur.Edition = val
-			}
-
-		case strings.HasPrefix(key, "Installation"):
-			if cur != nil {
-				cur.Installation = val
-			}
-
-		case key == "Architecture" || key == "Arch":
-			if cur != nil {
-				cur.Arch = val
-			}
-
-		case strings.HasPrefix(key, "System Root"):
-			if cur != nil {
-				cur.SystemRoot = val
-			}
-		}
-	}
-
-	if cur != nil && cur.Index != 0 {
-		finalizeImageMeta(cur)
-		res = append(res, *cur)
-	}
-	if err := sc.Err(); err != nil {
-		return nil, err
-	}
-	if len(res) == 0 {
-		return nil, errors.New("no image info parsed")
-	}
-	return res, nil
-}
-
-// 提取字节数
-func parseSizeBytes(s string) uint64 {
-	s = strings.ToLower(s)
-	if idx := strings.Index(s, "bytes"); idx != -1 {
-		s = s[:idx]
-	} else if idx := strings.Index(s, "字节"); idx != -1 {
-		s = s[:idx]
-	}
-
-	// 只保留数字
-	var b []rune
-	for _, r := range s {
-		if r >= '0' && r <= '9' {
-			b = append(b, r)
-		}
-	}
-	if len(b) == 0 {
-		return 0
-	}
-	n, _ := strconv.ParseUint(string(b), 10, 64)
-	return n
-}
-
 // 把字节转成MB/GB
 func bytesToMBGBStr(size uint64) string {
 	const (
@@ -954,7 +676,7 @@ func bytesToMBGBStr(size uint64) string {
 }
 
 // 结合 Installation / Edition / 名称 做系统索引判断 + Size
-func finalizeImageMeta(m *ImageMeta) {
+func finalizeImageMeta(m *D.ImageMeta) {
 	m.Size = bytesToMBGBStr(m.SizeBytes)
 
 	name := strings.ToLower(m.Name + " " + m.Description)
@@ -980,10 +702,10 @@ func finalizeImageMeta(m *ImageMeta) {
 }
 
 // 从 WIM/ESD 或 ISO 中读取镜像元数据。
-func detectImageInfos(imagePath string) ([]ImageMeta, error) {
+func detectImageInfos(imagePath string) ([]D.ImageMeta, error) {
 	ext := strings.ToLower(filepath.Ext(imagePath))
 	if ext != ".iso" {
-		return ListImageInfos(imagePath)
+		return Dism.ListImageInfos(imagePath)
 	}
 	isoRoot, err := MountISO(imagePath, 30*time.Second)
 	if err != nil {
@@ -1001,11 +723,11 @@ func detectImageInfos(imagePath string) ([]ImageMeta, error) {
 		sort.Strings(found)
 		installPath = found[0]
 	}
-	return ListImageInfos(installPath)
+	return Dism.ListImageInfos(installPath)
 }
 
 // 按优先级选择镜像索引
-func selectInstallIndex(infos []ImageMeta) int {
+func selectInstallIndex(infos []D.ImageMeta) int {
 	if len(infos) == 0 {
 		return 1
 	}
@@ -1038,7 +760,7 @@ func selectInstallIndex(infos []ImageMeta) int {
 }
 
 // 从镜像元信息中推测目标系统类型。
-func detectTargetFromInfos(infos []ImageMeta) string {
+func detectTargetFromInfos(infos []D.ImageMeta) string {
 	if len(infos) == 0 {
 		return ""
 	}

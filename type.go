@@ -215,24 +215,6 @@ type memoryStatusEx struct {
 	ullAvailExtendedVirtual uint64
 }
 
-// 镜像信息
-type ImageMeta struct {
-	Index       int
-	Name        string
-	Description string
-	Flags       string
-
-	SizeBytes uint64 // 原始字节数
-	Size      string // 转换为MB/GB格式
-
-	Edition      string // Professional/WindowsPE/...
-	Installation string // Client/Server/WindowsPE/...
-	SystemRoot   string // WINDOWS/...
-	Arch         string // x86 / x64 / arm64 ...
-
-	IsOS bool // 是否认为是系统
-}
-
 // SHFILEOPSTRUCTW 结构体（文件操作）
 type shFileOpStructW struct {
 	hwnd                  uintptr

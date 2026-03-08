@@ -2,6 +2,7 @@ package dism
 
 import (
 	"ReSys/src/log"
+	"ReSys/src/tools"
 	"ReSys/src/utils"
 	"ReSys/src/windows"
 	"bufio"
@@ -30,12 +31,23 @@ type DismProgress struct {
 	Status     string // 当前状态描述
 }
 
-// ImageInfo 表示 WIM/ESD 中单个镜像条目的信息。
-type ImageInfo struct {
-	Index            uint32 // 镜像索引
-	Name             string // 镜像名称
-	SizeBytes        uint64 // 镜像大小（字节）
-	InstallationType string // 安装类型，例如 Client / Server
+// ImageMeta 表示镜像元信息（兼容 DISM / wimlib info 文本解析）。
+// 镜像信息
+type ImageMeta struct {
+	Index       int
+	Name        string
+	Description string
+	Flags       string
+
+	SizeBytes uint64 // 原始字节数
+	Size      string // 转换为MB/GB格式
+
+	Edition      string // Professional/WindowsPE/...
+	Installation string // Client/Server/WindowsPE/...
+	SystemRoot   string // WINDOWS/...
+	Arch         string // x86 / x64 / arm64 ...
+
+	IsOS bool // 是否认为是系统
 }
 
 // Dism 同时封装 Wimgapi 能力与 dism.exe 命令行能力。
@@ -203,6 +215,103 @@ func (d *Dism) ApplyImageApi(imageFile, applyDir string, index uint32, progressC
 	return nil
 }
 
+// ApplyImageCmd 使用 dism.exe 命令行将指定索引的镜像应用到目标目录。
+func (d *Dism) ApplyImageCmd(imageFile, applyDir string, index uint32, progressCh chan<- DismProgress) error {
+	imageFile = strings.TrimSpace(imageFile)
+	applyDir = strings.TrimSpace(applyDir)
+
+	if index == 0 {
+		return fmt.Errorf("invalid image index: %d", index)
+	}
+	if imageFile == "" {
+		return errors.New("image file is empty")
+	}
+	if applyDir == "" {
+		return errors.New("apply dir is empty")
+	}
+	if !utils.FileExists(imageFile) {
+		return fmt.Errorf("镜像文件不存在: %s", imageFile)
+	}
+	if !utils.FileExists(strings.TrimRight(applyDir, `\\`)) {
+		return fmt.Errorf("目标目录不存在: %s", applyDir)
+	}
+
+	args := []string{
+		"/Apply-Image",
+		"/ImageFile:" + imageFile,
+		"/Index:" + strconv.FormatUint(uint64(index), 10),
+		"/ApplyDir:" + applyDir,
+		"/ScratchDir:" + ensureScratchDirectory(),
+	}
+
+	dismPath, err := d.GetDismCmd()
+	if err != nil {
+		return err
+	}
+
+	cmd := exec.Command(dismPath, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	cmd.Stderr = cmd.Stdout
+
+	var out bytes.Buffer
+	sc := bufio.NewScanner(stdout)
+	sc.Buffer(make([]byte, 0, 64*1024), 2*1024*1024)
+
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	var lastPct uint8 = 255
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+
+		out.WriteString(line)
+		out.WriteByte('\n')
+
+		if m := reDISMPercent.FindStringSubmatch(line); len(m) == 2 {
+			n, _ := strconv.Atoi(m[1])
+			if n < 0 {
+				n = 0
+			}
+			if n > 100 {
+				n = 100
+			}
+
+			p := uint8(n)
+			if p != lastPct {
+				lastPct = p
+				sendProgress(progressCh, p, line)
+			}
+		}
+	}
+	if scanErr := sc.Err(); scanErr != nil {
+		return scanErr
+	}
+
+	if err := cmd.Wait(); err != nil {
+		fullOut := strings.TrimSpace(out.String())
+		msg := extractErrorText(fullOut)
+		if msg == "" {
+			msg = err.Error()
+		}
+		if fullOut != "" {
+			return fmt.Errorf("dism apply failed: %s\n%s", msg, fullOut)
+		}
+		return fmt.Errorf("dism apply failed: %s", msg)
+	}
+
+	sendProgress(progressCh, 100, "Done")
+	return nil
+}
+
 // CaptureImageApi 以 LZX 压缩格式捕获目录为 WIM 镜像。
 func (d *Dism) CaptureImageApi(imageFile, captureDir, name, description string, progressCh chan<- DismProgress) error {
 	return d.captureImageCommonApi(imageFile, captureDir, name, description, WIM_COMPRESS_LZX, progressCh)
@@ -284,7 +393,7 @@ func (d *Dism) CaptureImageSWMApiCmd(imageFile, captureDir, name, description st
 
 // GetImageInfoApi 读取镜像文件中的镜像列表信息。
 // 优先通过 Wimgapi 获取 XML，失败时回退到文件头解析。
-func (d *Dism) GetImageInfoApi(imageFile string) ([]ImageInfo, error) {
+func (d *Dism) GetImageInfoApi(imageFile string) ([]ImageMeta, error) {
 	api, err := NewWimg("")
 	if err == nil {
 		hWim, _, e := api.CreateFile(imageFile, WIM_GENERIC_READ, WIM_OPEN_EXISTING, 0, WIM_COMPRESS_NONE)
@@ -301,6 +410,54 @@ func (d *Dism) GetImageInfoApi(imageFile string) ([]ImageInfo, error) {
 	}
 
 	return parseWimXMLMetadataFromFile(imageFile)
+}
+
+// ListImageInfos 读取 WIM/ESD 的镜像元信息（优先 DISM，失败回退 wimlib-imagex）。
+func (d *Dism) ListImageInfos(imagePath string) ([]ImageMeta, error) {
+	if _, err := os.Stat(imagePath); err != nil {
+		log.LogWrite(0, "[Dism.ListImageInfos] 镜像不存在: path=%s err=%v", imagePath, err)
+		return nil, fmt.Errorf("image not found: %w", err)
+	}
+
+	if out, err := d.executeAndGetOutputCmd([]string{"/English", "/Get-WimInfo", "/WimFile:" + imagePath}); err == nil {
+		if imgs, perr := parseImageInfoText(out); perr == nil && len(imgs) > 0 {
+			log.LogWrite(0, "[Dism.ListImageInfos] 使用 DISM 结果")
+			return imgs, nil
+		} else {
+			log.LogWrite(0, "[Dism.ListImageInfos] DISM 解析失败，回退 wimlib: err=%v", perr)
+		}
+	} else {
+		log.LogWrite(0, "[Dism.ListImageInfos] DISM 失败，回退 wimlib: err=%v", err)
+	}
+
+	wimlib := ""
+	if exe, err := os.Executable(); err == nil {
+		local := filepath.Join(filepath.Dir(exe), "tools", "wimlib-imagex.exe")
+		if utils.FileExists(local) {
+			wimlib = local
+		}
+	}
+	if wimlib == "" {
+		if p, err := exec.LookPath("wimlib-imagex.exe"); err == nil {
+			wimlib = p
+		}
+	}
+	if wimlib == "" {
+		return nil, errors.New("wimlib-imagex.exe not found")
+	}
+
+	if out, err := tools.RunCmd(wimlib, nil, nil, "", "info", imagePath); err == nil {
+		if imgs, perr := parseImageInfoText(out); perr == nil && len(imgs) > 0 {
+			log.LogWrite(0, "[Dism.ListImageInfos] 使用 wimlib 结果")
+			return imgs, nil
+		} else {
+			log.LogWrite(0, "[Dism.ListImageInfos] wimlib 解析失败: err=%v", perr)
+			return nil, perr
+		}
+	} else {
+		log.LogWrite(0, "[Dism.ListImageInfos] DISM/WIMLIB 均失败: err=%v", err)
+		return nil, fmt.Errorf("both DISM and wimlib-imagex failed: %w", err)
+	}
 }
 
 // AddDriverOfflineCmd 向离线映像添加驱动。
@@ -755,7 +912,7 @@ func escapeXML(s string) string {
 }
 
 // parseWimXMLMetadataFromFile 直接从 WIM 文件中读取 XML 元数据块。
-func parseWimXMLMetadataFromFile(imageFile string) ([]ImageInfo, error) {
+func parseWimXMLMetadataFromFile(imageFile string) ([]ImageMeta, error) {
 	f, err := os.Open(imageFile)
 	if err != nil {
 		return nil, err
@@ -794,8 +951,8 @@ func parseWimXMLMetadataFromFile(imageFile string) ([]ImageInfo, error) {
 }
 
 // parseWimXML 从 WIM XML 中提取镜像条目列表。
-func parseWimXML(xml string) ([]ImageInfo, error) {
-	var images []ImageInfo
+func parseWimXML(xml string) ([]ImageMeta, error) {
+	var images []ImageMeta
 	pos := 0
 
 	for {
@@ -814,7 +971,7 @@ func parseWimXML(xml string) ([]ImageInfo, error) {
 
 		indexStr := xml[indexStart : indexStart+indexEnd]
 		idx64, _ := strconv.ParseUint(indexStr, 10, 32)
-		idx := uint32(idx64)
+		idx := int(idx64)
 
 		imgEnd := strings.Index(xml[absStart:], `</IMAGE>`)
 		if imgEnd < 0 {
@@ -838,15 +995,17 @@ func parseWimXML(xml string) ([]ImageInfo, error) {
 			}
 		}
 
-		installType := extractXMLTag(block, "INSTALLATIONTYPE")
+		installType := strings.TrimSpace(extractXMLTag(block, "INSTALLATIONTYPE"))
 
 		if idx > 0 {
-			images = append(images, ImageInfo{
-				Index:            idx,
-				Name:             strings.TrimSpace(name),
-				SizeBytes:        sizeBytes,
-				InstallationType: strings.TrimSpace(installType),
-			})
+			meta := ImageMeta{
+				Index:        idx,
+				Name:         strings.TrimSpace(name),
+				SizeBytes:    sizeBytes,
+				Installation: installType,
+			}
+			finalizeImageMeta(&meta)
+			images = append(images, meta)
 		}
 
 		pos = absStart + imgEnd + len(`</IMAGE>`)
@@ -1053,4 +1212,156 @@ func extractErrorText(output string) string {
 		start = 0
 	}
 	return strings.TrimSpace(strings.Join(lines[start:], "\n"))
+}
+
+// parseImageInfoText 解析 DISM / wimlib-imagex info 输出信息。
+func parseImageInfoText(out string) ([]ImageMeta, error) {
+	var (
+		res []ImageMeta
+		cur *ImageMeta
+	)
+
+	sc := bufio.NewScanner(strings.NewReader(out))
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+
+		colon := strings.Index(line, ":")
+		if colon <= 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:colon])
+		val := strings.TrimSpace(line[colon+1:])
+
+		switch {
+		case key == "Index" || key == "Image Index":
+			if cur != nil && cur.Index != 0 {
+				finalizeImageMeta(cur)
+				res = append(res, *cur)
+			}
+			cur = &ImageMeta{}
+			if idx, err := strconv.Atoi(val); err == nil {
+				cur.Index = idx
+			}
+
+		case key == "Name":
+			if cur != nil {
+				cur.Name = val
+			}
+
+		case key == "Description":
+			if cur != nil {
+				cur.Description = val
+			}
+
+		case key == "Flags":
+			if cur != nil {
+				cur.Flags = val
+			}
+
+		case strings.HasPrefix(key, "Size"):
+			if cur != nil {
+				cur.SizeBytes = parseSizeBytes(val)
+			}
+
+		case strings.HasPrefix(key, "Edition"):
+			if cur != nil {
+				cur.Edition = val
+			}
+
+		case strings.HasPrefix(key, "Installation"):
+			if cur != nil {
+				cur.Installation = val
+			}
+
+		case key == "Architecture" || key == "Arch":
+			if cur != nil {
+				cur.Arch = val
+			}
+
+		case strings.HasPrefix(key, "System Root"):
+			if cur != nil {
+				cur.SystemRoot = val
+			}
+		}
+	}
+
+	if cur != nil && cur.Index != 0 {
+		finalizeImageMeta(cur)
+		res = append(res, *cur)
+	}
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	if len(res) == 0 {
+		return nil, errors.New("no image info parsed")
+	}
+	return res, nil
+}
+
+// parseSizeBytes 提取形如 "xx bytes" / "xx 字节" 字段中的字节数。
+func parseSizeBytes(s string) uint64 {
+	s = strings.ToLower(s)
+	if idx := strings.Index(s, "bytes"); idx != -1 {
+		s = s[:idx]
+	} else if idx := strings.Index(s, "字节"); idx != -1 {
+		s = s[:idx]
+	}
+
+	var b []rune
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			b = append(b, r)
+		}
+	}
+	if len(b) == 0 {
+		return 0
+	}
+	n, _ := strconv.ParseUint(string(b), 10, 64)
+	return n
+}
+
+// bytesToMBGBStr 将字节转换为 MB/GB 文本。
+func bytesToMBGBStr(size uint64) string {
+	const (
+		mb = 1024 * 1024
+		gb = 1024 * 1024 * 1024
+	)
+	if size == 0 {
+		return ""
+	}
+	if size < gb {
+		v := float64(size) / float64(mb)
+		return fmt.Sprintf("%.1f MB", v)
+	}
+	v := float64(size) / float64(gb)
+	return fmt.Sprintf("%.2f GB", v)
+}
+
+// finalizeImageMeta 结合 Installation / Edition / 名称判断是否为可安装系统条目。
+func finalizeImageMeta(m *ImageMeta) {
+	m.Size = bytesToMBGBStr(m.SizeBytes)
+
+	name := strings.ToLower(m.Name + " " + m.Description)
+	inst := strings.ToLower(m.Installation)
+	edition := strings.ToLower(m.Edition)
+
+	isPEInstall := strings.Contains(inst, "windowspe") || strings.Contains(inst, "winpe")
+	isPEEdition := strings.Contains(edition, "windowspe")
+
+	isSetupName :=
+		strings.Contains(name, "setup media") ||
+			strings.Contains(name, "windows setup") ||
+			strings.Contains(name, "windows pe") ||
+			strings.Contains(name, "winpe") ||
+			strings.Contains(name, "winre") ||
+			strings.Contains(name, "recovery")
+	isClientOrServer := strings.Contains(inst, "client") || strings.Contains(inst, "server")
+	if inst == "" && !isPEInstall && !isPEEdition && !isSetupName {
+		m.IsOS = true
+		return
+	}
+	m.IsOS = isClientOrServer && !isPEInstall && !isPEEdition && !isSetupName
 }
