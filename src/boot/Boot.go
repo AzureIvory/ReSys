@@ -9,6 +9,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"unsafe"
+
+	"ReSys/src/utils"
+
+	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 // 获取当前系统引导 GUID
@@ -193,4 +200,76 @@ func parseBootIdentifier(out, systemDrive string) (string, error) {
 		return bestAnyHit, nil
 	}
 	return "", fmt.Errorf("could not find current boot identifier for SystemDrive=%s", systemDrive)
+}
+
+// DetectBootMode 使用 GetFirmwareEnvironmentVariableW 读“空变量”判断启动模式：
+// - Legacy BIOS：返回 ERROR_INVALID_FUNCTION (1) => Legacy
+// - UEFI：返回其他错误（如 ERROR_NOACCESS / ERROR_ENVVAR_NOT_FOUND 等）=> UEFI
+func DetectBootMode() (string, error) {
+	k32 := windows.NewLazySystemDLL("kernel32.dll")
+	proc := k32.NewProc("GetFirmwareEnvironmentVariableW")
+	if err := k32.Load(); err != nil {
+		return "Legacy", err
+	}
+	if err := proc.Find(); err != nil {
+		return "Legacy", err
+	}
+
+	// lpName = ""（空字符串）
+	// lpGuid = "{00000000-0000-0000-0000-000000000000}"（虚拟 GUID）
+	name := windows.StringToUTF16Ptr("")
+	guid := windows.StringToUTF16Ptr("{00000000-0000-0000-0000-000000000000}")
+	var buf [1]byte
+
+	r1, _, e1 := proc.Call(
+		uintptr(unsafe.Pointer(name)),
+		uintptr(unsafe.Pointer(guid)),
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(len(buf)),
+	)
+
+	if r1 == 0 {
+		// LazyProc.Call 返回的 e1 通常就是 GetLastError()
+		if errno, ok := e1.(syscall.Errno); ok {
+			if errno == windows.ERROR_INVALID_FUNCTION {
+				return "Legacy", nil
+			}
+			// 其他错误基本都视为 UEFI（如 ERROR_NOACCESS / ERROR_ENVVAR_NOT_FOUND）
+			return "UEFI", nil
+		}
+		// 拿不到 errno：保守当作 UEFI
+		return "UEFI", nil
+	}
+
+	// 成功（很少见，因为我们读的是“空变量”），也说明 UEFI
+	return "UEFI", nil
+}
+
+
+// SecureBootEnabled 通过注册表读取 Secure Boot 状态：
+// HKLM\SYSTEM\CurrentControlSet\Control\SecureBoot\State\UEFISecureBootEnabled (DWORD)
+// - 1 => true
+// - 0 / 不存在（Win7常见）=> false
+func SecureBootEnabled() (bool, error) {
+	const keyPath = `SYSTEM\CurrentControlSet\Control\SecureBoot\State`
+	const valueName = "UEFISecureBootEnabled"
+
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, keyPath, registry.QUERY_VALUE)
+	if err != nil {
+		// Win7 或不支持 Secure Boot 的平台通常没有这个 key：当作 false，不报错
+		if errors.Is(err, registry.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	defer k.Close()
+
+	v, _, err := k.GetIntegerValue(valueName)
+	if err != nil {
+		if errors.Is(err, registry.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	return v != 0, nil
 }

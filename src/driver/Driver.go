@@ -12,11 +12,15 @@ import (
 	"syscall"
 	"unsafe"
 
+	D "ReSys/src/dism"
+	"ReSys/src/tools"
 	"ReSys/src/utils"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
+
+var dism, _ = D.GetDism()
 
 const (
 	DIGCF_PRESENT    = 0x00000002
@@ -168,7 +172,7 @@ func (s *setupAPI) getDeviceRegistryPropertyString(hDevInfo windows.Handle, devI
 			}
 			if regType == REG_MULTI_SZ {
 				u16 := bytesToUTF16Slice(buf, required)
-				parts := parseMultiSz(u16) // 解析 MULTI_SZ（双零结尾）为 []string
+				parts := utils.ParseMultiSz(u16) // 解析 MULTI_SZ（双零结尾）为 []string
 				if len(parts) > 0 {
 					return parts[0], regType, nil // 取第一个（和你 Rust 逻辑一致）
 				}
@@ -601,7 +605,7 @@ func (m *DriverManager) copyDriverPackage(infPath string, destDir string) error 
 	}
 
 	dstInf := filepath.Join(destDir, filepath.Base(infPath))
-	if err := Copy(infPath, dstInf, true, true); err != nil {
+	if err := tools.Copy(infPath, dstInf, true, true); err != nil {
 		return err
 	}
 	return tryCopyAssociatedFiles(infPath, destDir)
@@ -624,7 +628,7 @@ func copyDirRecursive(src, dst string) error {
 				return err
 			}
 		} else {
-			if err := Copy(sp, dp, true, true); err != nil {
+			if err := tools.Copy(sp, dp, true, true); err != nil {
 				return err
 			}
 		}
@@ -654,7 +658,7 @@ func tryCopyAssociatedFiles(infPath, destDir string) error {
 
 			src := filepath.Join(driversDir, fileName)
 			if _, err := os.Stat(src); err == nil {
-				_ = Copy(src, filepath.Join(destDir, fileName), true, true)
+				_ = tools.Copy(src, filepath.Join(destDir, fileName), true, true)
 			}
 		}
 	}
@@ -747,7 +751,7 @@ func dismAddDrivers(offlineRoot, sourceDir string) error {
 		"/Driver:" + sourceDir,
 		"/Recurse",
 	}
-	cmd := exec.Command(dism, args...) // ⚠️ dism 变量需要你定义（如 "dism.exe" 或系统路径）
+	cmd := exec.Command(dism, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
@@ -791,7 +795,7 @@ func (m *DriverManager) importDriversOfflineLegacy(offlineRoot, sourceDir string
 		oemInfPath := filepath.Join(infDir, oemInfName)
 		sourceInf := filepath.Join(targetStoreDir, infFilename)
 		if _, err := os.Stat(sourceInf); err == nil {
-			_ = Copy(sourceInf, oemInfPath, true, true)
+			_ = tools.Copy(sourceInf, oemInfPath, true, true)
 		}
 
 		_ = registerDriverServicesOffline(offlineRoot, targetStoreDir, infFilename, oemInfName)
@@ -840,7 +844,7 @@ func copySysFilesToDrivers(storeDir, driversDir string) error {
 			if _, err := os.Stat(dst); err == nil {
 				continue
 			}
-			_ = Copy(src, dst, true, true)
+			_ = tools.Copy(src, dst, true, true)
 		}
 	}
 	return nil

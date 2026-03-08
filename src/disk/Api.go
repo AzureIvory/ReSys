@@ -818,23 +818,6 @@ func getVolumeInfoByPath(root string) (fsType, label string, sizeBytes, freeByte
 	return fsType, label, total, freeAvail, nil
 }
 
-// parseMultiSz 将 Windows 的 REG_MULTI_SZ（MULTI_SZ）UTF-16 缓冲区解析为 []string。
-// 以 0 分隔字符串，以双 0 结尾。
-func parseMultiSz(buf []uint16) []string {
-	var out []string
-	start := 0
-	for i := 0; i < len(buf); i++ {
-		if buf[i] == 0 {
-			if i == start {
-				break
-			}
-			out = append(out, syscall.UTF16ToString(buf[start:i]))
-			start = i + 1
-		}
-	}
-	return out
-}
-
 // getVolumePathNames 获取卷对应的挂载点列表（盘符/目录挂载路径）。
 // 内部会按需扩容缓冲区并重试，最终返回解析后的 MULTI_SZ。
 func getVolumePathNames(volumeName string) ([]string, error) {
@@ -856,7 +839,7 @@ func getVolumePathNames(volumeName string) ([]string, error) {
 			uintptr(unsafe.Pointer(&retLen)),
 		)
 		if r != 0 {
-			return parseMultiSz(buf), nil
+			return utils.ParseMultiSz(buf), nil
 		}
 		if e == syscall.ERROR_MORE_DATA && retLen > size {
 			size = retLen

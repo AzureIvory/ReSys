@@ -6,24 +6,29 @@ import (
 	"ReSys/src/utils"
 	"debug/pe"
 	"fmt"
-	"runtime"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
 	"unsafe"
+
+	reg "golang.org/x/sys/windows/registry"
 )
-var(
-	version                 = syscall.NewLazyDLL("version.dll")
+
+var (
+	version                    = syscall.NewLazyDLL("version.dll")
 	procGetFileVersionInfoSize = version.NewProc("GetFileVersionInfoSizeW")
 	procGetFileVersionInfo     = version.NewProc("GetFileVersionInfoW")
 	procVerQueryValue          = version.NewProc("VerQueryValueW")
 )
-const(
+
+const (
 	HKEY_LOCAL_MACHINE = syscall.Handle(0x80000002)
 	KEY_READ           = 0x20019 // 标准 KEY_READ
 )
+
 // Windows 版本信息结构体
 type VS_FIXEDFILEINFO struct {
 	DwSignature        uint32
@@ -347,6 +352,7 @@ func GetNtdllVer(imageFile string, index uint32) (uint16, uint16, uint16, error)
 
 	return major, minor, build, nil
 }
+
 // 返回PE文件的Major(主版本), Minor(次版本), Build(编译号)
 func getFileVersion(filePath string) (uint16, uint16, uint16, error) {
 	pathPtr, err := syscall.UTF16PtrFromString(filePath)
@@ -397,4 +403,141 @@ func getFileVersion(filePath string) (uint16, uint16, uint16, error) {
 	build := uint16(fixedInfo.DwFileVersionLS >> 16) // 顺手把 Build 拿出来，区分 Win10/11 极度需要
 
 	return major, minor, build, nil
+}
+
+// IsWinPE 多特征启发式判断
+func IsWinPE() bool {
+	// 特征1/2：典型 PE 文件
+	if utils.FileExists(`X:\Windows\System32\drivers\fbwf.sys`) {
+		return true
+	}
+	if utils.FileExists(`X:\Windows\System32\winpeshl.ini`) {
+		return true
+	}
+
+	// 特征3：系统盘是 X:
+	if sd := os.Getenv("SystemDrive"); strings.EqualFold(sd, "X:") {
+		return true
+	}
+
+	// 特征4：X:\MININT
+	if utils.DirExists(`X:\MININT`) {
+		return true
+	}
+
+	// 特征5：MiniNT 注册表键
+	if registryKeyExistsHKLM(`SYSTEM\CurrentControlSet\Control\MiniNT`) {
+		return true
+	}
+
+	// 额外常见特征：SystemStartOptions 包含 MININT（一些 PE 会有）
+	if systemStartOptionsHasMinint() {
+		return true
+	}
+
+	// 额外常见特征：HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\WinPE（有的 PE 会写）
+	if registryKeyExistsHKLMAnyView(`SOFTWARE\Microsoft\Windows NT\CurrentVersion\WinPE`) {
+		return true
+	}
+
+	// 特征6：系统盘下也查一遍（兼容非 X: 的 PE/映射情况）
+	if sd := os.Getenv("SystemDrive"); sd != "" {
+		if utils.FileExists(filepath.Join(sd+`\`, `Windows\System32\drivers\fbwf.sys`)) ||
+			utils.FileExists(filepath.Join(sd+`\`, `Windows\System32\winpeshl.ini`)) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// 判断当前系统是不是带有 MININT 启动标记
+func systemStartOptionsHasMinint() bool {
+	const keyPath = `SYSTEM\CurrentControlSet\Control`
+	const valueName = "SystemStartOptions"
+
+	k, err := reg.OpenKey(reg.LOCAL_MACHINE, keyPath, reg.QUERY_VALUE)
+	if err != nil {
+		return false
+	}
+	defer k.Close()
+
+	s, _, err := k.GetStringValue(valueName)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.ToUpper(s), "MININT")
+}
+
+// 判断 HKLM 下某个注册表键是否存在
+func registryKeyExistsHKLM(path string) bool {
+	k, err := reg.OpenKey(reg.LOCAL_MACHINE, path, reg.READ)
+	if err != nil {
+		return false
+	}
+	_ = k.Close()
+	return true
+}
+
+// registryKeyExistsHKLMAnyView：
+// 32 位进程在 64 位系统上访问 HKLM\SOFTWARE 时会被重定向到 Wow6432Node，
+// 这个函数会优先尝试 64-bit view（WOW64_64KEY），再尝试默认 view。
+func registryKeyExistsHKLMAnyView(path string) bool {
+	access := uint32(reg.READ)
+
+	// 只有 SOFTWARE 类路径才会被 Wow64 重定向
+	isSoftware := strings.HasPrefix(strings.ToUpper(path), "SOFTWARE\\")
+	if isSoftware && utils.IsWOW64() {
+		k, err := reg.OpenKey(reg.LOCAL_MACHINE, path, access|reg.WOW64_64KEY)
+		if err == nil {
+			_ = k.Close()
+			return true
+		}
+	}
+	k, err := reg.OpenKey(reg.LOCAL_MACHINE, path, access)
+	if err == nil {
+		_ = k.Close()
+		return true
+	}
+	return false
+}
+
+// TPMEnabledAndVersion：
+// 1) 优先 WMI（最靠谱，能拿到 IsEnabled_InitialValue / SpecVersion）
+// 2) WMI 不可用（WinPE/裁剪系统）时，退回注册表设备枚举：
+//   - ACPI\MSFT0101 => 2.0
+//   - Root\SecurityDevices\0000 => 1.2
+//
+// 注意：注册表兜底更偏“设备存在/版本推断”，无法 100% 等价于“固件启用状态”。
+func TPMEnabledAndVersion() (bool, string, error) {
+	// 1) WMI
+	if enabled, ver, ok, err := tpmViaWMI(); ok {
+		return enabled, ver, err // err 通常为 nil；保留以便你记录诊断
+	}
+
+	// 2) Registry fallback
+	ver, present := tpmVersionViaRegistry()
+	if present {
+		// 兜底：能枚举到 TPM 设备，一般意味着系统能看到它；这里用 enabled=true 更贴近
+		return true, ver, nil
+	}
+	return false, "", nil
+}
+
+func tpmVersionViaRegistry() (version string, present bool) {
+	// TPM 2.0 常见枚举
+	if registryKeyExistsHKLM(`SYSTEM\CurrentControlSet\Enum\ACPI\MSFT0101`) {
+		return "2.0", true
+	}
+	// TPM 1.2 常见枚举
+	if registryKeyExistsHKLM(`SYSTEM\CurrentControlSet\Enum\Root\SecurityDevices\0000`) {
+		return "1.2", true
+	}
+	return "", false
+}
+
+// tpmViaWMI：用wmi检测 TPM 的启用状态和版本，理论上更准确（能区分固件启用状态和设备存在）
+// PE系统通常没有，此处占位保留
+func tpmViaWMI() (enabled bool, version string, ok bool, err error) {
+	return false, "", false, nil
 }

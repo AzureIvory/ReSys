@@ -251,3 +251,20 @@ func GetSystem32Dir() string {
 	}
 	return filepath.Join(windir, "System32")
 }
+
+// ParseMultiSz 将 Windows 的 REG_MULTI_SZ（MULTI_SZ）UTF-16 缓冲区解析为 []string。
+// 以 0 分隔字符串，以双 0 结尾。
+func ParseMultiSz(buf []uint16) []string {
+	var out []string
+	start := 0
+	for i := 0; i < len(buf); i++ {
+		if buf[i] == 0 {
+			if i == start {
+				break
+			}
+			out = append(out, syscall.UTF16ToString(buf[start:i]))
+			start = i + 1
+		}
+	}
+	return out
+}

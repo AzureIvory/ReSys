@@ -2,6 +2,7 @@ package main
 
 import (
 	"ReSys/src/disk"
+	"ReSys/src/download"
 	"ReSys/src/log"
 	"ReSys/src/tools"
 	"ReSys/src/utils"
@@ -370,7 +371,7 @@ func downloadImage(target, arch string) (string, error) {
 			if link == "" || isFailedLink(link) {
 				continue
 			}
-			if !httpStatus(link) {
+			if !download.HttpStatus(link) {
 				log.LogWrite(0, "[downloadImage]URL链接不可用：%s", link)
 				markFailedLink(link)
 				continue
@@ -413,7 +414,7 @@ func downloadImage(target, arch string) (string, error) {
 			)
 
 			ctx, cancel := context.WithCancel(context.Background())
-			err := DownloadFile(ctx, link, dstPath, func(pct float64, speed int64) {
+			err := download.DownloadFile(ctx, link, dstPath, func(pct float64, speed int64) {
 				pr.Update(pct, speed)
 			})
 			cancel()
@@ -480,7 +481,7 @@ func downloadImage(target, arch string) (string, error) {
 		lastLog := time.Time{}
 		lastUI := time.Time{}
 
-		realPath, err := DownloadBT(link, dstDir, func(pct int, speed, done, total int64) {
+		realPath, err := download.DownloadBT(link, dstDir, func(pct int, speed, done, total int64) {
 			now := time.Now()
 			if lastUI.IsZero() || now.Sub(lastUI) >= 1*time.Second || pct >= 100 {
 				uiSetStatus(fmt.Sprintf("正在下载镜像... %d%% 速度: %.2f MB/s", pct, float64(speed)/1024/1024))
@@ -544,7 +545,7 @@ func downloadImage(target, arch string) (string, error) {
 
 func validateImageFile(it WinImg, imagePath string) error {
 	if strings.TrimSpace(it.SHA1) != "" {
-		ok, got, err := CheckFileSHA1(imagePath, it.SHA1)
+		ok, got, err := download.CheckFileSHA1(imagePath, it.SHA1)
 		if err != nil {
 			return fmt.Errorf("SHA1校验失败: %w", err)
 		}
@@ -612,7 +613,7 @@ func pickWinImg(ent []WinImg) (WinImg, string, error) {
 			if isFailedLink(link) {
 				continue
 			}
-			if httpStatus(link) {
+			if download.HttpStatus(link) {
 				return it, link, nil
 			}
 		}
@@ -966,7 +967,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 			if isFailedLink(link) {
 				continue
 			}
-			if !httpStatus(link) {
+			if !download.HttpStatus(link) {
 				log.LogWrite(0, "[downloadPE]PE链接不可用：%s", link)
 				markFailedLink(link)
 				continue
@@ -1019,7 +1020,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 				// 下载
 				if !useExisting {
 					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
-					err := DownloadFile(ctx, link, exePath, func(pct float64, speed int64) {
+					err := download.DownloadFile(ctx, link, exePath, func(pct float64, speed int64) {
 						pr.Update(pct, speed)
 					})
 					cancel()
@@ -1056,7 +1057,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 				}
 				triedLink = true
 				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
-				err := DownloadFile(ctx, link, wimPath, func(pct float64, speed int64) {
+				err := download.DownloadFile(ctx, link, wimPath, func(pct float64, speed int64) {
 					pr.Update(pct, speed)
 				})
 				cancel()
@@ -1139,7 +1140,7 @@ func downloadPEFromLinks(links []string) (string, error) {
 
 	triedLink := false
 	for _, link := range out {
-		if !httpStatus(link) {
+		if !download.HttpStatus(link) {
 			log.LogWrite(0, "[downloadPEFromLinks]PE链接不可用：%s", link)
 			continue
 		}
@@ -1151,7 +1152,7 @@ func downloadPEFromLinks(links []string) (string, error) {
 		triedLink = true
 
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
-		err := DownloadFile(ctx, link, wimPath, func(pct float64, speed int64) {
+		err := download.DownloadFile(ctx, link, wimPath, func(pct float64, speed int64) {
 			pr.Update(pct, speed)
 		})
 		cancel()
