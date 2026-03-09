@@ -1,6 +1,7 @@
 package windows
 
 import (
+	"ReSys/src/disk"
 	"ReSys/src/registry"
 	"ReSys/src/tools"
 	"ReSys/src/utils"
@@ -540,4 +541,43 @@ func tpmVersionViaRegistry() (version string, present bool) {
 // PE系统通常没有，此处占位保留
 func tpmViaWMI() (enabled bool, version string, ok bool, err error) {
 	return false, "", false, nil
+}
+
+// 找系统分区
+func FindOS(hint string) (string, error) {
+	if hint != "" {
+		root, _ := utils.NormalizeDrive(hint, 0)
+		if root != "" {
+			if st, err := os.Stat(root + "Windows"); err == nil && st.IsDir() {
+				fmt.Println("[FindOS] use hint:", root)
+				return root, nil
+			}
+			fmt.Println("[FindOS] hint has no Windows dir:", root)
+		}
+	}
+
+	roots, err := disk.ListDrive()
+	if err != nil {
+		return "", fmt.Errorf("ListDrive: %w", err)
+	}
+
+	var cand string
+	for _, r := range roots {
+		dt := disk.GetDriveType(r)
+		// 跳过CD和网络盘
+		if dt != 3 && dt != 4 {
+			continue
+		}
+		root, _ := utils.NormalizeDrive(r, 0)
+		if st, err := os.Stat(root + "Windows"); err == nil && st.IsDir() {
+			cand = root
+			fmt.Println("[FindOS] found OS volume:", cand)
+			break
+		}
+	}
+
+	if cand == "" {
+		return "", fmt.Errorf("no volume with \\Windows found")
+	}
+	return cand, nil
 }

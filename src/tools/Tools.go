@@ -19,6 +19,7 @@ import (
 )
 
 var (
+	Kernel32               = syscall.NewLazyDLL("kernel32.dll")
 	ole32                  = syscall.NewLazyDLL("ole32.dll")
 	procCoInitializeEx     = ole32.NewProc("CoInitializeEx")
 	procCoUninitialize     = ole32.NewProc("CoUninitialize")
@@ -31,6 +32,7 @@ var (
 	procAdjustTokenPriv    = Advapi32.NewProc("AdjustTokenPrivileges")
 	Ntdll                  = syscall.NewLazyDLL("ntdll.dll")
 	procNtShutdownSystem   = Ntdll.NewProc("NtShutdownSystem")
+	procGlobalMemoryStatus = Kernel32.NewProc("GlobalMemoryStatusEx")
 )
 
 const (
@@ -127,6 +129,19 @@ type luidAndAttributes struct {
 type tokenPrivileges struct {
 	PrivilegeCount uint32
 	Privileges     [1]luidAndAttributes
+}
+
+// MEMORYSTATUSEX 结构体（内存）
+type memoryStatusEx struct {
+	dwLength                uint32
+	dwMemoryLoad            uint32
+	ullTotalPhys            uint64
+	ullAvailPhys            uint64
+	ullTotalPageFile        uint64
+	ullAvailPageFile        uint64
+	ullTotalVirtual         uint64
+	ullAvailVirtual         uint64
+	ullAvailExtendedVirtual uint64
 }
 
 // 执行外部命令，返回stdout+stderr
@@ -534,4 +549,22 @@ func CheckNetwork_DNS() bool {
 		}
 	}
 	return false
+}
+
+// 返回本机物理内存总量
+// 返回值GB
+func GetMemory() (float64, error) {
+	var m memoryStatusEx
+	m.dwLength = uint32(unsafe.Sizeof(m))
+
+	r1, _, e1 := procGlobalMemoryStatus.Call(uintptr(unsafe.Pointer(&m)))
+	if r1 == 0 {
+		if errno, ok := e1.(syscall.Errno); ok && errno != 0 {
+			return 0, errno
+		}
+		return 0, syscall.EINVAL
+	}
+
+	const gib = 1024 * 1024 * 1024
+	return float64(m.ullTotalPhys) / float64(gib), nil
 }

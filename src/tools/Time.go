@@ -36,7 +36,6 @@ type SYSTEMTIME struct {
 }
 
 var (
-	Kernel32          = syscall.NewLazyDLL("kernel32.dll")
 	procSetSystemTime = Kernel32.NewProc("SetSystemTime")
 )
 
