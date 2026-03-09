@@ -20,6 +20,10 @@ const (
 	winImgURL = "https://api.ttraw.com/Windows.json"
 	winPEURL  = "https://api.ttraw.com/WinPE.json"
 	peHtmlURL = "https://www.51cxsoft.com/EasyRC/PEDownload.html"
+	win10 = "https://api.ttraw.com/api/win/win10"
+	win11 = "https://api.ttraw.com/api/win/win11"
+	win10_1="https://api.hotpe.top/winnew/file-list?SystemCode=10"
+	win11_1="https://api.hotpe.top/winnew/file-list?SystemCode=11"
 )
 
 var hc = &http.Client{Timeout: 20 * time.Second}
