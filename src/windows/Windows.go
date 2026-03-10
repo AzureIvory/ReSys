@@ -2,6 +2,7 @@ package windows
 
 import (
 	"ReSys/src/disk"
+	"ReSys/src/log"
 	"ReSys/src/registry"
 	"ReSys/src/tools"
 	"ReSys/src/utils"
@@ -580,4 +581,28 @@ func FindOS(hint string) (string, error) {
 		return "", fmt.Errorf("no volume with \\Windows found")
 	}
 	return cand, nil
+}
+
+// 根据物理内存大小判断期望架构：
+// - <4GB 使用 32 位
+// - >=4GB 使用 64 位
+// - 获取失败默认 64 位
+// - win11 强制 64 位
+func DesiredArch() string {
+	version, _, _ := GetCurrentWinVersion()
+	if version == 11 {
+		return "64"
+	}
+	mem, err := tools.GetMemory()
+	log.LogWrite(0, "[desiredArch]物理内存大小：%d GB, err=%v", mem, err)
+	if err == nil {
+		// 判断是否小于 4GB
+		if mem < 4 {
+			return "32"
+		}
+		return "64" // >= 4GB
+	}
+
+	// 获取失败默认 64 位
+	return "64"
 }

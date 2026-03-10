@@ -3,6 +3,7 @@ package tools
 import (
 	"bytes"
 	"fmt"
+	"crypto/md5"
 	"net"
 	"os"
 	"os/exec"
@@ -567,4 +568,19 @@ func GetMemory() (float64, error) {
 
 	const gib = 1024 * 1024 * 1024
 	return float64(m.ullTotalPhys) / float64(gib), nil
+}
+
+// 计算文件 MD5 并与期望值比较。
+func MatchMD5(path, expect string) (bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	h := md5.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return false, err
+	}
+	got := fmt.Sprintf("%x", h.Sum(nil))
+	return strings.EqualFold(strings.TrimSpace(got), strings.TrimSpace(expect)), nil
 }

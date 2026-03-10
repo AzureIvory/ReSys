@@ -54,29 +54,7 @@ func isFailedLink(link string) bool {
 	return ok
 }
 
-// 根据物理内存大小判断期望架构：
-// - <4GB 使用 32 位
-// - >=4GB 使用 64 位
-// - 获取失败默认 64 位
-// - win11 强制 64 位
-func desiredArch() string {
-	version, _, _ := windows.GetCurrentWinVersion()
-	if version == 11 {
-		return "64"
-	}
-	mem, err := tools.GetMemory()
-	log.LogWrite(0, "[desiredArch]物理内存大小：%d GB, err=%v", mem, err)
-	if err == nil {
-		// 判断是否小于 4GB
-		if mem < 4 {
-			return "32"
-		}
-		return "64" // >= 4GB
-	}
 
-	// 获取失败默认 64 位
-	return "64"
-}
 
 // 从 UI 入口启动安装流程。
 // 搜索/下载镜像
@@ -84,7 +62,7 @@ func desiredArch() string {
 // 准备 PE 并重启进入 PE
 func StartInstall(target string) {
 	win2()
-	imgArch := desiredArch()
+	imgArch := windows.DesiredArch()
 	peArch := systemArch()
 	log.LogWrite(0, "[StartInstall]开始重装流程，目标系统=%s，镜像期望架构=%s，PE架构=%s", target, imgArch, peArch)
 	uiSetProgress(0)
@@ -841,20 +819,6 @@ func systemDriveRoot() string {
 	return ""
 }
 
-// IsWePE 检测当前运行环境是否为微PE。
-// 规则：系统盘的 Program Files 下存在 WepeGuide 目录则视为微PE。
-func IsWePE() bool {
-	root := systemDriveRoot()
-	if root == "" {
-		return false
-	}
-	wepeDir := filepath.Join(root, "Program Files", "WepeGuide")
-	if st, err := os.Stat(wepeDir); err == nil && st.IsDir() {
-		return true
-	}
-	return false
-}
-
 // 选择 PETEMP 所在盘符。
 func choosePETempRoot(needBytes int64) (string, error) {
 	systemDrive := strings.ToUpper(os.Getenv("SystemDrive"))
@@ -1003,7 +967,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 			)
 
 			if strings.HasSuffix(strings.ToLower(link), ".exe") && it.OffsetEnd > it.OffsetStart {
-				exeName := linkBaseName(link)
+				exeName := download.GetlinkName(link)
 				if exeName == "" {
 					exeName = "wepe.exe"
 				}
@@ -1012,7 +976,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 				useExisting := false
 				if utils.FileExists(exePath) {
 					if strings.TrimSpace(it.MD5) != "" {
-						ok, merr := matchMD5(exePath, it.MD5)
+						ok, merr := tools.MatchMD5(exePath, it.MD5)
 						if merr == nil && ok {
 							log.LogWrite(0, "[downloadPE]复用已存在WEPE安装包：%s", exePath)
 							useExisting = true
@@ -1043,7 +1007,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 
 					// 下载后校验 MD5
 					if strings.TrimSpace(it.MD5) != "" {
-						ok, merr := matchMD5(exePath, it.MD5)
+						ok, merr := tools.MatchMD5(exePath, it.MD5)
 						if merr != nil || !ok {
 							markFailedLink(link)
 							log.LogWrite(0, "[downloadPE]PE下载后MD5校验失败：%s", exePath)
@@ -1250,7 +1214,7 @@ func tryLocalWepe(wepe []WinPEImg, arch string) (string, error) {
 				continue
 			}
 			if strings.TrimSpace(it.img.MD5) != "" {
-				ok, err := matchMD5(candPath, it.img.MD5)
+				ok, err := tools.MatchMD5(candPath, it.img.MD5)
 				if err != nil || !ok {
 					log.LogWrite(0, "[tryLocalWepe]WEPE MD5 校验失败：%s", candPath)
 					continue
@@ -1303,20 +1267,7 @@ func localWepeSearchDirs() []string {
 	return out
 }
 
-// 计算文件 MD5 并与期望值比较。
-func matchMD5(path, expect string) (bool, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return false, err
-	}
-	defer f.Close()
-	h := md5.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return false, err
-	}
-	got := fmt.Sprintf("%x", h.Sum(nil))
-	return strings.EqualFold(strings.TrimSpace(got), strings.TrimSpace(expect)), nil
-}
+
 
 // RunPEInstall：在 PE 模式执行安装流程。
 // 1) 读取 restall_win.dat，定位镜像
@@ -1329,7 +1280,7 @@ func RunPEInstall() error {
 	uiSetProgress(0)
 	uiSetStatus("正在读取重装信息...")
 	log.LogWrite(0, "[RunPEInstall]进入PE安装流程")
-	isWePE := IsWePE()
+	isWePE := pe.IsWePE()
 	if isWePE {
 		log.LogWrite(0, "[RunPEInstall]检测到微PE环境，使用非EX的分区工具调用")
 	}
@@ -1732,19 +1683,6 @@ func mapPct(base, span int32, pct float64) int32 {
 	return base + int32(pct*float64(span)/100.0+0.5)
 }
 
-// 取下载链接的文件名
-func linkBaseName(link string) string {
-	raw := strings.TrimSpace(link)
-	if raw == "" {
-		return ""
-	}
-	raw = strings.SplitN(raw, "?", 2)[0]
-	base := filepath.Base(raw)
-	if base == "" || base == "." || base == "/" {
-		return ""
-	}
-	return base
-}
 
 type ProgressReporter struct {
 	base, span int32

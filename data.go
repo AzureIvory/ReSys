@@ -20,10 +20,10 @@ const (
 	winImgURL = "https://api.ttraw.com/Windows.json"
 	winPEURL  = "https://api.ttraw.com/WinPE.json"
 	peHtmlURL = "https://www.51cxsoft.com/EasyRC/PEDownload.html"
-	win10 = "https://api.ttraw.com/api/win/win10"
-	win11 = "https://api.ttraw.com/api/win/win11"
-	win10_1="https://api.hotpe.top/winnew/file-list?SystemCode=10"
-	win11_1="https://api.hotpe.top/winnew/file-list?SystemCode=11"
+	win10     = "https://api.ttraw.com/api/win/win10"
+	win11     = "https://api.ttraw.com/api/win/win11"
+	win10_1   = "https://api.hotpe.top/winnew/file-list?SystemCode=10"
+	win11_1   = "https://api.hotpe.top/winnew/file-list?SystemCode=11"
 )
 
 var hc = &http.Client{Timeout: 20 * time.Second}
@@ -37,6 +37,38 @@ type WinImg struct {
 	Size  float64 `json:"size"`
 	Index int     `json:"index"`
 	File  string  `json:"file"`
+}
+
+// win10/win11
+type MSWinSourceResp struct {
+	State string      `json:"state"`
+	Data  []MSWinItem `json:"data"`
+}
+
+type MSWinItem struct {
+	FileName     string `json:"FileName"`
+	LanguageCode string `json:"LanguageCode"`
+	Language     string `json:"Language"`
+	Edition      string `json:"Edition"`
+	Architecture string `json:"Architecture"`
+	Size         string `json:"Size"`
+	Sha1         string `json:"Sha1"`
+	FilePath     string `json:"FilePath"`
+	SystemCode   string `json:"SystemCode"`
+	Sha256       string `json:"Sha256"`
+}
+
+type MSWinURL struct {
+	URL          string
+	SHA1         string
+	SHA256       string
+	Language     string
+	LanguageCode string
+	Architecture string
+	Size         int64
+	Edition      string
+	FileName     string
+	SystemCode   string
 }
 
 // getb 函数。
@@ -619,4 +651,103 @@ func PELnk() (string, float64, []string, error) {
 		return pes[bi].Name, pes[bi].Sz, pes[bi].Links, nil
 	}
 	return "", 0, nil, fmt.Errorf("未找到可用 PE 镜像")
+}
+
+func GetMSWinUrl(system, language, arch, edition string) ([]MSWinURL, error) {
+	var srcs []string
+	switch system {
+	case "10":
+		srcs = []string{win10, win10_1}
+	case "11":
+		srcs = []string{win11, win11_1}
+	default:
+		return nil, fmt.Errorf("不支持的系统类型: %s", system)
+	}
+
+	out := make([]MSWinURL, 0, 8)
+	seen := make(map[string]bool)
+	var errs []string
+	var gotAnySource bool
+
+	for _, u := range srcs {
+		b, err := getb(u)
+		if err != nil {
+			//log.LogWrite(0, "[GetMSWinUrl] 请求失败: url=%s err=%v", u, err)
+			errs = append(errs, fmt.Sprintf("%s: %v", u, err))
+			continue
+		}
+
+		var resp MSWinSourceResp
+		if err := json.Unmarshal(b, &resp); err != nil {
+			//log.LogWrite(0, "[GetMSWinUrl] 解析JSON失败: url=%s err=%v", u, err)
+			errs = append(errs, fmt.Sprintf("%s: 解析JSON失败: %v", u, err))
+			continue
+		}
+
+		if resp.State != "" && resp.State != "success" {
+			//log.LogWrite(0, "[GetMSWinUrl] 接口返回非success: url=%s state=%s", u, resp.State)
+			errs = append(errs, fmt.Sprintf("%s: state=%s", u, resp.State))
+			continue
+		}
+
+		gotAnySource = true
+
+		for _, it := range resp.Data {
+			if it.SystemCode != system {
+				continue
+			}
+			if it.LanguageCode != language {
+				continue
+			}
+			if it.Architecture != arch {
+				continue
+			}
+			if edition != "" && it.Edition != edition {
+				continue
+			}
+
+			var sz int64
+			if strings.TrimSpace(it.Size) != "" {
+				n, err := strconv.ParseInt(strings.TrimSpace(it.Size), 10, 64)
+				if err != nil {
+					//log.LogWrite(0, "[GetMSWinUrl] 解析Size失败: file=%s size=%s err=%v", it.FileName, it.Size, err)
+					continue
+				}
+				sz = n
+			}
+
+			// 双源去重：同一文件可能两个源都返回
+			key := it.FilePath + "|" + it.Sha1 + "|" + it.FileName
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+
+			out = append(out, MSWinURL{
+				URL:          it.FilePath,
+				SHA1:         it.Sha1,
+				SHA256:       it.Sha256,
+				Language:     it.Language,
+				LanguageCode: it.LanguageCode,
+				Architecture: it.Architecture,
+				Size:         sz,
+				Edition:      it.Edition,
+				FileName:     it.FileName,
+				SystemCode:   it.SystemCode,
+			})
+		}
+	}
+
+	if len(out) > 0 {
+		return out, nil
+	}
+
+	if !gotAnySource {
+		return nil, fmt.Errorf("获取微软系统镜像失败: %s", strings.Join(errs, "; "))
+	}
+
+	if edition == "" {
+		return nil, fmt.Errorf("未找到匹配镜像: system=%s language=%s arch=%s", system, language, arch)
+	}
+	return nil, fmt.Errorf("未找到匹配镜像: system=%s language=%s arch=%s edition=%s", system, language, arch, edition)
 }

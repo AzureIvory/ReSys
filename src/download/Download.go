@@ -433,3 +433,17 @@ func CheckFileSHA1(path, sha1Hex string) (bool, string, error) {
 	ok := (got == exp)
 	return ok, got, nil
 }
+
+// 取下载链接的文件名
+func GetlinkName(link string) string {
+	raw := strings.TrimSpace(link)
+	if raw == "" {
+		return ""
+	}
+	raw = strings.SplitN(raw, "?", 2)[0]
+	base := filepath.Base(raw)
+	if base == "" || base == "." || base == "/" {
+		return ""
+	}
+	return base
+}
