@@ -1,0 +1,21 @@
+LIBRARY wimbridge
+EXPORTS
+    WimBridge_Load
+    WimBridge_Unload
+    WimBridge_OpenWim
+    WimBridge_CloseWim
+    WimBridge_VerifyWim
+    WimBridge_GetWimInfo
+    WimBridge_GetImageName
+    WimBridge_GetImageDescription
+    WimBridge_GetXMLUtf8
+    WimBridge_FreeBuffer
+    WimBridge_Apply
+    WimBridge_ExtractPathList
+    WimBridge_ListPaths
+    WimBridge_FreeDirEntries
+    WimBridge_UpdateAdd
+    WimBridge_UpdateDelete
+    WimBridge_UpdateRename
+    WimBridge_Overwrite
+    WimBridge_GetLastErrorStringW
