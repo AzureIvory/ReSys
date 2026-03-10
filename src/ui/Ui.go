@@ -18,6 +18,13 @@ import (
 
 	"golang.org/x/sys/windows"
 )
+const (
+	targetWin7  = "win7"
+	targetWin10 = "win10"
+	targetWin11 = "win11"
+)
+
+var StartInstall = func(target string) {}
 
 const drawTextAutoLen = uintptr(^uint32(0)) // 0xFFFFFFFF，相当于 int32(-1)
 const LOGPIXELSY = 90                       // 用于获取垂直方向的逻辑 DPI
@@ -493,7 +500,7 @@ func uiSwitchToProgress() {
 }
 
 // win2 函数。
-func win2() {
+func Win2() {
 	uiSwitchToProgress()
 }
 
@@ -1175,7 +1182,7 @@ func layoutSelect(w, h int32) {
 	ui.btnAdv = Button{
 		R:    Rect{X: w - advW - dp(20), Y: dp(20), W: advW, H: advH},
 		Text: "高级模式", Icon: 0, Visible: true, Enabled: true,
-		OnClick: func() { uiSetStatus("高级模式：TODO") },
+		OnClick: func() { UiSetStatus("高级模式：TODO") },
 	}
 }
 
@@ -1322,8 +1329,8 @@ var wndProc = windows.NewCallback(func(hwnd uintptr, msg uint32, wParam, lParam 
 				procSetTimer.Call(hwnd, 1, uintptr(ui.frames[0].DelayMs), 0)
 				ui.timerOn = true
 			}
-			uiSetProgress(0)
-			uiSetStatus("正在寻找镜像...")
+			UiSetProgress(0)
+			UiSetStatus("正在寻找镜像...")
 		} else {
 			if ui.timerOn {
 				procKillTimer.Call(hwnd, 1)

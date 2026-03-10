@@ -7,6 +7,7 @@ import (
 	D "ReSys/src/dism"
 	"ReSys/src/log"
 	"ReSys/src/tools"
+	"ReSys/src/ui"
 	"ReSys/src/utils"
 )
 
@@ -49,10 +50,10 @@ func GetBootMode() (int, int) {
 
 // pe专用
 func PE() int {
-	win2()
+	ui.Win2()
 
 	if err := RunPEInstall(); err != nil {
-		uiShowError("错误", err.Error())
+		ui.UiShowError("错误", err.Error())
 		os.Exit(-1)
 		return -1
 	}
@@ -68,11 +69,11 @@ func main() {
 	if dism == "" {
 		dism = "dism.exe"
 	}
-	Uiinit()
+	ui.Uiinit()
 	//判断是否在PE
 	if strings.ToUpper(os.Getenv("SystemRoot")) == `X:\WINDOWS` {
 		go PE()
 	}
 	log.LogWrite(0, "[main]Run\n")
-	UiRun()
+	ui.UiRun()
 }

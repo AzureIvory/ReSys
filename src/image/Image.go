@@ -1,23 +1,23 @@
 package image
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
-	"fmt"
 	"time"
 
-
-	"ReSys/src/disk"
 	"ReSys/src/data"
-	"ReSys/src/log"
+	"ReSys/src/disk"
 	"ReSys/src/dism"
 	"ReSys/src/file"
+	"ReSys/src/log"
 
 	"github.com/kdomanski/iso9660"
 )
+
 const (
 	targetWin7  = "win7"
 	targetWin10 = "win10"
@@ -83,7 +83,7 @@ func Findimg() ([]string, error) {
 
 	for _, root := range drives {
 		root := root
-		if disk.GetDriveType(root) == 5 {//5=driveCdrom光盘
+		if disk.GetDriveType(root) == 5 { //5=driveCdrom光盘
 			continue
 		}
 		for _, pattern := range patterns {
@@ -180,6 +180,7 @@ func Findimg() ([]string, error) {
 	}
 	return files, firstErr
 }
+
 // 在全盘搜索镜像并按目标系统/架构筛选。
 // 规则：
 // - 优先匹配目标系统（win7/win10/win11）

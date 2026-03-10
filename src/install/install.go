@@ -3,6 +3,7 @@ package install
 import (
 	"ReSys/src/data"
 	"ReSys/src/disk"
+	"ReSys/src/dism"
 	"ReSys/src/download"
 	"ReSys/src/file"
 	"ReSys/src/image"
@@ -1282,4 +1283,311 @@ func ChoosePETempRoot(needBytes int64) (string, error) {
 		return systemDrive + `\`, nil
 	}
 	return "", fmt.Errorf("未找到可用分区")
+}
+
+// 扫描当前磁盘是否已存在可用 PE 引导文件。
+func hasPEFiles(arch string) (bool, string, string) {
+	drives, err := disk.ListDrive()
+	if err != nil {
+		log.LogWrite(0, "[hasPEFiles]枚举盘符失败：%v", err)
+		return false, "", ""
+	}
+
+	for _, d := range drives {
+		wims, _ := file.FindFile(d, `PETEMP\*.wim|PETEMP\*.WIM`, 1)
+		sdis, _ := file.FindFile(d, `PETEMP\*.sdi|PETEMP\*.SDI`, 1)
+		if len(wims) > 0 {
+			wim := pe.ChooseBestWim(wims, arch)
+			sdi := ""
+			if len(sdis) > 0 {
+				sdi = sdis[0]
+			}
+			log.LogWrite(0, "[hasPEFiles]发现PETEMP中的PE文件：wim=%s sdi=%s", wim, sdi)
+			return true, wim, sdi
+		}
+	}
+
+	type pair struct{ sdi, wim string }
+	opts := []pair{
+		{`FirPE\BOOT.SDI`, `FirPE\11PEX64.WIM`},
+		{`FirPE\BOOT.SDI`, `FirPE\11PEX86.WIM`},
+		{`WEPE\WEPE.SDI`, `WEPE\WEPE64.WIM`},
+		{`WEPE\WEPE.SDI`, `WEPE\WEPE32.WIM`},
+		{`HotPE\boot.sdi`, `HotPE\Boot.wim`},
+		{`boot\boot.sdi`, `boot\11pex64.wim`},
+		{`boot\boot.sdi`, `boot\11pex86.wim`},
+	}
+
+	var wimCands []string
+	sdiMap := map[string]string{}
+
+	for _, d := range drives {
+		for _, o := range opts {
+			wp := filepath.Join(d, o.wim)
+			sp := filepath.Join(d, o.sdi)
+			if utils.FileExists(wp) {
+				wimCands = append(wimCands, wp)
+				if utils.FileExists(sp) {
+					sdiMap[wp] = sp
+				} else {
+					sdiMap[wp] = ""
+				}
+			}
+		}
+	}
+
+	if len(wimCands) == 0 {
+		return false, "", ""
+	}
+
+	bestWim := pe.ChooseBestWim(wimCands, arch)
+	bestSdi := sdiMap[bestWim]
+	log.LogWrite(0, "[hasPEFiles]发现已有PE文件：wim=%s sdi=%s", bestWim, bestSdi)
+	return true, bestWim, bestSdi
+}
+
+// 优先在运行目录和用户下载目录中查找 WEPE 安装包。
+func tryLocalWepe(wepe []data.WinPEImg, arch string) (string, error) {
+	type cand struct {
+		img  data.WinPEImg
+		name string
+	}
+	var all []cand
+	for _, it := range wepe {
+		for _, link := range it.Links {
+			base := filepath.Base(strings.Split(link, "?")[0])
+			if base == "" || base == "." || base == "/" {
+				continue
+			}
+			all = append(all, cand{img: it, name: base})
+			break
+		}
+	}
+	if len(all) == 0 {
+		return "", fmt.Errorf("未找到可用WEPE列表")
+	}
+
+	preferredArch := arch
+	order := func(list []cand) []cand {
+		var a, b []cand
+		for _, it := range list {
+			if strings.TrimSpace(it.img.Arch) == preferredArch {
+				a = append(a, it)
+			} else {
+				b = append(b, it)
+			}
+		}
+		return append(a, b...)
+	}
+	all = order(all)
+
+	searchDirs := localWepeSearchDirs()
+	log.LogWrite(0, "[tryLocalWepe]本地WEPE搜索目录：%s", strings.Join(searchDirs, " | "))
+	for _, dir := range searchDirs {
+		if dir == "" {
+			continue
+		}
+		for _, it := range all {
+			candPath := filepath.Join(dir, it.name)
+			if !utils.FileExists(candPath) {
+				continue
+			}
+			if strings.TrimSpace(it.img.MD5) != "" {
+				ok, err := tools.MatchMD5(candPath, it.img.MD5)
+				if err != nil || !ok {
+					log.LogWrite(0, "[tryLocalWepe]WEPE MD5 校验失败：%s", candPath)
+					continue
+				}
+			}
+			needBytes := int64(it.img.Sz * 1024 * 1024)
+			root, err := ChoosePETempRoot(needBytes * 2)
+			if err != nil {
+				return "", err
+			}
+			peDir := filepath.Join(root, "PETEMP")
+			if err := file.EnsureCleanDir(peDir); err != nil {
+				return "", err
+			}
+			wimPath := filepath.Join(peDir, "boot.wim")
+			if it.img.OffsetEnd > it.img.OffsetStart {
+				if err := file.PeelFile(candPath, fmt.Sprintf("%d", it.img.OffsetStart), fmt.Sprintf("%d", it.img.OffsetEnd), wimPath); err != nil {
+					continue
+				}
+			} else {
+				if err := file.Copy(candPath, wimPath, true, true); err != nil {
+					continue
+				}
+			}
+			if err := copySDIToPETEMP(peDir); err != nil {
+				return "", err
+			}
+			log.LogWrite(0, "[tryLocalWepe]本地WEPE准备完成：%s", wimPath)
+			return wimPath, nil
+		}
+	}
+	return "", fmt.Errorf("未找到本地WEPE")
+}
+
+// 返回本地 WEPE 搜索目录。
+func localWepeSearchDirs() []string {
+	var out []string
+	exe, err := os.Executable()
+	if err == nil {
+		out = append(out, filepath.Dir(exe))
+	}
+	userProfile := strings.TrimSpace(os.Getenv("USERPROFILE"))
+	if userProfile != "" {
+		out = append(out, filepath.Join(userProfile, "Downloads"))
+	}
+	drives, _ := disk.ListDrive()
+	for _, d := range drives {
+		out = append(out, filepath.Join(d, "PETEMP"))
+	}
+	return out
+}
+
+// 选择安装目标分区。
+func chooseInstallTargetRoot() string {
+	parts := disk.Findpart()
+	if len(parts) > 0 {
+		log.LogWrite(0, "[chooseInstallTargetRoot]选择未装系统分区：%s", parts[0])
+		if nr, err := utils.NormalizeDrive(parts[0], 0); err == nil {
+			return nr
+		}
+		return ""
+	}
+	drives, _ := disk.ListDrive()
+	for _, d := range drives {
+		if strings.HasPrefix(strings.ToUpper(d), "X:") {
+			continue
+		}
+		if disk.GetDriveType(d) == 3 {
+			log.LogWrite(0, "[chooseInstallTargetRoot]回退选择固定盘分区：%s", d)
+			if nr, err := utils.NormalizeDrive(d, 0); err == nil {
+				return nr
+			}
+			return ""
+		}
+	}
+	return ""
+}
+
+// 列出除目标分区外的其他固定磁盘分区。
+func otherInstallVolumes(targetRoot string) []string {
+	drives, _ := disk.ListDrive()
+	var out []string
+	for _, d := range drives {
+		root, _ := utils.NormalizeDrive(d, 0)
+		if root == "" || strings.EqualFold(root, targetRoot) {
+			continue
+		}
+		if disk.GetDriveType(root) == 3 {
+			out = append(out, root)
+		}
+	}
+	return out
+}
+
+// 安装完成后的文件处理。
+func postInstallTasks(targetRoot, targetOS string) error {
+	selfExe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	baseDir := filepath.Dir(selfExe)
+
+	unattend := filepath.Join(baseDir, "tools", "win10.xml")
+	if targetOS == TargetWin7 {
+		unattend = filepath.Join(baseDir, "tools", "win7.xml")
+	}
+	_ = file.Copy(unattend, filepath.Join(targetRoot, "Windows", "Panther", "Unattend.xml"), true, true)
+	_ = file.Copy(filepath.Join(baseDir, "tools", "HEU_KMS_Activator.exe"), filepath.Join(targetRoot, "HEU_KMS_Activator.exe"), true, true)
+	_, _ = tools.CreateShortcut(filepath.Join(targetRoot, "Users", "Public", "Desktop")+`\\`, "应用商店", "https://store.ttraw.com")
+	log.LogWrite(0, "[postInstallTasks]已写入应答文件/激活工具/快捷方式")
+
+	driveExe := filepath.Join(baseDir, "tools", "drive.exe")
+	if utils.FileExists(driveExe) {
+		_ = file.Copy(driveExe, filepath.Join(targetRoot, "drive.exe"), true, true)
+	}
+	log.LogWrite(0, "[postInstallTasks]驱动安装工具准备完成")
+	return nil
+}
+
+// 格式化镜像索引信息用于日志输出。
+func formatImageInfos(infos []dism.ImageMeta) string {
+	var parts []string
+	for _, info := range infos {
+		parts = append(parts, fmt.Sprintf("Index=%d Name=%s Desc=%s Edition=%s Flags=%s Arch=%s",
+			info.Index, info.Name, info.Description, info.Edition, info.Flags, info.Arch))
+	}
+	return strings.Join(parts, " | ")
+}
+
+// 按优先级选择镜像索引。
+func selectInstallIndex(infos []dism.ImageMeta) int {
+	if len(infos) == 0 {
+		return 1
+	}
+	preferred := []string{
+		"旗舰版", "ultimate",
+		"专业工作站", "professional workstation", "pro workstation",
+		"专业教育", "professional education", "pro education",
+		"专业版", "professional", "pro",
+		"家庭版", "home",
+		"企业版", "enterprise",
+		"教育版", "education",
+		"家庭高级版", "home premium",
+		"家庭普通版", "home basic",
+		"纯净版", "clean",
+	}
+	for _, key := range preferred {
+		for _, info := range infos {
+			if !info.IsOS {
+				continue
+			}
+			text := strings.ToLower(info.Name + " " + info.Description + " " + info.Edition + " " + info.Flags)
+			if strings.Contains(text, strings.ToLower(key)) {
+				return info.Index
+			}
+		}
+	}
+	return infos[len(infos)-1].Index
+}
+
+// 统一重试执行器。
+func retryLoop(title string, fn func() error) bool {
+	for attempt := 0; ; attempt++ {
+		if err := fn(); err == nil {
+			return true
+		} else {
+			log.LogWrite(0, "[retryLoop]%s失败：%v", title, err)
+			time.Sleep(2 * time.Second)
+			if attempt == 0 {
+				log.LogWrite(0, "[retryLoop]%s失败，自动重试一次", title)
+				continue
+			}
+			ui.UiShowError("错误", title+"失败："+err.Error())
+			os.Exit(-1)
+			return false
+		}
+	}
+}
+
+func retryLoopWithResult[T any](title string, fn func() (T, error)) (T, bool) {
+	var zero T
+	for attempt := 0; ; attempt++ {
+		v, err := fn()
+		if err == nil {
+			return v, true
+		}
+		log.LogWrite(0, "[retryLoop]%s失败：%v", title, err)
+		time.Sleep(2 * time.Second)
+		if attempt == 0 {
+			log.LogWrite(0, "[retryLoop]%s失败，自动重试一次", title)
+			continue
+		}
+		ui.UiShowError("错误", title+"失败："+err.Error())
+		os.Exit(-1)
+		return zero, false
+	}
 }

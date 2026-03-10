@@ -3,24 +3,26 @@ package image
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 	"syscall"
 	"time"
 	"unsafe"
-	"io"
-	"strings"
 
-	"github.com/kdomanski/iso9660/util"
 	"github.com/kdomanski/iso9660"
+	"github.com/kdomanski/iso9660/util"
 
 	"ReSys/src/disk"
 	"ReSys/src/log"
 )
-var(
-	Shell32            = syscall.NewLazyDLL("shell32.dll")
-	procShellExecuteW     = Shell32.NewProc("ShellExecuteW")
+
+var (
+	Shell32           = syscall.NewLazyDLL("shell32.dll")
+	procShellExecuteW = Shell32.NewProc("ShellExecuteW")
 )
-const(
+
+const (
 	swHide = 0 //挂载
 )
 

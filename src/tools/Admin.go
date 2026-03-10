@@ -27,6 +27,7 @@ var (
 	procGetCurrentProcess   = Shell32.NewProc("GetCurrentProcess")
 	procCloseHandle         = Shell32.NewProc("CloseHandle")
 	procGetTokenInformation = Shell32.NewProc("GetTokenInformation")
+	procShellExecuteW       = Shell32.NewProc("ShellExecuteW")
 )
 
 // 是否是管理员权限运行
