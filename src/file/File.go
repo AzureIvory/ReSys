@@ -3,6 +3,7 @@ package file
 import (
 	"ReSys/src/boot"
 	"ReSys/src/disk"
+	"ReSys/src/log"
 	"errors"
 	"fmt"
 	"io"
@@ -602,4 +603,13 @@ func FindFileAll(pattern string, maxDepth int) []string {
 	}
 	sort.Strings(dedup)
 	return dedup
+}
+
+// 创建指定目录
+func EnsureCleanDir(dir string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	log.LogWrite(0, "[ensureCleanDir]准备PETEMP目录：%s", dir)
+	return nil
 }

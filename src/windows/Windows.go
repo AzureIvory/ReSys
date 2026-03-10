@@ -137,13 +137,13 @@ func DetectWin(drive string) (string, error) {
 		}
 	}
 
-	arch := detectArch(root, hasPFx86, hasSysWOW, systemLoaded)
+	arch := DetectArch(root, hasPFx86, hasSysWOW, systemLoaded)
 
 	return fmt.Sprintf("%s %s", osName, arch), nil
 }
 
 // 推测指定盘符的系统架构（32/64）
-func detectArch(root string, hasPFx86, hasSysWOW, systemLoaded bool) string {
+func DetectArch(root string, hasPFx86, hasSysWOW, systemLoaded bool) string {
 	if hasPFx86 || hasSysWOW {
 		return "x64"
 	}
@@ -605,4 +605,31 @@ func DesiredArch() string {
 
 	// 获取失败默认 64 位
 	return "64"
+}
+
+
+// 获取系统盘根路径（例如 C:\）。
+func SystemDriveRoot() string {
+	drive := strings.TrimSpace(os.Getenv("SystemDrive"))
+	if drive == "" {
+		windir := utils.WindowsDir()
+		if windir != "" {
+			drive = filepath.VolumeName(windir)
+		}
+	}
+	drive = strings.TrimSpace(drive)
+	if drive == "" {
+		return ""
+	}
+	drive = strings.TrimRight(drive, `\`)
+	if strings.HasSuffix(drive, ":") {
+		return drive + `\`
+	}
+	if len(drive) == 1 {
+		return strings.ToUpper(drive) + `:\`
+	}
+	if vol := filepath.VolumeName(drive); vol != "" {
+		return vol + `\`
+	}
+	return ""
 }

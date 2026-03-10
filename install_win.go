@@ -35,7 +35,7 @@ type WinInstallPrepareResult struct {
 // 6) 仍未找到则下载 PE。
 func PrepareWindowsInstallForCompare(target string) (*WinInstallPrepareResult, error) {
 	imgArch := windows.DesiredArch()
-	peArch := systemArch()
+	peArch := windows.SystemArch()
 
 	imgPath, ok := PrepareInstallImagePlanForCompare(target, imgArch)
 	if !ok {

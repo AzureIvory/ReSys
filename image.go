@@ -139,30 +139,7 @@ func finalizeImageMeta(m *D.ImageMeta) {
 	m.IsOS = isClientOrServer && !isPEInstall && !isPEEdition && !isSetupName
 }
 
-// 从 WIM/ESD 或 ISO 中读取镜像元数据。
-func detectImageInfos(imagePath string) ([]D.ImageMeta, error) {
-	ext := strings.ToLower(filepath.Ext(imagePath))
-	if ext != ".iso" {
-		return Dism.ListImageInfos(imagePath)
-	}
-	isoRoot, err := image.MountISO(imagePath, 30*time.Second)
-	if err != nil {
-		return nil, err
-	}
-	installPath := filepath.Join(isoRoot, "sources", "install.wim")
-	if _, err := os.Stat(installPath); err != nil {
-		installPath = filepath.Join(isoRoot, "sources", "install.esd")
-	}
-	if _, err := os.Stat(installPath); err != nil {
-		found, err := file.FindFile(isoRoot, "install.wim|install.esd", 3)
-		if err != nil || len(found) == 0 {
-			return nil, fmt.Errorf("ISO中未找到安装镜像")
-		}
-		sort.Strings(found)
-		installPath = found[0]
-	}
-	return Dism.ListImageInfos(installPath)
-}
+
 
 // 按优先级选择镜像索引
 func selectInstallIndex(infos []D.ImageMeta) int {
@@ -197,80 +174,8 @@ func selectInstallIndex(infos []D.ImageMeta) int {
 	return infos[len(infos)-1].Index
 }
 
-// 从镜像元信息中推测目标系统类型。
-func detectTargetFromInfos(infos []D.ImageMeta) string {
-	if len(infos) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	for _, info := range infos {
-		b.WriteString(info.Name)
-		b.WriteString(" ")
-		b.WriteString(info.Description)
-		b.WriteString(" ")
-		b.WriteString(info.Edition)
-		b.WriteString(" ")
-		b.WriteString(info.Flags)
-		b.WriteString(" ")
-	}
-	s := strings.ToLower(b.String())
-	switch {
-	case strings.Contains(s, "windows 7") || strings.Contains(s, "win7"):
-		return targetWin7
-	case strings.Contains(s, "windows 11") || strings.Contains(s, "win11"):
-		return targetWin11
-	case strings.Contains(s, "windows 10") || strings.Contains(s, "win10"):
-		return targetWin10
-	default:
-		return ""
-	}
-}
 
-// 尝试从镜像元数据推测架构，失败再从文件名推测。
-func imageArchHint(imagePath string) string {
-	infos, err := detectImageInfos(imagePath)
-	if err == nil {
-		for _, info := range infos {
-			arch := strings.ToLower(info.Arch)
-			switch {
-			case strings.Contains(arch, "x64"), strings.Contains(arch, "amd64"), strings.Contains(arch, "64"):
-				return "64"
-			case strings.Contains(arch, "x86"), strings.Contains(arch, "32"):
-				return "32"
-			}
-		}
-	}
-	name := strings.ToLower(imagePath)
-	if strings.Contains(name, "x64") || strings.Contains(name, "amd64") || strings.Contains(name, "64") {
-		return "64"
-	}
-	if strings.Contains(name, "x86") || strings.Contains(name, "32") {
-		return "32"
-	}
-	return ""
-}
 
-// 判断镜像是否匹配目标系统（win7/win10/win11）。
-func targetMatchesImage(imagePath, target string) bool {
-	target = strings.ToLower(strings.TrimSpace(target))
-	if target == "" {
-		return true
-	}
-	infos, err := detectImageInfos(imagePath)
-	if err == nil {
-		if t := detectTargetFromInfos(infos); t != "" {
-			return t == target
-		}
-	}
-	name := strings.ToLower(imagePath)
-	switch target {
-	case targetWin7:
-		return strings.Contains(name, "win7") || strings.Contains(name, "windows 7")
-	case targetWin10:
-		return strings.Contains(name, "win10") || strings.Contains(name, "windows 10")
-	case targetWin11:
-		return strings.Contains(name, "win11") || strings.Contains(name, "windows 11")
-	default:
-		return true
-	}
-}
+
+
+

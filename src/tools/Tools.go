@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+	"io"
 
 	"golang.org/x/text/encoding/simplifiedchinese"
 

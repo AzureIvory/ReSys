@@ -7,11 +7,21 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+	"io"
+	"strings"
 
 	"github.com/kdomanski/iso9660/util"
+	"github.com/kdomanski/iso9660"
 
 	"ReSys/src/disk"
 	"ReSys/src/log"
+)
+var(
+	Shell32            = syscall.NewLazyDLL("shell32.dll")
+	procShellExecuteW     = Shell32.NewProc("ShellExecuteW")
+)
+const(
+	swHide = 0 //挂载
 )
 
 // 调用ShellExecuteW
@@ -111,4 +121,63 @@ func UnpackISO(isoPath, dstDir string) error {
 		return fmt.Errorf("extract iso: %w", err)
 	}
 	return nil
+}
+
+// detectISOFormat 读取 ISO 第 16 个逻辑扇区的卷描述符，
+// 通过标准标识判断镜像是 ISO9660 还是 UDF。
+func detectISOFormat(r io.ReaderAt) (string, error) {
+	const sectorSize = 2048
+	header := make([]byte, sectorSize)
+
+	// ISO 卷描述符从第 16 个扇区开始；读不到说明镜像不完整或格式异常。
+	if _, err := r.ReadAt(header, int64(16*sectorSize)); err != nil {
+		return "", err
+	}
+
+	// 卷描述符的 1~5 字节是标准标识符。
+	identifier := string(header[1:6])
+
+	switch identifier {
+	case "CD001":
+		// ISO9660 标准卷描述符标识。
+		return "iso9660", nil
+	case "BEA01":
+		// UDF 扩展卷描述符起始标识。
+		return "udf", nil
+	default:
+		// 既不是 ISO9660，也不是已识别的 UDF 头。
+		return "", fmt.Errorf("unknown iso format: %s", identifier)
+	}
+}
+
+// hasISOInstallImage 递归遍历 ISO 目录树，
+// 判断是否存在 Windows 安装镜像文件 sources/install.wim 或 sources/install.esd。
+func hasISOInstallImage(entry *iso9660.File, base string) bool {
+	name := strings.ToLower(entry.Name())
+	path := name
+	if base != "" {
+		path = base + "/" + name
+	}
+
+	if !entry.IsDir() {
+		// 命中 Windows 安装镜像核心文件即返回 true。
+		if path == "sources/install.wim" || path == "sources/install.esd" {
+			return true
+		}
+		return false
+	}
+
+	// 目录读取失败时，按未找到处理。
+	children, err := entry.GetChildren()
+	if err != nil {
+		return false
+	}
+
+	// 只要任一子节点命中目标文件，即可提前返回。
+	for _, child := range children {
+		if hasISOInstallImage(child, path) {
+			return true
+		}
+	}
+	return false
 }
