@@ -62,10 +62,6 @@ func PE() int {
 }
 
 func main() {
-
-	if dism == "" {
-		dism = "dism.exe"
-	}
 	ui.Uiinit()
 	//判断是否在PE
 	if strings.ToUpper(os.Getenv("SystemRoot")) == `X:\WINDOWS` {

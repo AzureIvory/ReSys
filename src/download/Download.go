@@ -23,7 +23,6 @@ var trackerTxtURLs = []string{
 
 const fallbackTrackerURL = "https://api.ttraw.com/trackers.txt"
 
-
 func pickBTOutputFile(root string) (string, error) {
 	// 优先挑这些扩展名
 	priority := map[string]int{
@@ -286,9 +285,9 @@ func uniqueStrings(in []string) []string {
 	return out
 }
 
-// 下载大文件（仅 curl）。
+// 下载文件
 // - 写入 dstPath+".part"，成功后重命名为 dstPath。
-// - 若 .part 已存在，会尝试用 curl 的 -C - 续传；若服务器不支持 Range，会自动从头下载。
+// - 若 .part 已存在，会尝试用续传；若服务器不支持 Range，会自动从头下载。
 func DownloadFile(ctx context.Context, url, dstPath string, progressCallback func(float64, int64)) error {
 	if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
 		log.LogWrite(0, "[DownloadFile] 创建目录失败: path=%s err=%v", dstPath, err)
