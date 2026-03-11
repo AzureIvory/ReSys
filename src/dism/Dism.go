@@ -1004,7 +1004,7 @@ func parseWimXML(xml string) ([]ImageMeta, error) {
 				SizeBytes:    sizeBytes,
 				Installation: installType,
 			}
-			finalizeImageMeta(&meta)
+			FinalizeImageMeta(&meta)
 			images = append(images, meta)
 		}
 
@@ -1238,7 +1238,7 @@ func parseImageInfoText(out string) ([]ImageMeta, error) {
 		switch {
 		case key == "Index" || key == "Image Index":
 			if cur != nil && cur.Index != 0 {
-				finalizeImageMeta(cur)
+				FinalizeImageMeta(cur)
 				res = append(res, *cur)
 			}
 			cur = &ImageMeta{}
@@ -1289,7 +1289,7 @@ func parseImageInfoText(out string) ([]ImageMeta, error) {
 	}
 
 	if cur != nil && cur.Index != 0 {
-		finalizeImageMeta(cur)
+		FinalizeImageMeta(cur)
 		res = append(res, *cur)
 	}
 	if err := sc.Err(); err != nil {
@@ -1324,7 +1324,7 @@ func parseSizeBytes(s string) uint64 {
 }
 
 // bytesToMBGBStr 将字节转换为 MB/GB 文本。
-func bytesToMBGBStr(size uint64) string {
+func BytesToMBGBStr(size uint64) string {
 	const (
 		mb = 1024 * 1024
 		gb = 1024 * 1024 * 1024
@@ -1341,8 +1341,11 @@ func bytesToMBGBStr(size uint64) string {
 }
 
 // finalizeImageMeta 结合 Installation / Edition / 名称判断是否为可安装系统条目。
-func finalizeImageMeta(m *ImageMeta) {
-	m.Size = bytesToMBGBStr(m.SizeBytes)
+func FinalizeImageMeta(m *ImageMeta) {
+	if m == nil {
+		return
+	}
+	m.Size = BytesToMBGBStr(m.SizeBytes)
 
 	name := strings.ToLower(m.Name + " " + m.Description)
 	inst := strings.ToLower(m.Installation)

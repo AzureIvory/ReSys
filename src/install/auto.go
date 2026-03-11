@@ -44,7 +44,7 @@ func StartInstall(target string) {
 	if !retryLoop("写入重装信息", func() error {
 		preferIndex := 0
 		if infos, err := image.DetectImageInfos(imgPath); err == nil {
-			preferIndex = selectInstallIndex(infos)
+			preferIndex = SelectInstallIndex(infos)
 		}
 		return WriteResFile(imgPath, target, imgArch, preferIndex)
 	}) {
@@ -119,7 +119,7 @@ func RunPEInstall() error {
 	if savedIndex > 0 {
 		index = savedIndex
 	} else {
-		index = selectInstallIndex(infos)
+		index = SelectInstallIndex(infos)
 	}
 	log.LogWrite(0, "[RunPEInstall]镜像索引列表：%s", formatImageInfos(infos))
 

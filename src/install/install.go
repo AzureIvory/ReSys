@@ -1524,7 +1524,7 @@ func formatImageInfos(infos []dism.ImageMeta) string {
 }
 
 // 按优先级选择镜像索引。
-func selectInstallIndex(infos []dism.ImageMeta) int {
+func SelectInstallIndex(infos []dism.ImageMeta) int {
 	if len(infos) == 0 {
 		return 1
 	}
