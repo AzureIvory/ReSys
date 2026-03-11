@@ -1,4 +1,4 @@
-package install
+﻿package install
 
 import (
 	"ReSys/src/boot"
@@ -28,46 +28,39 @@ func init() {
 func StartInstall(target string) {
 	imgArch := windows.DesiredArch()
 	peArch := windows.SystemArch()
-	log.LogWrite(0, "[StartInstall]开始重装流程，目标系统=%s，镜像期望架构=%s，PE架构=%s", target, imgArch, peArch)
+	log.LogWrite(0, "[StartInstall]寮€濮嬮噸瑁呮祦绋嬶紝鐩爣绯荤粺=%s锛岄暅鍍忔湡鏈涙灦鏋?%s锛孭E鏋舵瀯=%s", target, imgArch, peArch)
 	ui.UiSetProgress(0)
-	ui.UiSetStatus("正在寻找镜像...")
+	ui.UiSetStatus("姝ｅ湪瀵绘壘闀滃儚...")
 
 	imgPath, ok := retryLoopWithResult("镜像准备", func() (string, error) {
-		return findOrDownloadImage(target, imgArch)
+		return prepareInstallImagePlanOnce(target, imgArch)
 	})
 	if !ok {
 		return
 	}
 
-	ui.UiSetProgress(60)
-	ui.UiSetStatus("正在写入重装信息...")
-	if !retryLoop("写入重装信息", func() error {
-		preferIndex := 0
-		if infos, err := image.DetectImageInfos(imgPath); err == nil {
-			preferIndex = SelectInstallIndex(infos)
-		}
-		return WriteResFile(imgPath, target, imgArch, preferIndex)
-	}) {
+	if _, ok := retryLoopWithResult("写入重装信息", func() (int, error) {
+		return parseImageAndWriteResData(imgPath, target, imgArch)
+	}); !ok {
 		return
 	}
-
 	ui.UiSetProgress(70)
-	ui.UiSetStatus("正在准备PE环境...")
-	if !retryLoop("准备PE", func() error {
+	ui.UiSetStatus("姝ｅ湪鍑嗗PE鐜...")
+	if !retryLoop("鍑嗗PE", func() error {
 		return ensurePEAndReboot(peArch)
 	}) {
 		return
 	}
 
 	ui.UiSetProgress(100)
-	ui.UiSetStatus("即将重启进入PE...")
-	log.LogWrite(0, "[StartInstall]准备完成，重启进入PE")
+	ui.UiSetStatus("鍗冲皢閲嶅惎杩涘叆PE...")
+	log.LogWrite(0, "[StartInstall]鍑嗗瀹屾垚锛岄噸鍚繘鍏E")
 }
 
 func RunPEInstall() error {
 	ui.UiSetProgress(0)
-	ui.UiSetStatus("正在读取重装信息...")
-	log.LogWrite(0, "[RunPEInstall]进入PE安装流程")
+	ui.UiSetStatus("姝ｅ湪璇诲彇閲嶈淇℃伅...")
+	log.LogWrite(0, "[RunPEInstall]杩涘叆PE瀹夎娴佺▼")
 
 	targetRoot, diskPath, imagePath, volumeGuid, diskUniqueID, imageRel, savedTarget, savedArch, savedIndex, err := LoadResData()
 	if err != nil {
@@ -92,9 +85,9 @@ func RunPEInstall() error {
 		if a == "" {
 			a = "64"
 		}
-		dl, derr := DownloadImage(t, a)
+		dl, derr := findOrDownloadImage(t, a)
 		if derr != nil {
-			return fmt.Errorf("未找到镜像且下载失败: %w", derr)
+			return fmt.Errorf("鏈壘鍒伴暅鍍忎笖涓嬭浇澶辫触: %w", derr)
 		}
 		imagePath = dl
 	}
@@ -102,18 +95,18 @@ func RunPEInstall() error {
 	if targetRoot == "" {
 		targetRoot = chooseInstallTargetRoot()
 		if targetRoot == "" {
-			return fmt.Errorf("未找到可用系统分区")
+			return fmt.Errorf("鏈壘鍒板彲鐢ㄧ郴缁熷垎鍖?)
 		}
 	}
 
 	ui.UiSetProgress(10)
-	ui.UiSetStatus("正在格式化分区...")
+	ui.UiSetStatus("姝ｅ湪鏍煎紡鍖栧垎鍖?..")
 	if err := disk.Format(strings.ReplaceAll(strings.ReplaceAll(targetRoot, "\\", ""), ":", ""), "ntfs", "Windows", true); err != nil {
 		return err
 	}
 
 	ui.UiSetProgress(20)
-	ui.UiSetStatus("正在解析镜像...")
+	ui.UiSetStatus("姝ｅ湪瑙ｆ瀽闀滃儚...")
 	infos, _ := image.DetectImageInfos(imagePath)
 	index := 1
 	if savedIndex > 0 {
@@ -121,18 +114,18 @@ func RunPEInstall() error {
 	} else {
 		index = SelectInstallIndex(infos)
 	}
-	log.LogWrite(0, "[RunPEInstall]镜像索引列表：%s", formatImageInfos(infos))
+	log.LogWrite(0, "[RunPEInstall]闀滃儚绱㈠紩鍒楄〃锛?s", formatImageInfos(infos))
 
 	progressCb := func(phase string, pct float64, raw string) {
 		_ = raw
-		ui.UiSetStatus(fmt.Sprintf("正在应用镜像（%s）... %0.1f%%", phase, pct))
+		ui.UiSetStatus(fmt.Sprintf("姝ｅ湪搴旂敤闀滃儚锛?s锛?.. %0.1f%%", phase, pct))
 		ui.UiSetProgress(MapPct(20, 50, pct))
 	}
 	if err := applyImageByExt(imagePath, targetRoot, index, progressCb); err != nil {
 		return err
 	}
 
-	ui.UiSetStatus("正在修复引导...")
+	ui.UiSetStatus("姝ｅ湪淇寮曞...")
 	ui.UiSetProgress(75)
 	if err := boot.FixBoot(targetRoot, "", "zh-cn"); err != nil {
 		return err
@@ -149,9 +142,9 @@ func RunPEInstall() error {
 		return err
 	}
 
-	ui.UiSetStatus("安装完成，正在重启...")
+	ui.UiSetStatus("瀹夎瀹屾垚锛屾鍦ㄩ噸鍚?..")
 	ui.UiSetProgress(100)
-	log.LogWrite(0, "[RunPEInstall]PE安装流程完成")
+	log.LogWrite(0, "[RunPEInstall]PE瀹夎娴佺▼瀹屾垚")
 	return nil
 }
 
