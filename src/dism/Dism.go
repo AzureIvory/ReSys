@@ -88,7 +88,7 @@ func (d *Dism) GetDismCmd() (string, error) {
 		subDir = "64"
 	}
 
-	localPath := filepath.Join(baseDir, "tools", subDir, "dism.exe")
+	localPath := filepath.Join(baseDir, "tools", "dism", subDir, "dism.exe")
 	if utils.FileExists(localPath) {
 		if d != nil {
 			d.dismPath = localPath

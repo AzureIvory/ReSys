@@ -16,11 +16,6 @@ import (
 	"time"
 )
 
-const (
-	wbDeleteFlagForce     = 0x00000001
-	wbDeleteFlagRecursive = 0x00000002
-)
-
 type wbXMLRoot struct {
 	Images []wbXMLImage `xml:"IMAGE"`
 }
@@ -51,14 +46,18 @@ func ListImageInfos(imagePath string) ([]dism.ImageMeta, error) {
 	defer lib.Close()
 
 	w, err := lib.OpenWim(imagePath, 0)
+	fmt.Println(w, err)
+	fmt.Println(w.GetXML())
 	if err != nil {
 		return nil, err
 	}
 	defer w.Free()
 
 	xmlText, xmlErr := w.GetXML()
+	fmt.Println(xmlErr, xmlText)
 	if xmlErr == nil && strings.TrimSpace(xmlText) != "" {
 		imgs, err := wbParseWIMXMLInfos(xmlText)
+		fmt.Println(imgs)
 		if err == nil && len(imgs) > 0 {
 			for i := range imgs {
 				if imgs[i].Index <= 0 {
@@ -78,6 +77,7 @@ func ListImageInfos(imagePath string) ([]dism.ImageMeta, error) {
 	}
 
 	info, err := w.GetWimInfo()
+	fmt.Println(info)
 	if err != nil {
 		return nil, err
 	}

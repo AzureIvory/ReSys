@@ -1,6 +1,7 @@
 package main
 
 import (
+	"ReSys/src/file"
 	"ReSys/src/log"
 	"bufio"
 	"errors"
@@ -13,14 +14,14 @@ import (
 	"unsafe"
 
 	D "ReSys/src/dism"
-	"ReSys/src/tools"
 	"ReSys/src/utils"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
 
-var dism, _ = D.GetDism()
+var t = D.NewDism()
+var dism, _ = t.GetDismCmd()
 
 const (
 	DIGCF_PRESENT    = 0x00000002
@@ -605,7 +606,7 @@ func (m *DriverManager) copyDriverPackage(infPath string, destDir string) error 
 	}
 
 	dstInf := filepath.Join(destDir, filepath.Base(infPath))
-	if err := tools.Copy(infPath, dstInf, true, true); err != nil {
+	if err := file.Copy(infPath, dstInf, true, true); err != nil {
 		return err
 	}
 	return tryCopyAssociatedFiles(infPath, destDir)
@@ -628,7 +629,7 @@ func copyDirRecursive(src, dst string) error {
 				return err
 			}
 		} else {
-			if err := tools.Copy(sp, dp, true, true); err != nil {
+			if err := file.Copy(sp, dp, true, true); err != nil {
 				return err
 			}
 		}
@@ -658,7 +659,7 @@ func tryCopyAssociatedFiles(infPath, destDir string) error {
 
 			src := filepath.Join(driversDir, fileName)
 			if _, err := os.Stat(src); err == nil {
-				_ = tools.Copy(src, filepath.Join(destDir, fileName), true, true)
+				_ = file.Copy(src, filepath.Join(destDir, fileName), true, true)
 			}
 		}
 	}
@@ -795,7 +796,7 @@ func (m *DriverManager) importDriversOfflineLegacy(offlineRoot, sourceDir string
 		oemInfPath := filepath.Join(infDir, oemInfName)
 		sourceInf := filepath.Join(targetStoreDir, infFilename)
 		if _, err := os.Stat(sourceInf); err == nil {
-			_ = tools.Copy(sourceInf, oemInfPath, true, true)
+			_ = file.Copy(sourceInf, oemInfPath, true, true)
 		}
 
 		_ = registerDriverServicesOffline(offlineRoot, targetStoreDir, infFilename, oemInfName)
@@ -844,7 +845,7 @@ func copySysFilesToDrivers(storeDir, driversDir string) error {
 			if _, err := os.Stat(dst); err == nil {
 				continue
 			}
-			_ = tools.Copy(src, dst, true, true)
+			_ = file.Copy(src, dst, true, true)
 		}
 	}
 	return nil

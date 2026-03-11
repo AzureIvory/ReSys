@@ -1,7 +1,6 @@
 package disk
 
 import (
-	"ReSys/src/file"
 	"ReSys/src/log"
 	"ReSys/src/tools"
 	"fmt"
@@ -138,7 +137,7 @@ func runDiskpartScriptFile(script string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("create script in workdir failed: %w", err)
 	}
-	defer file.Remove(path, false) //用完就删除
+	defer os.Remove(path) //用完就删除
 
 	if _, err := f.WriteString(script); err != nil {
 		_ = f.Close()

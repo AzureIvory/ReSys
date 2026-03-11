@@ -1,7 +1,6 @@
 package windows
 
 import (
-	"ReSys/src/disk"
 	"ReSys/src/log"
 	"ReSys/src/registry"
 	"ReSys/src/tools"
@@ -544,45 +543,6 @@ func tpmViaWMI() (enabled bool, version string, ok bool, err error) {
 	return false, "", false, nil
 }
 
-// 找系统分区
-func FindOS(hint string) (string, error) {
-	if hint != "" {
-		root, _ := utils.NormalizeDrive(hint, 0)
-		if root != "" {
-			if st, err := os.Stat(root + "Windows"); err == nil && st.IsDir() {
-				fmt.Println("[FindOS] use hint:", root)
-				return root, nil
-			}
-			fmt.Println("[FindOS] hint has no Windows dir:", root)
-		}
-	}
-
-	roots, err := disk.ListDrive()
-	if err != nil {
-		return "", fmt.Errorf("ListDrive: %w", err)
-	}
-
-	var cand string
-	for _, r := range roots {
-		dt := disk.GetDriveType(r)
-		// 跳过CD和网络盘
-		if dt != 3 && dt != 4 {
-			continue
-		}
-		root, _ := utils.NormalizeDrive(r, 0)
-		if st, err := os.Stat(root + "Windows"); err == nil && st.IsDir() {
-			cand = root
-			fmt.Println("[FindOS] found OS volume:", cand)
-			break
-		}
-	}
-
-	if cand == "" {
-		return "", fmt.Errorf("no volume with \\Windows found")
-	}
-	return cand, nil
-}
-
 // 根据物理内存大小判断期望架构：
 // - <4GB 使用 32 位
 // - >=4GB 使用 64 位
@@ -606,7 +566,6 @@ func DesiredArch() string {
 	// 获取失败默认 64 位
 	return "64"
 }
-
 
 // 获取系统盘根路径（例如 C:\）。
 func SystemDriveRoot() string {

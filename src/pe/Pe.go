@@ -6,6 +6,7 @@ import (
 	"ReSys/src/file"
 	"ReSys/src/log"
 	"ReSys/src/tools"
+	"ReSys/src/windows"
 	"bytes"
 	"context"
 	"encoding/binary"
@@ -1183,7 +1184,7 @@ func runCmdWithTimeout(exe string, args []string, stdinText string, to time.Dura
 // IsWePE 检测当前运行环境是否为微PE。
 // 规则：系统盘的 Program Files 下存在 WepeGuide 目录则视为微PE。
 func IsWePE() bool {
-	root := systemDriveRoot()
+	root := windows.SystemDriveRoot()
 	if root == "" {
 		return false
 	}

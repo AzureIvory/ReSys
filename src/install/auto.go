@@ -169,5 +169,22 @@ func applyImageByExt(imagePath, targetRoot string, index int, progress func(stri
 			applyPath = filepath.Join(isoRoot, "sources", "install.esd")
 		}
 	}
-	return dism.ApplyImageCmd(applyPath, targetRoot, uint32(index), progress)
+	var progressCh chan D.DismProgress
+	if progress != nil {
+		progressCh = make(chan D.DismProgress, 16)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			for p := range progressCh {
+				progress("apply", float64(p.Percentage), p.Status)
+			}
+		}()
+
+		err := dism.ApplyImageCmd(applyPath, targetRoot, uint32(index), progressCh)
+		close(progressCh)
+		<-done
+		return err
+	}
+
+	return dism.ApplyImageCmd(applyPath, targetRoot, uint32(index), nil)
 }

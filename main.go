@@ -1,14 +1,17 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
 	D "ReSys/src/dism"
+	"ReSys/src/install"
 	"ReSys/src/log"
 	"ReSys/src/tools"
 	"ReSys/src/ui"
 	"ReSys/src/utils"
+	"ReSys/src/wimlib"
 )
 
 var t = D.NewDism()
@@ -52,7 +55,7 @@ func GetBootMode() (int, int) {
 func PE() int {
 	ui.Win2()
 
-	if err := RunPEInstall(); err != nil {
+	if err := install.RunPEInstall(); err != nil {
 		ui.UiShowError("错误", err.Error())
 		os.Exit(-1)
 		return -1
@@ -61,8 +64,9 @@ func PE() int {
 }
 
 func main() {
-	//cab,_:=NewCab()
-	//cab.Extract("Windows6.1-KB3087873-v2-x64.cab","temp")
+
+	//fmt.Println(dism)
+	fmt.Println(wimlib.ListImageInfos(`C:\111111\win10_Iot_Ltsc2021_5198_X64 [AEC155F5].esd`))
 
 	os.Exit(1)
 

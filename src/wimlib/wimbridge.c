@@ -1,3 +1,5 @@
+//go:build ignore
+// +build ignore
 #define _CRT_SECURE_NO_WARNINGS
 #include "wimbridge.h"
 

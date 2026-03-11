@@ -2,6 +2,7 @@ package dism
 
 import (
 	"ReSys/src/log"
+	w "ReSys/src/windows"
 	"errors"
 	"fmt"
 	"os"
@@ -84,12 +85,30 @@ type API struct {
 func NewWimg(dllPath string) (*API, error) {
 	var dll *windows.LazyDLL
 
-	// 1) 优先：程序目录同级 wimgapi.dll
+	// 1) 优先：tools/dism/{xp|64|32}/wimgapi.dll
 	if dllPath == "" {
 		if exe, err := os.Executable(); err == nil {
-			local := filepath.Join(filepath.Dir(exe), "wimgapi.dll")
-			if _, err2 := os.Stat(local); err2 == nil {
-				dllPath = local
+			baseDir := filepath.Dir(exe)
+
+			subDir := "32"
+			if w.IsWinXP() {
+				subDir = "xp"
+			} else if w.SystemArch() == "64" {
+				subDir = "64"
+			}
+
+			candidates := []string{
+				filepath.Join(baseDir, "tools", "dism", subDir, "wimgapi.dll"),
+				filepath.Join(baseDir, "tools", subDir, "wimgapi.dll"), // 兼容旧目录
+				filepath.Join(baseDir, "wimgapi.dll"),                  // 兼容同级目录
+			}
+
+			for _, p := range candidates {
+				if _, err2 := os.Stat(p); err2 == nil {
+					dllPath = p
+					break
+				}
+
 			}
 		}
 	}
