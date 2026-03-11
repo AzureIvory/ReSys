@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"strings"
 
@@ -11,7 +10,6 @@ import (
 	"ReSys/src/tools"
 	"ReSys/src/ui"
 	"ReSys/src/utils"
-	"ReSys/src/wimlib"
 )
 
 var t = D.NewDism()
@@ -64,11 +62,6 @@ func PE() int {
 }
 
 func main() {
-
-	//fmt.Println(dism)
-	fmt.Println(wimlib.ListImageInfos(`C:\111111\win10_Iot_Ltsc2021_5198_X64 [AEC155F5].esd`))
-
-	os.Exit(1)
 
 	if dism == "" {
 		dism = "dism.exe"

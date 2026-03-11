@@ -5,97 +5,46 @@ import (
 	"ReSys/src/dism"
 	"ReSys/src/file"
 	"ReSys/src/image"
+	"ReSys/src/log"
+	"ReSys/src/tools"
 	"ReSys/src/utils"
-	"encoding/xml"
+	"bufio"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
-
-type wbXMLRoot struct {
-	Images []wbXMLImage `xml:"IMAGE"`
-}
-
-type wbXMLImage struct {
-	Index       int    `xml:"INDEX,attr"`
-	Name        string `xml:"NAME"`
-	Description string `xml:"DESCRIPTION"`
-	Flags       string `xml:"FLAGS"`
-	TotalBytes  uint64 `xml:"TOTALBYTES"`
-	Windows     struct {
-		Arch             string `xml:"ARCH"`
-		EditionID        string `xml:"EDITIONID"`
-		InstallationType string `xml:"INSTALLATIONTYPE"`
-		SystemRoot       string `xml:"SYSTEMROOT"`
-	} `xml:"WINDOWS"`
-}
 
 func ListImageInfos(imagePath string) ([]dism.ImageMeta, error) {
 	if _, err := os.Stat(imagePath); err != nil {
 		return nil, fmt.Errorf("image not found: %w", err)
 	}
-
-	lib, err := LibwimLoad()
-	if err != nil {
-		return nil, err
+	wimlib := findWimlibImagex()
+	if wimlib == "" {
+		return nil, errors.New("wimlib-imagex.exe not found")
 	}
-	defer lib.Close()
-
-	w, err := lib.OpenWim(imagePath, 0)
-	fmt.Println(w, err)
-	fmt.Println(w.GetXML())
+	out, err := tools.RunCmd(wimlib, nil, nil, "", "info", imagePath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("wimlib-imagex info failed: %w", err)
 	}
-	defer w.Free()
+	return parseImageInfoText(out)
+}
 
-	xmlText, xmlErr := w.GetXML()
-	fmt.Println(xmlErr, xmlText)
-	if xmlErr == nil && strings.TrimSpace(xmlText) != "" {
-		imgs, err := wbParseWIMXMLInfos(xmlText)
-		fmt.Println(imgs)
-		if err == nil && len(imgs) > 0 {
-			for i := range imgs {
-				if imgs[i].Index <= 0 {
-					imgs[i].Index = i + 1
-				}
-				if imgs[i].Name == "" {
-					imgs[i].Name = strings.TrimSpace(w.GetImageName(imgs[i].Index))
-				}
-				if imgs[i].Description == "" {
-					imgs[i].Description = strings.TrimSpace(w.GetImageDescription(imgs[i].Index))
-				}
-				dism.FinalizeImageMeta(&imgs[i])
-			}
-			sort.Slice(imgs, func(i, j int) bool { return imgs[i].Index < imgs[j].Index })
-			return imgs, nil
+func findWimlibImagex() string {
+	if exe, err := os.Executable(); err == nil {
+		local := filepath.Join(filepath.Dir(exe), "tools", "wimlib-imagex.exe")
+		if utils.FileExists(local) {
+			return local
 		}
 	}
-
-	info, err := w.GetWimInfo()
-	fmt.Println(info)
-	if err != nil {
-		return nil, err
+	if p, err := exec.LookPath("wimlib-imagex.exe"); err == nil {
+		return p
 	}
-	if info.ImageCount == 0 {
-		return nil, errors.New("no image info parsed")
-	}
-
-	out := make([]dism.ImageMeta, 0, info.ImageCount)
-	for i := 1; i <= int(info.ImageCount); i++ {
-		m := dism.ImageMeta{
-			Index:       i,
-			Name:        strings.TrimSpace(w.GetImageName(i)),
-			Description: strings.TrimSpace(w.GetImageDescription(i)),
-		}
-		dism.FinalizeImageMeta(&m)
-		out = append(out, m)
-	}
-	return out, nil
+	return ""
 }
 
 func ApplyImage(imagePath string, index int, targetVol string) error {
@@ -110,20 +59,113 @@ func ApplyImage(imagePath string, index int, targetVol string) error {
 	if targetRoot == "" {
 		return fmt.Errorf("invalid target volume: %q", targetVol)
 	}
+	wimlib := findWimlibImagex()
+	if wimlib == "" {
+		return errors.New("wimlib-imagex.exe not found")
+	}
 
-	lib, err := LibwimLoad()
-	if err != nil {
+	args := []string{"apply", imagePath, fmt.Sprintf("%d", index), targetRoot}
+	if _, err := tools.RunCmd(wimlib, nil, nil, "", args...); err != nil {
+		log.LogWrite(0, "[wimlib.ApplyImage] wimlib-imagex apply failed: %v", err)
 		return err
 	}
-	defer lib.Close()
+	return nil
+}
+func parseImageInfoText(out string) ([]dism.ImageMeta, error) {
+	var (
+		res []dism.ImageMeta
+		cur *dism.ImageMeta
+	)
 
-	w, err := lib.OpenWim(imagePath, 0)
-	if err != nil {
-		return err
+	sc := bufio.NewScanner(strings.NewReader(out))
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+
+		colon := strings.Index(line, ":")
+		if colon <= 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:colon])
+		val := strings.TrimSpace(line[colon+1:])
+
+		switch {
+		case key == "Index" || key == "Image Index":
+			if cur != nil && cur.Index != 0 {
+				dism.FinalizeImageMeta(cur)
+				res = append(res, *cur)
+			}
+			cur = &dism.ImageMeta{}
+			if idx, err := strconv.Atoi(val); err == nil {
+				cur.Index = idx
+			}
+		case key == "Name":
+			if cur != nil {
+				cur.Name = val
+			}
+		case key == "Description":
+			if cur != nil {
+				cur.Description = val
+			}
+		case key == "Flags":
+			if cur != nil {
+				cur.Flags = val
+			}
+		case strings.HasPrefix(key, "Size"):
+			if cur != nil {
+				cur.SizeBytes = parseSizeBytes(val)
+			}
+		case strings.HasPrefix(key, "Edition"):
+			if cur != nil {
+				cur.Edition = val
+			}
+		case strings.HasPrefix(key, "Installation"):
+			if cur != nil {
+				cur.Installation = val
+			}
+		case key == "Architecture" || key == "Arch":
+			if cur != nil {
+				cur.Arch = val
+			}
+		case strings.HasPrefix(key, "System Root"):
+			if cur != nil {
+				cur.SystemRoot = val
+			}
+		}
 	}
-	defer w.Free()
+	if cur != nil && cur.Index != 0 {
+		dism.FinalizeImageMeta(cur)
+		res = append(res, *cur)
+	}
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	if len(res) == 0 {
+		return nil, errors.New("no image info parsed")
+	}
+	return res, nil
+}
+func parseSizeBytes(s string) uint64 {
+	s = strings.ToLower(s)
+	if idx := strings.Index(s, "bytes"); idx != -1 {
+		s = s[:idx]
+	} else if idx := strings.Index(s, "字节"); idx != -1 {
+		s = s[:idx]
+	}
 
-	return w.Apply(index, targetRoot, 0)
+	var b []rune
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			b = append(b, r)
+		}
+	}
+	if len(b) == 0 {
+		return 0
+	}
+	n, _ := strconv.ParseUint(string(b), 10, 64)
+	return n
 }
 
 func ApplyWimImage(wimPath string, index int, targetVol string) error {
@@ -185,35 +227,4 @@ func ApplyISOImage(isoPath string, index int, targetVol string) error {
 		return ApplyWimImage(installPath, index, targetVol)
 	}
 	return fmt.Errorf("ISO安装镜像类型不支持")
-}
-
-func wbParseWIMXMLInfos(xmlText string) ([]dism.ImageMeta, error) {
-	var root wbXMLRoot
-	if err := xml.Unmarshal([]byte(xmlText), &root); err != nil {
-		return nil, err
-	}
-	if len(root.Images) == 0 {
-		return nil, errors.New("no image info parsed")
-	}
-
-	out := make([]dism.ImageMeta, 0, len(root.Images))
-	for i, img := range root.Images {
-		m := dism.ImageMeta{
-			Index:        img.Index,
-			Name:         strings.TrimSpace(img.Name),
-			Description:  strings.TrimSpace(img.Description),
-			Flags:        strings.TrimSpace(img.Flags),
-			SizeBytes:    img.TotalBytes,
-			Edition:      strings.TrimSpace(img.Windows.EditionID),
-			Installation: strings.TrimSpace(img.Windows.InstallationType),
-			Arch:         utils.NormalizeArch(img.Windows.Arch),
-			SystemRoot:   strings.TrimSpace(img.Windows.SystemRoot),
-		}
-		if m.Index <= 0 {
-			m.Index = i + 1
-		}
-		m.Size = dism.BytesToMBGBStr(m.SizeBytes)
-		out = append(out, m)
-	}
-	return out, nil
 }
