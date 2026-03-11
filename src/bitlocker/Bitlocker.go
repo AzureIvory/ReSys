@@ -15,6 +15,7 @@ import (
 	"unicode/utf16"
 	"unsafe"
 
+	"ReSys/src/disk"
 	"ReSys/src/utils"
 
 	"golang.org/x/text/encoding/simplifiedchinese"
@@ -968,7 +969,7 @@ func (m *BitLockerManager) probeDrive(letter byte) (BitLockerVolumeInfo, bool) {
 
 	// 只检查固定磁盘
 	//GetDriveType来自disk.go
-	if GetDriveType(root) != 3 { //非固定盘
+	if disk.GetDriveType(root) != 3 { //非固定盘
 		return BitLockerVolumeInfo{}, false
 	}
 
