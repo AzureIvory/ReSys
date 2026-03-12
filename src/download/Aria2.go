@@ -45,6 +45,10 @@ type Options struct {
 	Dir      string
 	Out      string
 	Trackers []string
+
+	BTMetadataOnly bool
+	BTSaveMetadata bool
+	FollowTorrent  string // "", "true", "false", "mem"
 }
 
 // Progress 表示下载过程中的进度信息（每次轮询 tellStatus 得到并加工后回调给用户）。
@@ -59,29 +63,33 @@ type Options struct {
 // - ETA：预计剩余时间
 // - ErrCode / ErrMsg：失败时的错误码/错误信息（来自 aria2）
 type Progress struct {
-	GID       string
-	Status    string
-	Path      string
-	Total     int64 // bytes
-	Done      int64 // bytes
-	DownBps   int64 // bytes/s
-	Percent   float64
-	SpeedMBps float64 // MB/s (MiB, i.e., bytes/(1024*1024))
-	ETA       time.Duration
-	ErrCode   string
-	ErrMsg    string
+	GID        string
+	Status     string
+	Path       string
+	Total      int64
+	Done       int64
+	DownBps    int64
+	Percent    float64
+	SpeedMBps  float64
+	ETA        time.Duration
+	ErrCode    string
+	ErrMsg     string
+	FollowedBy []string
+	BelongsTo  string
 }
 
 // Result 表示最终结果（完成/错误/移除都会返回一个 Result；错误时同时返回 error）。
 type Result struct {
-	GID     string
-	Status  string
-	Path    string
-	Total   int64
-	Done    int64
-	DownBps int64
-	ErrCode string
-	ErrMsg  string
+	GID        string
+	Status     string
+	Path       string
+	Total      int64
+	Done       int64
+	DownBps    int64
+	ErrCode    string
+	ErrMsg     string
+	FollowedBy []string
+	BelongsTo  string
 }
 
 // ProgressFunc 是进度回调函数类型：每次轮询得到新进度都会调用一次。
@@ -153,7 +161,7 @@ func (c *Client) DownloadContext(ctx context.Context, src string, opt Options, c
 		log.LogWrite(-2, "[DownloadContext]创建下载任务失败: src=%s err=%v", src, err)
 		return Result{}, err
 	}
-	return c.wait(ctx, gid, cb)
+	return c.wait(ctx, gid, cb, opt)
 }
 
 // DownloadBtContext 使用指定 ctx 下载 BT 资源（magnet 或 .torrent）：
@@ -174,7 +182,7 @@ func (c *Client) DownloadBtContext(ctx context.Context, src string, opt Options,
 		log.LogWrite(-2, "[DownloadContext]创建下载任务失败: src=%s err=%v", src, err)
 		return Result{}, err
 	}
-	return c.wait(ctx, gid, cb)
+	return c.wait(ctx, gid, cb, opt)
 }
 
 // DefaultProgressPrinter 默认的进度打印器：
@@ -360,6 +368,16 @@ func (c *Client) addAny(ctx context.Context, src string, opt Options) (string, e
 		options["bt-tracker"] = strings.Join(opt.Trackers, ",")
 	}
 
+	if opt.BTMetadataOnly {
+		options["bt-metadata-only"] = "true"
+	}
+	if opt.BTSaveMetadata {
+		options["bt-save-metadata"] = "true"
+	}
+	if opt.FollowTorrent != "" {
+		options["follow-torrent"] = opt.FollowTorrent
+	}
+
 	// magnet 或普通 URL（且不是 .torrent URL）直接 addUri
 	if isMagnet(src) || (looksLikeURL(src) && !isTorrent(src)) {
 		uris := []string{src}
@@ -403,14 +421,14 @@ func (c *Client) addAny(ctx context.Context, src string, opt Options) (string, e
 // - status=complete：返回结果 nil error
 // - status=error/removed：返回结果 + error（含 code/msg）
 // - ctx 被取消：返回最新结果 + ctx.Err()
-func (c *Client) wait(ctx context.Context, gid string, cb ProgressFunc) (Result, error) {
+func (c *Client) wait(ctx context.Context, gid string, cb ProgressFunc, opt Options) (Result, error) {
 	if cb == nil {
 		cb = DefaultProgressPrinter
 	}
 
 	keys := []string{
 		"gid", "status", "totalLength", "completedLength", "downloadSpeed",
-		"errorCode", "errorMessage", "files",
+		"errorCode", "errorMessage", "files", "followedBy", "belongsTo",
 	}
 
 	// immediate first tick（让用户立刻看到一次进度）
@@ -438,6 +456,50 @@ func (c *Client) wait(ctx context.Context, gid string, cb ProgressFunc) (Result,
 
 			switch st.Status {
 			case "complete":
+				// 先按官方字段 followedBy 尝试
+				if len(st.FollowedBy) > 0 {
+					nextGID, err := c.pickNextGID(ctx, st.FollowedBy, keys)
+					if err == nil && nextGID != "" && nextGID != gid {
+						log.LogWrite(-2, "[wait] GID切换(followedBy): %s -> %s", gid, nextGID)
+						gid = nextGID
+						continue
+					}
+				}
+
+				// 如果当前完成的是 metadata 任务，不要直接返回
+				if strings.HasPrefix(filepath.Base(st.Path), "[METADATA]") {
+					log.LogWrite(-2, "[wait] 当前完成的是 metadata 任务: gid=%s path=%s", gid, st.Path)
+
+					// 如果这次任务本来就是“只拿 metadata”，那这里应当算成功
+					if opt.BTMetadataOnly {
+						return toResult(st), nil
+					}
+
+					// 否则再去找真实内容任务
+					var child Progress
+					var found bool
+					var ferr error
+
+					for i := 0; i < 10; i++ {
+						time.Sleep(500 * time.Millisecond)
+
+						child, found, ferr = c.findChildByParent(ctx, gid, keys)
+						if ferr != nil {
+							log.LogWrite(-2, "[wait] 扫描子任务失败: parent=%s err=%v", gid, ferr)
+							continue
+						}
+						if found && child.GID != "" && child.GID != gid {
+							log.LogWrite(-2, "[wait] GID切换(belongsTo): %s -> %s status=%s total=%d path=%s",
+								gid, child.GID, child.Status, child.Total, child.Path)
+							gid = child.GID
+							cb(child)
+							goto NEXT_LOOP
+						}
+					}
+
+					return toResult(st), fmt.Errorf("只拿到了 BT metadata，没有找到实际内容下载任务: gid=%s path=%s", gid, st.Path)
+				}
+
 				return toResult(st), nil
 			case "error", "removed":
 				msg := st.ErrMsg
@@ -449,19 +511,23 @@ func (c *Client) wait(ctx context.Context, gid string, cb ProgressFunc) (Result,
 				return toResult(st), err
 			}
 		}
+	NEXT_LOOP:
+		continue
 	}
+
 }
 
 // tellStatusResp 是 aria2.tellStatus 返回 JSON 的结构体映射。
-// 注意：aria2 的数字字段经常以字符串形式返回。
 type tellStatusResp struct {
-	GID             string `json:"gid"`
-	Status          string `json:"status"`
-	TotalLength     string `json:"totalLength"`
-	CompletedLength string `json:"completedLength"`
-	DownloadSpeed   string `json:"downloadSpeed"`
-	ErrorCode       string `json:"errorCode"`
-	ErrorMessage    string `json:"errorMessage"`
+	GID             string   `json:"gid"`
+	Status          string   `json:"status"`
+	TotalLength     string   `json:"totalLength"`
+	CompletedLength string   `json:"completedLength"`
+	DownloadSpeed   string   `json:"downloadSpeed"`
+	ErrorCode       string   `json:"errorCode"`
+	ErrorMessage    string   `json:"errorMessage"`
+	FollowedBy      []string `json:"followedBy"`
+	BelongsTo       string   `json:"belongsTo"`
 	Files           []struct {
 		Path string `json:"path"`
 	} `json:"files"`
@@ -521,15 +587,203 @@ func (c *Client) tellStatus(ctx context.Context, gid string, keys []string) (Pro
 // toResult 将 Progress 转换为最终 Result（字段基本一一对应）。
 func toResult(p Progress) Result {
 	return Result{
-		GID:     p.GID,
-		Status:  p.Status,
-		Path:    p.Path,
-		Total:   p.Total,
-		Done:    p.Done,
-		DownBps: p.DownBps,
-		ErrCode: p.ErrCode,
-		ErrMsg:  p.ErrMsg,
+		GID:        p.GID,
+		Status:     p.Status,
+		Path:       p.Path,
+		Total:      p.Total,
+		Done:       p.Done,
+		DownBps:    p.DownBps,
+		ErrCode:    p.ErrCode,
+		ErrMsg:     p.ErrMsg,
+		FollowedBy: p.FollowedBy,
 	}
+}
+
+type statusLite struct {
+	GID             string   `json:"gid"`
+	Status          string   `json:"status"`
+	TotalLength     string   `json:"totalLength"`
+	CompletedLength string   `json:"completedLength"`
+	DownloadSpeed   string   `json:"downloadSpeed"`
+	ErrorCode       string   `json:"errorCode"`
+	ErrorMessage    string   `json:"errorMessage"`
+	FollowedBy      []string `json:"followedBy"`
+	BelongsTo       string   `json:"belongsTo"`
+	Files           []struct {
+		Path string `json:"path"`
+	} `json:"files"`
+}
+
+func (c *Client) pickNextGID(ctx context.Context, gids []string, keys []string) (string, error) {
+	var best Progress
+	bestSet := false
+
+	for _, g := range gids {
+		g = strings.TrimSpace(g)
+		if g == "" {
+			continue
+		}
+
+		p, err := c.tellStatus(ctx, g, keys)
+		if err != nil {
+			log.LogWrite(-2, "[pickNextGID] tellStatus失败: gid=%s err=%v", g, err)
+			continue
+		}
+
+		if !bestSet {
+			best = p
+			bestSet = true
+			continue
+		}
+
+		// 优先 active
+		if best.Status != "active" && p.Status == "active" {
+			best = p
+			continue
+		}
+
+		// 其次优先 waiting
+		if best.Status != "active" && best.Status != "waiting" && p.Status == "waiting" {
+			best = p
+			continue
+		}
+
+		// 再比较总大小，优先更大的任务
+		if p.Total > best.Total {
+			best = p
+			continue
+		}
+	}
+
+	if !bestSet {
+		return "", fmt.Errorf("no valid child gid")
+	}
+	return best.GID, nil
+}
+func (c *Client) tellActive(ctx context.Context, keys []string) ([]statusLite, error) {
+	res, err := c.call(ctx, "aria2.tellActive", keys)
+	if err != nil {
+		return nil, err
+	}
+	var out []statusLite
+	if err := json.Unmarshal(res, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) tellWaiting(ctx context.Context, offset, num int, keys []string) ([]statusLite, error) {
+	res, err := c.call(ctx, "aria2.tellWaiting", offset, num, keys)
+	if err != nil {
+		return nil, err
+	}
+	var out []statusLite
+	if err := json.Unmarshal(res, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) tellStopped(ctx context.Context, offset, num int, keys []string) ([]statusLite, error) {
+	res, err := c.call(ctx, "aria2.tellStopped", offset, num, keys)
+	if err != nil {
+		return nil, err
+	}
+	var out []statusLite
+	if err := json.Unmarshal(res, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func toProgressLite(s statusLite) Progress {
+	total, _ := strconv.ParseInt(s.TotalLength, 10, 64)
+	done, _ := strconv.ParseInt(s.CompletedLength, 10, 64)
+	down, _ := strconv.ParseInt(s.DownloadSpeed, 10, 64)
+
+	path := ""
+	if len(s.Files) > 0 {
+		path = s.Files[0].Path
+	}
+
+	var pct float64
+	if total > 0 {
+		pct = float64(done) * 100 / float64(total)
+	}
+
+	var eta time.Duration
+	if down > 0 && total > done {
+		eta = time.Duration((total-done)/down) * time.Second
+	}
+
+	return Progress{
+		GID:        s.GID,
+		Status:     s.Status,
+		Path:       path,
+		Total:      total,
+		Done:       done,
+		DownBps:    down,
+		Percent:    pct,
+		SpeedMBps:  float64(down) / 1024.0 / 1024.0,
+		ETA:        eta,
+		ErrCode:    s.ErrorCode,
+		ErrMsg:     s.ErrorMessage,
+		FollowedBy: s.FollowedBy,
+		BelongsTo:  s.BelongsTo,
+	}
+}
+
+func (c *Client) findChildByParent(ctx context.Context, parentGID string, keys []string) (Progress, bool, error) {
+	var all []statusLite
+
+	a, err := c.tellActive(ctx, keys)
+	if err != nil {
+		return Progress{}, false, err
+	}
+	all = append(all, a...)
+
+	w, err := c.tellWaiting(ctx, 0, 1000, keys)
+	if err != nil {
+		return Progress{}, false, err
+	}
+	all = append(all, w...)
+
+	s, err := c.tellStopped(ctx, 0, 1000, keys)
+	if err != nil {
+		return Progress{}, false, err
+	}
+	all = append(all, s...)
+
+	var best Progress
+	found := false
+
+	for _, it := range all {
+		if strings.TrimSpace(it.BelongsTo) != parentGID {
+			continue
+		}
+		p := toProgressLite(it)
+
+		// 优先 active / waiting，其次 total 更大的
+		if !found {
+			best = p
+			found = true
+			continue
+		}
+		if best.Status != "active" && p.Status == "active" {
+			best = p
+			continue
+		}
+		if (best.Status == "complete" || best.Status == "removed") &&
+			(p.Status == "active" || p.Status == "waiting") {
+			best = p
+			continue
+		}
+		if p.Total > best.Total {
+			best = p
+		}
+	}
+
+	return best, found, nil
 }
 
 // loadTorrentBytes 加载 .torrent 文件内容：
@@ -600,6 +854,38 @@ func parseI64(s string) int64 {
 		return int64(f)
 	}
 	return 0
+}
+
+type ariaFile struct {
+	Index           string `json:"index"`
+	Path            string `json:"path"`
+	Length          string `json:"length"`
+	CompletedLength string `json:"completedLength"`
+	Selected        string `json:"selected"`
+}
+
+func (c *Client) getFiles(ctx context.Context, gid string) ([]ariaFile, error) {
+	res, err := c.call(ctx, "aria2.getFiles", gid)
+	if err != nil {
+		return nil, err
+	}
+	var files []ariaFile
+	if err := json.Unmarshal(res, &files); err != nil {
+		return nil, err
+	}
+	return files, nil
+}
+
+func (c *Client) getOption(ctx context.Context, gid string) (map[string]string, error) {
+	res, err := c.call(ctx, "aria2.getOption", gid)
+	if err != nil {
+		return nil, err
+	}
+	var opt map[string]string
+	if err := json.Unmarshal(res, &opt); err != nil {
+		return nil, err
+	}
+	return opt, nil
 }
 
 // main1 演示用入口：

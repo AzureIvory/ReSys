@@ -1,10 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
 	D "ReSys/src/dism"
+	"ReSys/src/download"
 	"ReSys/src/install"
 	"ReSys/src/log"
 	"ReSys/src/tools"
@@ -60,8 +62,33 @@ func PE() int {
 	}
 	return 0
 }
+func test() {
+	magnet := "magnet:?xt=urn:btih:585DF592DE43A067C75CFE5A639B41FC3F24DA6F&dn=cn_windows_7_ultimate_with_sp1_x86_dvd_u_677486.iso&xl=2653276160"
+	dir := "./downloads"
+
+	_, err := download.DownloadBT(magnet, dir, func(pct int, speed, done, total int64) {
+		fmt.Printf(
+			"\rBT下载进度: %3d%%  速度: %-10s  已下: %-10s  总计: %-10s",
+			pct,
+			speed,
+			done,
+			total,
+		)
+
+		if pct >= 100 {
+			fmt.Println()
+		}
+	})
+	if err != nil {
+		fmt.Println("BT下载失败:", err)
+		return
+	}
+
+}
 
 func main() {
+	test()
+	os.Exit(1)
 	ui.Uiinit()
 	//判断是否在PE
 	if strings.ToUpper(os.Getenv("SystemRoot")) == `X:\WINDOWS` {

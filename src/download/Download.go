@@ -100,7 +100,6 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 		return "", fmt.Errorf("创建下载目录失败: %w", err)
 	}
 
-	// 用磁链 hash 做隔离目录，避免误扫旧文件
 	sum := sha1.Sum([]byte(strings.ToLower(magnet)))
 	tag := hex.EncodeToString(sum[:])[:12]
 	dataDir := filepath.Join(absDir, ".btdata", tag)
@@ -123,7 +122,25 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 	}
 	defer c.Close()
 
-	res, err := c.DownloadBtContext(context.Background(), magnet, Options{
+	// 第一阶段：只拿 metadata，并保存成 .torrent
+	_, err = c.DownloadBtContext(context.Background(), magnet, Options{
+		Dir:            dataDir,
+		Trackers:       trackers,
+		BTMetadataOnly: true,
+		BTSaveMetadata: true,
+		FollowTorrent:  "false",
+	}, nil)
+	if err != nil {
+		return "", fmt.Errorf("获取 BT metadata 失败: %w", err)
+	}
+
+	torrentPath, err := pickTorrentFile(dataDir)
+	if err != nil {
+		return "", err
+	}
+
+	// 第二阶段：显式用 .torrent 开始真正内容下载
+	res, err := c.DownloadBtContext(context.Background(), torrentPath, Options{
 		Dir:      dataDir,
 		Trackers: trackers,
 	}, func(p Progress) {
@@ -143,27 +160,53 @@ func DownloadBT(magnet, dir string, prog func(pct int, speed, done, total int64)
 		return "", err
 	}
 
-	realPath := strings.TrimSpace(res.Path)
-	if realPath != "" {
-		if st, e := os.Stat(realPath); e == nil && !st.IsDir() && st.Size() > 0 {
-			if prog != nil {
-				prog(100, 0, st.Size(), st.Size())
-			}
-			return realPath, nil
-		}
-	}
-
-	// 只扫本次隔离目录，不扫整个 tempimg
-	realPath, err = pickBTOutputFile(dataDir)
+	realPath, err := pickBTOutputFile(dataDir)
 	if err != nil {
+		// 兜底用 aria2 返回的 path
+		fallbackPath := strings.TrimSpace(res.Path)
+		if fallbackPath != "" {
+			if st, e := os.Stat(fallbackPath); e == nil && !st.IsDir() && st.Size() > 0 {
+				return fallbackPath, nil
+			}
+		}
 		return "", err
 	}
+
 	if prog != nil {
 		if st, e := os.Stat(realPath); e == nil && !st.IsDir() && st.Size() > 0 {
 			prog(100, 0, st.Size(), st.Size())
 		}
 	}
 	return realPath, nil
+}
+func pickTorrentFile(root string) (string, error) {
+	var best string
+	var bestMod time.Time
+
+	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if strings.ToLower(filepath.Ext(p)) != ".torrent" {
+			return nil
+		}
+		st, e := os.Stat(p)
+		if e != nil {
+			return nil
+		}
+		if best == "" || st.ModTime().After(bestMod) {
+			best = p
+			bestMod = st.ModTime()
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	if best == "" {
+		return "", fmt.Errorf("未找到 metadata 保存下来的 .torrent 文件: %s", root)
+	}
+	return best, nil
 }
 
 // loadTrackersWithFallback 函数。

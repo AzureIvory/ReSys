@@ -61,6 +61,7 @@ func downloadMSImage(target, imgArch string) (string, error) {
 	}
 
 	urls, err := data.GetMSWinUrl(systemCode, "zh-cn", strings.TrimSpace(imgArch), "")
+	log.LogWrite(0, "[downloadMSImage] url: %v,err:%v", urls,err)
 	if err != nil {
 		return "", err
 	}
@@ -69,6 +70,7 @@ func downloadMSImage(target, imgArch string) (string, error) {
 	}
 
 	root := chooseDownloadRoot()
+	log.LogWrite(0, "[downloadMSImage] chooseDownloadRoot: %v", root)
 	if strings.TrimSpace(root) == "" {
 		return "", fmt.Errorf("未找到可用下载分区")
 	}
