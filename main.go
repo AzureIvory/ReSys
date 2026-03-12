@@ -70,9 +70,9 @@ func test() {
 		fmt.Printf(
 			"\rBT下载进度: %3d%%  速度: %-10s  已下: %-10s  总计: %-10s",
 			pct,
-			speed,
-			done,
-			total,
+			fmt.Sprint(speed),
+			fmt.Sprint(done),
+			fmt.Sprint(total),
 		)
 
 		if pct >= 100 {

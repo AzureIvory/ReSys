@@ -1,7 +1,6 @@
 package file
 
 import (
-	"ReSys/src/boot"
 	"ReSys/src/disk"
 	"ReSys/src/log"
 	"errors"
@@ -316,7 +315,6 @@ func ClearReadonly(path string) error {
 // 从指定的文件中，按偏移区间 [start, end) 抽取数据，写入到指定的文件中。
 // 支持十进制和十六进制的偏移参数
 func PeelFile(exePath, start, end, out string) error {
-	boot.GetFwType()
 	if exePath == "" {
 		return errors.New("exePath 不能为空")
 	}
