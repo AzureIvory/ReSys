@@ -452,7 +452,7 @@ func IsWinPE() bool {
 	return false
 }
 
-// 判断当前系统是不是带有 MININT 启动标记
+// 判断当前系统是不是带有 MININT 启动标记(PE)
 func systemStartOptionsHasMinint() bool {
 	const keyPath = `SYSTEM\CurrentControlSet\Control`
 	const valueName = "SystemStartOptions"

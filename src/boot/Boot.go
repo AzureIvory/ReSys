@@ -4,6 +4,7 @@ import (
 	"ReSys/src/disk"
 	"ReSys/src/tools"
 	"ReSys/src/utils"
+	winver "ReSys/src/windows"
 	"errors"
 	"fmt"
 	"os"
@@ -13,7 +14,7 @@ import (
 	"syscall"
 	"unsafe"
 
-	"golang.org/x/sys/windows"
+	syswin "golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -215,12 +216,12 @@ func parseBootIdentifier(out, systemDrive string) (string, error) {
 	return "", fmt.Errorf("could not find current boot identifier for SystemDrive=%s", systemDrive)
 }
 
-// GetFwTypeEx 使用 GetFirmwareEnvironmentVariableW 读“空变量”判断启动模式：
+// getFwTypeEx 使用 GetFirmwareEnvironmentVariableW 读“空变量”判断启动模式：
 // - Legacy BIOS：返回 ERROR_INVALID_FUNCTION (1) => Legacy
 // - UEFI：返回其他错误（如 ERROR_NOACCESS / ERROR_ENVVAR_NOT_FOUND 等）=> UEFI
 // 1=bios, 2=uefi
-func GetFwTypeEx() (uint32, error) {
-	k32 := windows.NewLazySystemDLL("kernel32.dll")
+func getFwTypeEx() (uint32, error) {
+	k32 := syswin.NewLazySystemDLL("kernel32.dll")
 	proc := k32.NewProc("GetFirmwareEnvironmentVariableW")
 	if err := k32.Load(); err != nil {
 		return fwTypeBios, err
@@ -231,8 +232,8 @@ func GetFwTypeEx() (uint32, error) {
 
 	// lpName = ""（空字符串）
 	// lpGuid = "{00000000-0000-0000-0000-000000000000}"（虚拟 GUID）
-	name := windows.StringToUTF16Ptr("")
-	guid := windows.StringToUTF16Ptr("{00000000-0000-0000-0000-000000000000}")
+	name := syswin.StringToUTF16Ptr("")
+	guid := syswin.StringToUTF16Ptr("{00000000-0000-0000-0000-000000000000}")
 	var buf [1]byte
 
 	r1, _, e1 := proc.Call(
@@ -245,7 +246,7 @@ func GetFwTypeEx() (uint32, error) {
 	if r1 == 0 {
 		// LazyProc.Call 返回的 e1 通常就是 GetLastError()
 		if errno, ok := e1.(syscall.Errno); ok {
-			if errno == windows.ERROR_INVALID_FUNCTION {
+			if errno == syswin.ERROR_INVALID_FUNCTION {
 				return fwTypeBios, nil
 			}
 			// 其他错误基本都视为 UEFI（如 ERROR_NOACCESS / ERROR_ENVVAR_NOT_FOUND）
@@ -262,7 +263,7 @@ func GetFwTypeEx() (uint32, error) {
 // 获取固件类型（UEFI/BIOS）
 // win8以上使用
 // 1=bios, 2=uefi, 0=unknown
-func GetFwType() (uint32, error) {
+func getFwTypePlus() (uint32, error) {
 	var t uint32
 	r, _, err := procGetFirmwareType.Call(uintptr(unsafe.Pointer(&t)))
 	if r == 0 {
@@ -272,6 +273,37 @@ func GetFwType() (uint32, error) {
 		return fwTypeUnknown, fmt.Errorf("GetFwType failed")
 	}
 	return t, nil
+}
+
+// GetFwType 获取固件类型（UEFI/BIOS）
+func GetFwType() (uint32, error) {
+	version, _, verErr := winver.GetCurrentWinVersion()
+	if verErr != nil {
+		t, err := getFwTypeEx()
+		if err == nil {
+			return t, nil
+		}
+		return fwTypeUnknown, fmt.Errorf("detect Windows version failed: %w; GetFwTypeEx failed: %v", verErr, err)
+	}
+
+	if version < 8 {
+		return getFwTypeEx()
+	}
+
+	t, err := getFwTypePlus()
+	if err == nil && t != fwTypeUnknown {
+		return t, nil
+	}
+
+	fallback, fallbackErr := getFwTypeEx()
+	if fallbackErr == nil {
+		return fallback, nil
+	}
+
+	if err != nil {
+		return fwTypeUnknown, fmt.Errorf("GetFwType failed: %v; GetFwTypeEx failed: %w", err, fallbackErr)
+	}
+	return fwTypeUnknown, fmt.Errorf("GetFwType returned unknown; GetFwTypeEx failed: %w", fallbackErr)
 }
 
 // SecureBootEnabled 通过注册表读取 Secure Boot 状态：

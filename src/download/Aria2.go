@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -29,8 +30,9 @@ import (
 type Client struct {
 	Endpoint string // default: http://127.0.0.1:6800/jsonrpc
 
-	hc  *http.Client
-	seq uint64
+	hc *http.Client
+	// Use 32-bit atomics here so 32-bit builds do not hit unaligned 64-bit atomic panics.
+	seq uint32
 
 	// process management (only if we started aria2c ourselves)
 	cmd     *exec.Cmd
@@ -45,6 +47,7 @@ type Options struct {
 	Dir      string
 	Out      string
 	Trackers []string
+	Extra    map[string]string
 
 	BTMetadataOnly bool
 	BTSaveMetadata bool
@@ -111,10 +114,12 @@ func Newaria2() (*Client, error) {
 			Timeout: 15 * time.Second,
 		},
 	}
+	log.LogWrite(0, "[Newaria2] create client: endpoint=%s", c.Endpoint)
 	if err := c.ensureRPCReady(); err != nil {
 		log.LogWrite(-2, "[Newaria2]初始化RPC失败: err=%v", err)
 		return nil, err
 	}
+	log.LogWrite(0, "[Newaria2] RPC ready: endpoint=%s started=%t", c.Endpoint, c.started)
 	return c, nil
 }
 
@@ -211,7 +216,7 @@ func DefaultProgressPrinter(p Progress) {
 // rpcReq 表示 aria2 JSON-RPC 请求结构体。
 type rpcReq struct {
 	JSONRPC string `json:"jsonrpc"`
-	ID      uint64 `json:"id"`
+	ID      uint32 `json:"id"`
 	Method  string `json:"method"`
 	Params  []any  `json:"params,omitempty"`
 }
@@ -221,7 +226,7 @@ type rpcReq struct {
 // - Error：失败时的错误码/错误信息
 type rpcResp struct {
 	JSONRPC string          `json:"jsonrpc"`
-	ID      uint64          `json:"id"`
+	ID      uint32          `json:"id"`
 	Result  json.RawMessage `json:"result,omitempty"`
 	Error   *struct {
 		Code    int    `json:"code"`
@@ -235,7 +240,7 @@ type rpcResp struct {
 // 3) 读取并解析响应
 // 4) 如果 RPC 层报错，转成 Go error
 func (c *Client) call(ctx context.Context, method string, params ...any) (json.RawMessage, error) {
-	id := atomic.AddUint64(&c.seq, 1)
+	id := atomic.AddUint32(&c.seq, 1)
 	body, err := json.Marshal(rpcReq{
 		JSONRPC: "2.0",
 		ID:      id,
@@ -282,8 +287,12 @@ func (c *Client) call(ctx context.Context, method string, params ...any) (json.R
 // - 若仍失败则关闭进程并返回清晰错误（可能端口被占用等）。
 func (c *Client) ensureRPCReady() error {
 	// quick ping existing aria2
+	log.LogWrite(0, "[ensureRPCReady] checking existing rpc: endpoint=%s", c.Endpoint)
 	if err := c.pingOnce(800 * time.Millisecond); err == nil {
+		log.LogWrite(0, "[ensureRPCReady] existing rpc is ready: endpoint=%s", c.Endpoint)
 		return nil
+	} else {
+		log.LogWrite(0, "[ensureRPCReady] existing rpc unavailable: endpoint=%s err=%v", c.Endpoint, err)
 	}
 
 	// start aria2 from tools folder near the running program
@@ -292,9 +301,11 @@ func (c *Client) ensureRPCReady() error {
 		log.LogWrite(-2, "[ensureRPCReady]获取程序路径失败: err=%v", err)
 		return fmt.Errorf("cannot locate executable: %w", err)
 	}
+	log.LogWrite(0, "[ensureRPCReady] executable path: %s", exePath)
 	exeDir := filepath.Dir(exePath)
 	aria2Path := filepath.Join(exeDir, "tools", "aria2c.exe")
 
+	log.LogWrite(0, "[ensureRPCReady] bundled aria2 path: %s", aria2Path)
 	if _, err := os.Stat(aria2Path); err != nil {
 		log.LogWrite(-2, "[ensureRPCReady]未找到aria2c: path=%s err=%v", aria2Path, err)
 		return fmt.Errorf("aria2c not found: %s (expected in ./tools). err=%v", aria2Path, err)
@@ -315,13 +326,22 @@ func (c *Client) ensureRPCReady() error {
 	cmd.Stderr = io.Discard
 
 	if runtime.GOOS == "windows" {
-		// HideWindow best-effort（这里不额外引入 syscall，保持依赖简单）
-		// 如果需要更严格隐藏窗口，可加：cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			HideWindow:    true,
+			CreationFlags: 0x08000000, // CREATE_NO_WINDOW
+		}
 	}
 
+	log.LogWrite(0, "[ensureRPCReady] starting aria2c: path=%s dir=%s args=%v", aria2Path, exeDir, args)
 	if err := cmd.Start(); err != nil {
 		log.LogWrite(-2, "[ensureRPCReady]启动aria2c失败: path=%s err=%v", aria2Path, err)
 		return fmt.Errorf("start aria2c failed: %w", err)
+	}
+
+	if cmd.Process != nil {
+		log.LogWrite(0, "[ensureRPCReady] aria2c started: pid=%d", cmd.Process.Pid)
+	} else {
+		log.LogWrite(0, "[ensureRPCReady] aria2c started without process handle")
 	}
 
 	c.cmd = cmd
@@ -376,6 +396,12 @@ func (c *Client) addAny(ctx context.Context, src string, opt Options) (string, e
 	}
 	if opt.FollowTorrent != "" {
 		options["follow-torrent"] = opt.FollowTorrent
+	}
+	for k, v := range opt.Extra {
+		if strings.TrimSpace(k) == "" || strings.TrimSpace(v) == "" {
+			continue
+		}
+		options[k] = v
 	}
 
 	// magnet 或普通 URL（且不是 .torrent URL）直接 addUri

@@ -87,8 +87,6 @@ func test() {
 }
 
 func main() {
-	test()
-	os.Exit(1)
 	ui.Uiinit()
 	//判断是否在PE
 	if strings.ToUpper(os.Getenv("SystemRoot")) == `X:\WINDOWS` {

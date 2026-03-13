@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,6 +45,12 @@ type ProgressReporter struct {
 }
 
 func (p *ProgressReporter) Update(pct float64, speedBytes int64) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.LogWrite(-2, "[ProgressReporter.Update] panic: pct=%.2f speed=%d panic=%v stack=%s", pct, speedBytes, r, string(debug.Stack()))
+		}
+	}()
+
 	now := time.Now()
 
 	if p.uiEvery <= 0 {
@@ -589,11 +596,13 @@ func DownloadImage(target, arch string) (string, error) {
 				true,
 			)
 
+			log.LogWrite(0, "[downloadImage]calling DownloadFile: link=%s dst=%s", link, dstPath)
 			ctx, cancel := context.WithCancel(context.Background())
 			err := download.DownloadFile(ctx, link, dstPath, func(pct float64, speed int64) {
 				pr.Update(pct, speed)
 			})
 			cancel()
+			log.LogWrite(0, "[downloadImage]DownloadFile returned: link=%s dst=%s err=%v", link, dstPath, err)
 
 			if err == nil {
 				if vErr := validateImageFile(it, dstPath); vErr != nil {

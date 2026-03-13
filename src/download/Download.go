@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -687,27 +688,59 @@ func uniqueStrings(in []string) []string {
 // 下载文件
 // - 写入 dstPath+".part"，成功后重命名为 dstPath。
 // - 若 .part 已存在，会尝试用续传；若服务器不支持 Range，会自动从头下载。
-func DownloadFile(ctx context.Context, url, dstPath string, progressCallback func(float64, int64)) error {
-	if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
-		log.LogWrite(0, "[DownloadFile] 创建目录失败: path=%s err=%v", dstPath, err)
+func DownloadFile(ctx context.Context, url, dstPath string, progressCallback func(float64, int64)) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.LogWrite(-2, "[DownloadFile] panic: url=%s dst=%s panic=%v stack=%s", url, dstPath, r, string(debug.Stack()))
+			err = fmt.Errorf("download file panic: %v", r)
+		}
+	}()
+
+	log.LogWrite(0, "[DownloadFile] enter: url=%s dst=%s", url, dstPath)
+	if err = os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
+		log.LogWrite(0, "[DownloadFile] mkdir failed: path=%s err=%v", dstPath, err)
 		return fmt.Errorf("create dir: %w", err)
 	}
+	log.LogWrite(0, "[DownloadFile] directory ready: dir=%s", filepath.Dir(dstPath))
 	if progressCallback == nil {
 		progressCallback = func(float64, int64) {}
 	}
 
+	safeProgress := func(pct float64, speed int64) {
+		defer func() {
+			if r := recover(); r != nil {
+				log.LogWrite(-2, "[DownloadFile] progress callback panic: url=%s dst=%s pct=%.2f speed=%d panic=%v stack=%s", url, dstPath, pct, speed, r, string(debug.Stack()))
+			}
+		}()
+		progressCallback(pct, speed)
+	}
+
+	log.LogWrite(0, "[DownloadFile] initializing aria2: url=%s dst=%s", url, dstPath)
 	c, err := Newaria2()
 	if err != nil {
-		log.LogWrite(0, "[DownloadFile] 初始化 aria2 失败: err=%v", err)
+		log.LogWrite(0, "[DownloadFile] init aria2 failed: err=%v", err)
 		return err
 	}
 	defer c.Close()
+	log.LogWrite(0, "[DownloadFile] aria2 ready: endpoint=%s started=%t", c.Endpoint, c.started)
 
 	opt := Options{
 		Dir: filepath.Dir(dstPath),
 		Out: filepath.Base(dstPath),
+		Extra: map[string]string{
+			"continue":                  "true",
+			"split":                     "16",
+			"max-connection-per-server": "16",
+			"min-split-size":            "1M",
+			"file-allocation":           "none",
+			"allow-overwrite":           "true",
+			"auto-file-renaming":        "false",
+		},
 	}
+	log.LogWrite(0, "[DownloadFile] aggressive aria2 options enabled: split=%s max-connection-per-server=%s min-split-size=%s file-allocation=%s",
+		opt.Extra["split"], opt.Extra["max-connection-per-server"], opt.Extra["min-split-size"], opt.Extra["file-allocation"])
 
+	log.LogWrite(0, "[DownloadFile] start aria2 transfer: url=%s dst=%s", url, dstPath)
 	_, err = c.DownloadContext(ctx, url, opt, func(p Progress) {
 		percent := p.Percent
 		if percent < 0 {
@@ -716,30 +749,28 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 		if percent > 100 {
 			percent = 100
 		}
-		progressCallback(percent, p.DownBps)
+		safeProgress(percent, p.DownBps)
 	})
 	if err != nil {
-		log.LogWrite(0, "[DownloadFile] aria2 下载失败: url=%s dst=%s err=%v", url, dstPath, err)
+		log.LogWrite(0, "[DownloadFile] aria2 transfer failed: url=%s dst=%s err=%v", url, dstPath, err)
 		return err
 	}
+	log.LogWrite(0, "[DownloadFile] aria2 transfer finished: url=%s dst=%s", url, dstPath)
 
-	// aria2 正常 complete 后，目标文件应已直接落在 dstPath
 	st, statErr := os.Stat(dstPath)
 	if statErr != nil {
-		log.LogWrite(0, "[DownloadFile] 下载完成但文件不存在: path=%s err=%v", dstPath, statErr)
-		return fmt.Errorf("stat %s 失败: %w", dstPath, statErr)
+		log.LogWrite(0, "[DownloadFile] downloaded file missing: path=%s err=%v", dstPath, statErr)
+		return fmt.Errorf("stat %s failed: %w", dstPath, statErr)
 	}
 	if st.IsDir() || st.Size() <= 0 {
-		log.LogWrite(0, "[DownloadFile] 下载结果异常: path=%s size=%d", dstPath, st.Size())
-		return fmt.Errorf("下载结果异常: %s", dstPath)
+		log.LogWrite(0, "[DownloadFile] invalid download result: path=%s size=%d", dstPath, st.Size())
+		return fmt.Errorf("invalid download result: %s", dstPath)
 	}
 
-	progressCallback(100, 0)
+	safeProgress(100, 0)
+	log.LogWrite(0, "[DownloadFile] success: path=%s size=%d", dstPath, st.Size())
 	return nil
 }
-
-// 判断网络是否连通。
-// 返回：ok=是否连通；err=具体失败原因
 func CheckNetwork(ctx context.Context) (ok bool, err error) {
 	dialer := &net.Dialer{
 		Timeout: 3 * time.Second,

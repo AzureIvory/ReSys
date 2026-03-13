@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"time"
 )
@@ -26,6 +27,13 @@ func init() {
 }
 
 func StartInstall(target string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.LogWrite(-2, "[StartInstall] panic: target=%s panic=%v stack=%s", target, r, string(debug.Stack()))
+			ui.UiShowError("Error", fmt.Sprintf("install failed unexpectedly: %v", r))
+		}
+	}()
+
 	imgArch := windows.DesiredArch()
 	peArch := windows.SystemArch()
 
