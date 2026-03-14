@@ -129,6 +129,19 @@ func isFailedLink(link string) bool {
 }
 
 // 写入重装文件
+func logLinkSwitch(scope, fromLink, toLink, reason string) {
+	fromLink = strings.TrimSpace(fromLink)
+	toLink = strings.TrimSpace(toLink)
+	reason = strings.TrimSpace(strings.ReplaceAll(reason, "\n", " "))
+	if fromLink == "" || toLink == "" || strings.EqualFold(fromLink, toLink) {
+		return
+	}
+	if reason == "" {
+		reason = "previous link became unavailable"
+	}
+	log.LogWrite(0, "[%s]切换下载链接: %s -> %s 原因: %s", scope, fromLink, toLink, reason)
+}
+
 func WriteResFile(imagePath string, target, arch string, index int) error {
 	imagePath, _ = filepath.Abs(imagePath)
 	imageRoot, _ := utils.NormalizeDrive(imagePath, 2)
@@ -549,15 +562,30 @@ func DownloadImage(target, arch string) (string, error) {
 		}
 		links := []string{strings.TrimSpace(it.Link), strings.TrimSpace(it.Link2)}
 		triedLink := false
+		prevLink := ""
+		switchReason := ""
 
 		for _, link := range links {
-			if link == "" || isFailedLink(link) {
+			link = strings.TrimSpace(link)
+			if link == "" {
+				continue
+			}
+			if isFailedLink(link) {
+				prevLink = link
+				switchReason = "链接已被标记为失败"
 				continue
 			}
 			if !download.HttpStatus(link) {
 				log.LogWrite(0, "[downloadImage]URL链接不可用：%s", link)
 				markFailedLink(link)
+				prevLink = link
+				switchReason = "链接预检查失败"
 				continue
+			}
+
+			if prevLink != "" && switchReason != "" {
+				logLinkSwitch("downloadImage", prevLink, link, switchReason)
+				switchReason = ""
 			}
 
 			name := data.ImgName(it, link)
@@ -603,6 +631,10 @@ func DownloadImage(target, arch string) (string, error) {
 			})
 			cancel()
 			log.LogWrite(0, "[downloadImage]DownloadFile returned: link=%s dst=%s err=%v", link, dstPath, err)
+			if err != nil {
+				prevLink = link
+				switchReason = fmt.Sprintf("下载报错: %v", err)
+			}
 
 			if err == nil {
 				if vErr := validateImageFile(it, dstPath); vErr != nil {
@@ -610,6 +642,8 @@ func DownloadImage(target, arch string) (string, error) {
 					_ = file.Remove(dstPath, false)
 					log.LogWrite(0, "[downloadImage]镜像校验失败，删除重下：%s err=%v", dstPath, vErr)
 					errs = append(errs, fmt.Sprintf("URL校验失败 link=%s err=%v", link, vErr))
+					prevLink = link
+					switchReason = fmt.Sprintf("下载完成但校验失败: %v", vErr)
 					continue
 				}
 				log.LogWrite(0, "[downloadImage]镜像下载完成：%s", dstPath)
@@ -818,9 +852,17 @@ func pickWinImg(ent []data.WinImg) (data.WinImg, string, error) {
 
 	for _, it := range urlList {
 		links := tryURL(it)
+		prevLink := ""
+		switchReason := ""
 		for _, link := range links {
 			if isFailedLink(link) {
+				prevLink = link
+				switchReason = "链接已被标记为失败"
 				continue
+			}
+			if prevLink != "" && switchReason != "" {
+				logLinkSwitch("pickImageLink", prevLink, link, switchReason)
+				switchReason = ""
 			}
 			if download.HttpStatus(link) {
 				return it, link, nil
@@ -907,18 +949,29 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 		}
 
 		triedLink := false
+		prevLink := ""
+		switchReason := ""
 		for _, link := range it.Links {
 			link = strings.TrimSpace(link)
 			if link == "" {
 				continue
 			}
 			if isFailedLink(link) {
+				prevLink = link
+				switchReason = "链接已被标记为失败"
 				continue
 			}
 			if !download.HttpStatus(link) {
 				log.LogWrite(0, "[downloadPE]PE链接不可用：%s", link)
 				markFailedLink(link)
+				prevLink = link
+				switchReason = "链接预检查失败"
 				continue
+			}
+
+			if prevLink != "" && switchReason != "" {
+				logLinkSwitch("downloadPE", prevLink, link, switchReason)
+				switchReason = ""
 			}
 
 			needBytes := int64(it.Sz * 1024 * 1024)
@@ -977,6 +1030,8 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 						markFailedLink(link)
 						log.LogWrite(0, "[downloadPE]PE下载失败：%v", err)
 						_ = file.Remove(exePath, false)
+						prevLink = link
+						switchReason = fmt.Sprintf("下载报错: %v", err)
 						continue
 					}
 
@@ -987,6 +1042,8 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 							markFailedLink(link)
 							log.LogWrite(0, "[downloadPE]PE下载后MD5校验失败：%s", exePath)
 							_ = file.Remove(exePath, false)
+							prevLink = link
+							switchReason = "下载完成但 MD5 校验失败"
 							continue
 						}
 					}
@@ -1014,6 +1071,8 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 					markFailedLink(link)
 					log.LogWrite(0, "[downloadPE]PE下载失败：%v", err)
 					_ = file.Remove(wimPath, false)
+					prevLink = link
+					switchReason = fmt.Sprintf("下载报错: %v", err)
 					continue
 				}
 			}
@@ -1087,13 +1146,23 @@ func downloadPEFromLinks(links []string) (string, error) {
 	)
 
 	triedLink := false
+	prevLink := ""
+	switchReason := ""
 	for _, link := range out {
+		link = strings.TrimSpace(link)
+		if link == "" {
+			continue
+		}
 		if !download.HttpStatus(link) {
 			log.LogWrite(0, "[downloadPEFromLinks]PE链接不可用：%s", link)
 			continue
 		}
 		log.LogWrite(0, "[downloadPEFromLinks]PE链接：%s\n", link)
 
+		if prevLink != "" && switchReason != "" {
+			logLinkSwitch("downloadPEFromLinks", prevLink, link, switchReason)
+			switchReason = ""
+		}
 		if triedLink {
 			_ = file.Remove(wimPath+".part", false)
 		}
@@ -1109,6 +1178,8 @@ func downloadPEFromLinks(links []string) (string, error) {
 			markFailedLink(link)
 			log.LogWrite(0, "[downloadPEFromLinks]PE下载失败：%v,url:"+link, err)
 			_ = file.Remove(wimPath, false)
+			prevLink = link
+			switchReason = fmt.Sprintf("下载报错: %v", err)
 			continue
 		}
 

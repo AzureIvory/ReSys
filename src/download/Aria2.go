@@ -47,6 +47,7 @@ type Options struct {
 	Dir      string
 	Out      string
 	Trackers []string
+	Headers  []string
 	Extra    map[string]string
 
 	BTMetadataOnly bool
@@ -377,7 +378,7 @@ func (c *Client) pingOnce(timeout time.Duration) error {
 // - URL/magnet：走 aria2.addUri
 // - torrent：加载 .torrent bytes（本地/远程），base64 后走 aria2.addTorrent
 func (c *Client) addAny(ctx context.Context, src string, opt Options) (string, error) {
-	options := map[string]string{}
+	options := map[string]any{}
 	if opt.Dir != "" {
 		options["dir"] = opt.Dir
 	}
@@ -396,6 +397,19 @@ func (c *Client) addAny(ctx context.Context, src string, opt Options) (string, e
 	}
 	if opt.FollowTorrent != "" {
 		options["follow-torrent"] = opt.FollowTorrent
+	}
+	if len(opt.Headers) > 0 {
+		headers := make([]string, 0, len(opt.Headers))
+		for _, header := range opt.Headers {
+			header = strings.TrimSpace(header)
+			if header == "" {
+				continue
+			}
+			headers = append(headers, header)
+		}
+		if len(headers) > 0 {
+			options["header"] = headers
+		}
 	}
 	for k, v := range opt.Extra {
 		if strings.TrimSpace(k) == "" || strings.TrimSpace(v) == "" {

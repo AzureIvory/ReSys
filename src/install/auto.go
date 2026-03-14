@@ -126,6 +126,7 @@ func RunPEInstall() error {
 		index = SelectInstallIndex(infos)
 	}
 	log.LogWrite(0, "[RunPEInstall] image infos: %s", formatImageInfos(infos))
+	log.LogWrite(0, "[RunPEInstall] apply image: image=%s target=%s index=%d", imagePath, targetRoot, index)
 
 	progressCb := func(phase string, pct float64, raw string) {
 		_ = raw
@@ -133,6 +134,7 @@ func RunPEInstall() error {
 		ui.UiSetProgress(MapPct(20, 50, pct))
 	}
 	if err := applyImageByExt(imagePath, targetRoot, index, progressCb); err != nil {
+		log.LogWrite(-2, "[RunPEInstall] apply image failed: image=%s target=%s index=%d err=%v", imagePath, targetRoot, index, err)
 		return err
 	}
 
@@ -173,6 +175,7 @@ func applyImageByExt(imagePath, targetRoot string, index int, progress func(stri
 			applyPath = filepath.Join(isoRoot, "sources", "install.esd")
 		}
 	}
+	log.LogWrite(0, "[applyImageByExt] ext=%s image=%s applyPath=%s target=%s index=%d", ext, imagePath, applyPath, targetRoot, index)
 
 	var progressCh chan D.DismProgress
 	if progress != nil {

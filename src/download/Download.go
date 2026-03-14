@@ -21,6 +21,18 @@ import (
 	"github.com/anacrolix/torrent/storage"
 )
 
+const defaultDownloadUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
+
+func commonDownloadHeaders() []string {
+	return []string{
+		"Accept: */*",
+		"Accept-Language: zh-CN,zh;q=0.9,en;q=0.8",
+		"Cache-Control: no-cache",
+		"Pragma: no-cache",
+		"Connection: keep-alive",
+	}
+}
+
 func pickBTOutputFile(root string) (string, error) {
 	// 优先挑这些扩展名
 	priority := map[string]int{
@@ -725,11 +737,14 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 	log.LogWrite(0, "[DownloadFile] aria2 ready: endpoint=%s started=%t", c.Endpoint, c.started)
 
 	opt := Options{
-		Dir: filepath.Dir(dstPath),
-		Out: filepath.Base(dstPath),
+		Dir:     filepath.Dir(dstPath),
+		Out:     filepath.Base(dstPath),
+		Headers: commonDownloadHeaders(),
 		Extra: map[string]string{
+			"user-agent":                defaultDownloadUserAgent,
+			"referer":                   "*",
 			"continue":                  "true",
-			"split":                     "16",
+			"split":                     "32",
 			"max-connection-per-server": "16",
 			"min-split-size":            "1M",
 			"file-allocation":           "none",

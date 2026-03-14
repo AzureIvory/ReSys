@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 	"unicode/utf16"
+	"unicode/utf8"
 )
 
 // reDISMPercent 用于匹配 DISM 输出中的百分比，例如 "42.3%"、"100%"。
@@ -232,8 +233,12 @@ func (d *Dism) ApplyImageCmd(imageFile, applyDir string, index uint32, progressC
 	if !utils.FileExists(imageFile) {
 		return fmt.Errorf("镜像文件不存在: %s", imageFile)
 	}
-	if !utils.FileExists(strings.TrimRight(applyDir, `\\`)) {
-		return fmt.Errorf("目标目录不存在: %s", applyDir)
+	st, err := os.Stat(applyDir)
+	if err != nil {
+		return fmt.Errorf("目标目录不存在: %s: %w", applyDir, err)
+	}
+	if !st.IsDir() {
+		return fmt.Errorf("目标路径不是目录: %s", applyDir)
 	}
 
 	args := []string{
@@ -248,6 +253,7 @@ func (d *Dism) ApplyImageCmd(imageFile, applyDir string, index uint32, progressC
 	if err != nil {
 		return err
 	}
+	log.LogWrite(0, "[Dism.ApplyImageCmd] start: dism=%s image=%s index=%d applyDir=%s", dismPath, imageFile, index, applyDir)
 
 	cmd := exec.Command(dismPath, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
@@ -268,7 +274,7 @@ func (d *Dism) ApplyImageCmd(imageFile, applyDir string, index uint32, progressC
 
 	var lastPct uint8 = 255
 	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
+		line := strings.TrimSpace(decodeWindowsCLIBytes(sc.Bytes()))
 		if line == "" {
 			continue
 		}
@@ -293,6 +299,7 @@ func (d *Dism) ApplyImageCmd(imageFile, applyDir string, index uint32, progressC
 		}
 	}
 	if scanErr := sc.Err(); scanErr != nil {
+		log.LogWrite(-2, "[Dism.ApplyImageCmd] scanner failed: %v", scanErr)
 		return scanErr
 	}
 
@@ -302,14 +309,29 @@ func (d *Dism) ApplyImageCmd(imageFile, applyDir string, index uint32, progressC
 		if msg == "" {
 			msg = err.Error()
 		}
+		log.LogWrite(-2, "[Dism.ApplyImageCmd] failed: image=%s index=%d applyDir=%s err=%v", imageFile, index, applyDir, err)
 		if fullOut != "" {
 			return fmt.Errorf("dism apply failed: %s\n%s", msg, fullOut)
 		}
 		return fmt.Errorf("dism apply failed: %s", msg)
 	}
 
+	log.LogWrite(0, "[Dism.ApplyImageCmd] completed: image=%s index=%d applyDir=%s", imageFile, index, applyDir)
 	sendProgress(progressCh, 100, "Done")
 	return nil
+}
+
+func decodeWindowsCLIBytes(b []byte) string {
+	if len(b) == 0 {
+		return ""
+	}
+	if utf8.Valid(b) {
+		return string(b)
+	}
+	if s := strings.TrimSpace(utils.AnsiToUTF8(b)); s != "" {
+		return s
+	}
+	return string(b)
 }
 
 // CaptureImageApi 以 LZX 压缩格式捕获目录为 WIM 镜像。

@@ -61,7 +61,7 @@ func downloadMSImage(target, imgArch string) (string, error) {
 	}
 
 	urls, err := data.GetMSWinUrl(systemCode, "zh-cn", strings.TrimSpace(imgArch), "")
-	log.LogWrite(0, "[downloadMSImage] url: %v,err:%v", urls,err)
+	log.LogWrite(0, "[downloadMSImage] url: %v,err:%v", urls, err)
 	if err != nil {
 		return "", err
 	}
@@ -81,15 +81,27 @@ func downloadMSImage(target, imgArch string) (string, error) {
 	}
 
 	var errs []string
+	prevLink := ""
+	switchReason := ""
 	for _, info := range urls {
 		link := strings.TrimSpace(info.URL)
-		if link == "" || isFailedLink(link) {
+		if link == "" {
+			continue
+		}
+		if isFailedLink(link) {
+			prevLink = link
+			switchReason = "链接已被标记为失败"
 			continue
 		}
 		if !download.HttpStatus(link) {
 			markFailedLink(link)
 			errs = append(errs, fmt.Sprintf("微软直链不可用: %s", link))
 			continue
+		}
+
+		if prevLink != "" && switchReason != "" {
+			logLinkSwitch("downloadMSImage", prevLink, link, switchReason)
+			switchReason = ""
 		}
 
 		name := strings.TrimSpace(info.FileName)
