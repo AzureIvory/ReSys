@@ -1,64 +1,36 @@
-package install
+﻿package install
 
 import (
-	"ReSys/src/boot"
-	"ReSys/src/disk"
-	D "ReSys/src/dism"
-	"ReSys/src/image"
 	"ReSys/src/log"
 	"ReSys/src/ui"
 	"ReSys/src/windows"
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime/debug"
-	"strings"
-	"time"
 )
 
-const (
-	TargetWin7  = "win7"
-	TargetWin10 = "win10"
-	TargetWin11 = "win11"
-)
-
+// init 将安装入口绑定到界面层。
 func init() {
 	ui.StartInstall = StartInstall
 }
 
+// StartInstall 启动 Windows 侧的自动重装准备流程。
 func StartInstall(target string) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.LogWrite(-2, "[StartInstall] panic: target=%s panic=%v stack=%s", target, r, string(debug.Stack()))
-			ui.UiShowError("Error", fmt.Sprintf("install failed unexpectedly: %v", r))
-		}
-	}()
-
-	imgArch := windows.DesiredArch()
-	peArch := windows.SystemArch()
-
-	log.LogWrite(0, "[StartInstall] target=%s imageArch=%s peArch=%s", target, imgArch, peArch)
-	ui.UiSetProgress(0)
-	ui.UiSetStatus("正在寻找镜像...")
-
-	imgPath, ok := retryLoopWithResult("镜像准备", func() (string, error) {
-		return prepareImage(target, imgArch)
-	})
-	if !ok {
-		return
+	plan := &InstallPlan{
+		Mode:      ReinstallModeAuto,
+		TargetOS:  target,
+		ImageArch: windows.DesiredArch(),
+		PEArch:    windows.SystemArch(),
 	}
+	ctx := NewInstallContext(plan)
 
-	if _, ok := retryLoopWithResult("写入重装信息", func() (int, error) {
-		return writeInstallInfo(imgPath, target, imgArch)
-	}); !ok {
-		return
-	}
-
-	ui.UiSetProgress(70)
-	ui.UiSetStatus("正在准备PE环境...")
-	if !retryLoop("准备PE", func() error {
-		return preparePEBoot(peArch)
-	}) {
+	log.LogWrite(0, "[StartInstall] target=%s imageArch=%s peArch=%s", target, plan.ImageArch, plan.PEArch)
+	if err := runFlowWithGuard("StartInstall", func() error {
+		return runAutoPrepareFlow(ctx)
+	}); err != nil {
+		log.LogWrite(-2, "[StartInstall] failed: %v", err)
+		ui.UiShowError("错误", err.Error())
+		os.Exit(-1)
 		return
 	}
 
@@ -67,91 +39,17 @@ func StartInstall(target string) {
 	log.LogWrite(0, "[StartInstall] prepare finished")
 }
 
+// RunPEInstall 执行 PE 内的自动安装流程。
 func RunPEInstall() error {
 	ui.UiSetProgress(0)
 	ui.UiSetStatus("正在读取重装信息...")
 	log.LogWrite(0, "[RunPEInstall] enter PE install flow")
 
-	targetRoot, diskPath, imagePath, volumeGuid, diskUniqueID, imageRel, savedTarget, savedArch, savedIndex, err := LoadResData()
-	if err != nil {
-		return err
-	}
-
-	if strings.TrimSpace(imagePath) != "" {
-		if resolved, rerr := ResolveImagePath(diskPath, volumeGuid, diskUniqueID, imagePath, imageRel); rerr == nil {
-			imagePath = resolved
-		}
-	}
-	if strings.TrimSpace(imagePath) == "" {
-		if local, lerr := image.FindLocalImage(savedTarget, savedArch); lerr == nil {
-			imagePath = local
-		}
-	}
-	if strings.TrimSpace(imagePath) == "" {
-		target := strings.TrimSpace(savedTarget)
-		if target == "" {
-			target = TargetWin10
-		}
-		arch := strings.TrimSpace(savedArch)
-		if arch == "" {
-			arch = "64"
-		}
-		dl, derr := findOrDownloadImage(target, arch)
-		if derr != nil {
-			return fmt.Errorf("未找到镜像且下载失败: %w", derr)
-		}
-		imagePath = dl
-	}
-
-	if targetRoot == "" {
-		targetRoot = chooseInstallTargetRoot()
-		if targetRoot == "" {
-			return fmt.Errorf("未找到可用系统分区")
-		}
-	}
-
-	ui.UiSetProgress(10)
-	ui.UiSetStatus("正在格式化分区...")
-	if err := disk.Format(strings.ReplaceAll(strings.ReplaceAll(targetRoot, "\\", ""), ":", ""), "ntfs", "Windows", true); err != nil {
-		return err
-	}
-
-	ui.UiSetProgress(20)
-	ui.UiSetStatus("正在解析镜像...")
-	infos, _ := image.DetectImageInfos(imagePath)
-	index := 1
-	if savedIndex > 0 {
-		index = savedIndex
-	} else {
-		index = SelectInstallIndex(infos)
-	}
-	log.LogWrite(0, "[RunPEInstall] image infos: %s", formatImageInfos(infos))
-	log.LogWrite(0, "[RunPEInstall] apply image: image=%s target=%s index=%d", imagePath, targetRoot, index)
-
-	progressCb := func(phase string, pct float64, raw string) {
-		_ = raw
-		ui.UiSetStatus(fmt.Sprintf("正在应用镜像：%s... %.1f%%", phase, pct))
-		ui.UiSetProgress(MapPct(20, 50, pct))
-	}
-	if err := applyImageByExt(imagePath, targetRoot, index, progressCb); err != nil {
-		log.LogWrite(-2, "[RunPEInstall] apply image failed: image=%s target=%s index=%d err=%v", imagePath, targetRoot, index, err)
-		return err
-	}
-
-	ui.UiSetStatus("正在修复引导...")
-	ui.UiSetProgress(75)
-	if err := boot.FixBoot(targetRoot, "", "zh-cn"); err != nil {
-		return err
-	}
-
-	targetOS := strings.TrimSpace(savedTarget)
-	if targetOS == "" {
-		targetOS = image.DetectTargetFromInfos(infos)
-	}
-	if targetOS == "" {
-		targetOS = TargetWin10
-	}
-	if err := postInstallTasks(targetRoot, targetOS); err != nil {
+	ctx := NewInstallContext(nil)
+	if err := runFlowWithGuard("RunPEInstall", func() error {
+		return runAutoPEFlow(ctx)
+	}); err != nil {
+		log.LogWrite(-2, "[RunPEInstall] failed: %v", err)
 		return err
 	}
 
@@ -161,38 +59,192 @@ func RunPEInstall() error {
 	return nil
 }
 
-func applyImageByExt(imagePath, targetRoot string, index int, progress func(string, float64, string)) error {
-	ext := strings.ToLower(filepath.Ext(imagePath))
-	dism := D.NewDism()
-	applyPath := imagePath
-	if ext == ".iso" {
-		isoRoot, err := image.MountISO(imagePath, 30*time.Second)
-		if err != nil {
-			return err
-		}
-		applyPath = filepath.Join(isoRoot, "sources", "install.wim")
-		if _, err := os.Stat(applyPath); err != nil {
-			applyPath = filepath.Join(isoRoot, "sources", "install.esd")
-		}
+// runAutoPrepareFlow 按阶段完成进入 PE 前的自动准备。
+func runAutoPrepareFlow(ctx *InstallContext) error {
+	stages := []*Stage{
+		{
+			Name: "预检查",
+			Run: func(ctx *InstallContext) error {
+				ui.UiSetProgress(0)
+				ui.UiSetStatus("正在检查安装环境...")
+				return NormalizeInstallPlan(ctx.Plan)
+			},
+		},
+		{
+			Name:      "获取镜像",
+			Retryable: true,
+			Run: func(ctx *InstallContext) error {
+				ui.UiSetProgress(0)
+				ui.UiSetStatus("正在寻找镜像...")
+				_, err := AcquireInstallImage(ctx.Plan)
+				return err
+			},
+		},
+		{
+			Name:      "保存安装计划",
+			Retryable: true,
+			Run: func(ctx *InstallContext) error {
+				ui.UiSetProgress(60)
+				ui.UiSetStatus("正在写入重装信息...")
+				return SaveInstallPlan(ctx.Plan)
+			},
+		},
+		{
+			Name: "HookBeforeEnterPE",
+			Run: func(ctx *InstallContext) error {
+				return ctx.RunHooks(HookBeforeEnterPE)
+			},
+		},
+		{
+			Name:      "准备PE",
+			Retryable: true,
+			Run: func(ctx *InstallContext) error {
+				ui.UiSetProgress(70)
+				ui.UiSetStatus("正在准备PE环境...")
+				return PreparePEEnvironment(ctx)
+			},
+		},
+		{
+			Name:      "设置下次启动进入PE",
+			Retryable: true,
+			Run: func(ctx *InstallContext) error {
+				return SetNextBootToPE(ctx)
+			},
+		},
 	}
-	log.LogWrite(0, "[applyImageByExt] ext=%s image=%s applyPath=%s target=%s index=%d", ext, imagePath, applyPath, targetRoot, index)
 
-	var progressCh chan D.DismProgress
-	if progress != nil {
-		progressCh = make(chan D.DismProgress, 16)
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			for p := range progressCh {
-				progress("apply", float64(p.Percentage), p.Status)
-			}
-		}()
+	return RunStages(ctx, stages)
+}
 
-		err := dism.ApplyImageCmd(applyPath, targetRoot, uint32(index), progressCh)
-		close(progressCh)
-		<-done
-		return err
+// runAutoPEFlow 按阶段完成 PE 内的自动安装。
+func runAutoPEFlow(ctx *InstallContext) error {
+	stages := []*Stage{
+		{
+			Name: "读取安装计划",
+			Run: func(ctx *InstallContext) error {
+				ui.UiSetProgress(0)
+				ui.UiSetStatus("正在读取重装信息...")
+				plan, err := LoadInstallPlan()
+				if err != nil {
+					return err
+				}
+				ctx.Plan = plan
+				return nil
+			},
+		},
+		{
+			Name:      "恢复镜像路径",
+			Retryable: true,
+			Run: func(ctx *InstallContext) error {
+				if err := NormalizeInstallPlan(ctx.Plan); err != nil {
+					return err
+				}
+				_, err := RecoverOrAcquireInstallImage(ctx.Plan)
+				if err != nil {
+					return fmt.Errorf("未找到镜像且下载失败: %w", err)
+				}
+				return nil
+			},
+		},
+		{
+			Name: "HookBeforeResolveDisk",
+			Run: func(ctx *InstallContext) error {
+				return ctx.RunHooks(HookBeforeResolveDisk)
+			},
+		},
+		{
+			Name:      "解析目标分区",
+			Retryable: true,
+			Run: func(ctx *InstallContext) error {
+				ui.UiSetStatus("正在解析目标分区...")
+				return ResolveInstallTarget(ctx.Plan)
+			},
+		},
+		{
+			Name: "HookBeforeFormatTarget",
+			Run: func(ctx *InstallContext) error {
+				return ctx.RunHooks(HookBeforeFormatTarget)
+			},
+		},
+		{
+			Name:      "格式化目标分区",
+			Retryable: true,
+			Run: func(ctx *InstallContext) error {
+				ui.UiSetProgress(10)
+				ui.UiSetStatus("正在格式化分区...")
+				return FormatTargetPartition(ctx.Plan)
+			},
+		},
+		{
+			Name:      "选择镜像索引",
+			Retryable: true,
+			Run: func(ctx *InstallContext) error {
+				ui.UiSetProgress(20)
+				ui.UiSetStatus("正在解析镜像...")
+				if err := ResolveInstallImageIndex(ctx); err != nil {
+					return err
+				}
+				infos := installImageInfosFromContext(ctx)
+				log.LogWrite(0, "[RunPEInstall] image infos: %s", formatImageInfos(infos))
+				log.LogWrite(0, "[RunPEInstall] apply image: image=%s target=%s index=%d", ctx.Plan.ImagePath, ctx.Plan.TargetRoot, ctx.Plan.ImageIndex)
+				return nil
+			},
+		},
+		{
+			Name: "HookBeforeApplyImage",
+			Run: func(ctx *InstallContext) error {
+				return ctx.RunHooks(HookBeforeApplyImage)
+			},
+		},
+		{
+			Name: "应用镜像",
+			Run: func(ctx *InstallContext) error {
+				progressCb := func(phase string, pct float64, raw string) {
+					_ = raw
+					ui.UiSetStatus(fmt.Sprintf("正在应用镜像... %s %.1f%%", phase, pct))
+					ui.UiSetProgress(MapPct(20, 50, pct))
+				}
+				return ApplyInstallImage(ctx.Plan, progressCb)
+			},
+		},
+		{
+			Name: "HookAfterApplyImage",
+			Run: func(ctx *InstallContext) error {
+				return ctx.RunHooks(HookAfterApplyImage)
+			},
+		},
+		{
+			Name: "修复引导",
+			Run: func(ctx *InstallContext) error {
+				ui.UiSetProgress(75)
+				ui.UiSetStatus("正在修复引导...")
+				return RepairInstallBoot(ctx.Plan)
+			},
+		},
+		{
+			Name: "HookAfterRepairBoot",
+			Run: func(ctx *InstallContext) error {
+				return ctx.RunHooks(HookAfterRepairBoot)
+			},
+		},
+		{
+			Name: "HookAfterInstall",
+			Run: func(ctx *InstallContext) error {
+				return ctx.RunHooks(HookAfterInstall)
+			},
+		},
 	}
 
-	return dism.ApplyImageCmd(applyPath, targetRoot, uint32(index), nil)
+	return RunStages(ctx, stages)
+}
+
+// runFlowWithGuard 为流程执行提供统一的崩溃保护。
+func runFlowWithGuard(flow string, fn func() error) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.LogWrite(-2, "[%s] panic: panic=%v stack=%s", flow, r, string(debug.Stack()))
+			err = fmt.Errorf("%s panic: %v", flow, r)
+		}
+	}()
+	return fn()
 }

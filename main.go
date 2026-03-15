@@ -12,6 +12,7 @@ import (
 	"ReSys/src/tools"
 	"ReSys/src/ui"
 	"ReSys/src/utils"
+	"ReSys/src/windows"
 )
 
 var t = D.NewDism()
@@ -88,8 +89,7 @@ func test() {
 
 func main() {
 	ui.Uiinit()
-	//判断是否在PE
-	if strings.ToUpper(os.Getenv("SystemRoot")) == `X:\WINDOWS` {
+	if windows.IsWinPE() {
 		go PE()
 	}
 	log.LogWrite(0, "[main]Run\n")

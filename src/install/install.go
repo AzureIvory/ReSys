@@ -1,181 +1,243 @@
-package install
+﻿package install
 
 import (
-	"ReSys/src/data"
+	"ReSys/src/boot"
 	"ReSys/src/disk"
 	"ReSys/src/dism"
-	"ReSys/src/download"
 	"ReSys/src/file"
 	"ReSys/src/image"
 	"ReSys/src/log"
-	"ReSys/src/pe"
 	"ReSys/src/tools"
-	"ReSys/src/ui"
+	"ReSys/src/utils"
 	"ReSys/src/windows"
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime/debug"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
-
-	"ReSys/src/utils"
 )
 
-// 下载 PE 镜像
-const peLinksID = "pe_links"
+// ===== 领域类型 =====
 
-var (
-	failedLinksMu sync.Mutex
-	failedLinks   = map[string]struct{}{}
+type ReinstallMode string
+
+const (
+	ReinstallModeAuto   ReinstallMode = "auto"
+	ReinstallModeManual ReinstallMode = "manual"
 )
 
-type ProgressReporter struct {
-	base, span int32
-	uiEvery    time.Duration
-	logEvery   time.Duration
-	lastUI     time.Time
-	lastLog    time.Time
-	statusFmt  string
-	logFmt     string
-	enableLog  bool
+type InstallFlags struct {
+	NeedBitLockerHandling bool
+	NeedBackupBeforePE    bool
+	NeedOfflineDrivers    bool
+	NeedCopyXMLAfterBoot  bool
 }
 
-func (p *ProgressReporter) Update(pct float64, speedBytes int64) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.LogWrite(-2, "[ProgressReporter.Update] panic: pct=%.2f speed=%d panic=%v stack=%s", pct, speedBytes, r, string(debug.Stack()))
+type InstallPlan struct {
+	Mode         ReinstallMode
+	TargetOS     string
+	ImageArch    string
+	PEArch       string
+	ImagePath    string
+	ImageIndex   int
+	TargetRoot   string
+	DiskPath     string
+	VolumeGUID   string
+	DiskUniqueID string
+	ImageRel     string
+	Flags        InstallFlags
+}
+
+type InstallContext struct {
+	Plan  *InstallPlan
+	Hooks HookRegistry
+	State map[string]any
+}
+
+type HookPoint string
+
+const (
+	HookBeforeEnterPE      HookPoint = "before_enter_pe"
+	HookBeforeResolveDisk  HookPoint = "before_resolve_disk"
+	HookBeforeFormatTarget HookPoint = "before_format_target"
+	HookBeforeApplyImage   HookPoint = "before_apply_image"
+	HookAfterApplyImage    HookPoint = "after_apply_image"
+	HookAfterRepairBoot    HookPoint = "after_repair_boot"
+	HookAfterInstall       HookPoint = "after_install"
+)
+
+type HookFunc func(*InstallContext) error
+
+type HookRegistry map[HookPoint][]HookFunc
+
+// ===== 阶段运行时 =====
+
+type StageStatus string
+
+const (
+	StageStatusPending   StageStatus = "pending"
+	StageStatusRunning   StageStatus = "running"
+	StageStatusCompleted StageStatus = "completed"
+	StageStatusFailed    StageStatus = "failed"
+)
+
+type Stage struct {
+	Name      string
+	Status    StageStatus
+	Retryable bool
+	Run       func(*InstallContext) error
+}
+
+// NormalizeInstallPlan 补齐安装计划默认值并校验关键字段。
+func NormalizeInstallPlan(plan *InstallPlan) error {
+	if plan == nil {
+		return fmt.Errorf("install plan is nil")
+	}
+
+	if plan.Mode == "" {
+		plan.Mode = ReinstallModeAuto
+	}
+
+	target := strings.ToLower(strings.TrimSpace(plan.TargetOS))
+	switch target {
+	case "":
+		plan.TargetOS = TargetWin10
+	case TargetWin7, TargetWin10, TargetWin11:
+		plan.TargetOS = target
+	default:
+		return fmt.Errorf("unsupported target os: %s", plan.TargetOS)
+	}
+
+	if strings.TrimSpace(plan.ImageArch) == "" {
+		plan.ImageArch = windows.DesiredArch()
+	}
+	if strings.TrimSpace(plan.PEArch) == "" {
+		plan.PEArch = windows.SystemArch()
+	}
+
+	return nil
+}
+
+// NewInstallContext 创建带内建钩子的安装上下文。
+func NewInstallContext(plan *InstallPlan) *InstallContext {
+	ctx := &InstallContext{
+		Plan:  plan,
+		Hooks: NewHookRegistry(),
+		State: map[string]any{},
+	}
+	registerBuiltInHooks(ctx)
+	return ctx
+}
+
+// NewHookRegistry 返回一个空的钩子注册表。
+func NewHookRegistry() HookRegistry {
+	return HookRegistry{}
+}
+
+// Add 向指定钩子点追加处理函数。
+func (r HookRegistry) Add(point HookPoint, hook HookFunc) {
+	if hook == nil {
+		return
+	}
+	r[point] = append(r[point], hook)
+}
+
+// Run 依次执行指定钩子点上的处理函数。
+func (r HookRegistry) Run(point HookPoint, ctx *InstallContext) error {
+	for _, hook := range r[point] {
+		if err := hook(ctx); err != nil {
+			return err
 		}
-	}()
-
-	now := time.Now()
-
-	if p.uiEvery <= 0 {
-		p.uiEvery = 200 * time.Millisecond
 	}
-	if p.lastUI.IsZero() || now.Sub(p.lastUI) >= p.uiEvery || pct >= 100 {
-		ui.UiSetStatus(fmt.Sprintf(p.statusFmt, pct, float64(speedBytes)/1024.0/1024.0))
-		ui.UiSetProgress(MapPct(p.base, p.span, pct))
-		p.lastUI = now
-	}
-
-	if !p.enableLog {
-		return
-	}
-	if p.logEvery <= 0 {
-		p.logEvery = 1 * time.Second
-	}
-	if p.lastLog.IsZero() || now.Sub(p.lastLog) >= p.logEvery || pct >= 100 {
-		log.LogWrite(0, p.logFmt, pct, float64(speedBytes)/1024.0/1024.0)
-		p.lastLog = now
-	}
+	return nil
 }
 
-// 把 0~100 的子进度映射到总进度
-func MapPct(base, span int32, pct float64) int32 {
-	if pct < 0 {
-		pct = 0
+// RunHooks 执行当前安装上下文绑定的钩子。
+func (ctx *InstallContext) RunHooks(point HookPoint) error {
+	if ctx == nil {
+		return fmt.Errorf("install context is nil")
 	}
-	if pct > 100 {
-		pct = 100
+	if ctx.Hooks == nil {
+		ctx.Hooks = NewHookRegistry()
 	}
-	return base + int32(pct*float64(span)/100.0+0.5)
+	return ctx.Hooks.Run(point, ctx)
 }
 
-func NewProgressReporter(base, span int32, uiEvery, logEvery time.Duration, statusFmt, logFmt string, enableLog bool) *ProgressReporter {
-	return &ProgressReporter{
-		base:      base,
-		span:      span,
-		uiEvery:   uiEvery,
-		logEvery:  logEvery,
-		statusFmt: statusFmt,
-		logFmt:    logFmt,
-		enableLog: enableLog,
-	}
-}
-
-// markFailedLink 记录一个失败链接，供后续快速跳过或去重处理。
-func markFailedLink(link string) {
-	// 先去掉首尾空白，避免同一链接因格式差异重复记录。
-	link = strings.TrimSpace(link)
-	if link == "" {
-		return
-	}
-
-	// 加锁保护共享 map，避免并发写冲突。
-	failedLinksMu.Lock()
-	defer failedLinksMu.Unlock()
-
-	failedLinks[link] = struct{}{}
-}
-
-// isFailedLink 判断链接是否已被标记为失败。
-func isFailedLink(link string) bool {
-	// 统一清洗输入，保证查询口径一致。
-	link = strings.TrimSpace(link)
-	if link == "" {
-		return false
-	}
-
-	// 加锁读取，避免并发访问 map 出现竞态。
-	failedLinksMu.Lock()
-	defer failedLinksMu.Unlock()
-
-	_, ok := failedLinks[link]
-	return ok
-}
-
-// 写入重装文件
-func logLinkSwitch(scope, fromLink, toLink, reason string) {
-	fromLink = strings.TrimSpace(fromLink)
-	toLink = strings.TrimSpace(toLink)
-	reason = strings.TrimSpace(strings.ReplaceAll(reason, "\n", " "))
-	if fromLink == "" || toLink == "" || strings.EqualFold(fromLink, toLink) {
-		return
-	}
-	if reason == "" {
-		reason = "previous link became unavailable"
-	}
-	log.LogWrite(0, "[%s]切换下载链接: %s -> %s 原因: %s", scope, fromLink, toLink, reason)
-}
-
-func WriteResFile(imagePath string, target, arch string, index int) error {
-	imagePath, _ = filepath.Abs(imagePath)
-	imageRoot, _ := utils.NormalizeDrive(imagePath, 2)
-	var (
-		diskPath     string
-		volumeGuid   string
-		diskUniqueID string
-		imageRel     string
-	)
-	if imageRoot != "" {
-		imageRel = strings.TrimPrefix(imagePath, imageRoot)
-		if imageRel != "" && !strings.HasPrefix(imageRel, `\`) {
-			imageRel = `\` + imageRel
+// RunStages 顺序执行阶段列表并在失败时停止。
+func RunStages(ctx *InstallContext, stages []*Stage) error {
+	for _, stage := range stages {
+		if err := runStage(ctx, stage); err != nil {
+			return fmt.Errorf("%s失败: %w", stage.Name, err)
 		}
-		if diskNum, err := disk.GetDiskNum(imageRoot); err == nil {
-			diskPath = fmt.Sprintf(`\\.\PhysicalDrive%d`, diskNum)
-			if disks, derr := disk.ListPhysicalDisks(); derr == nil {
-				for _, d := range disks {
-					if d.DiskNumber == int(diskNum) {
-						diskUniqueID = strings.TrimSpace(d.UniqueId)
-						break
-					}
-				}
+	}
+	return nil
+}
+
+// runStage 执行单个阶段并在允许时重试一次。
+func runStage(ctx *InstallContext, stage *Stage) error {
+	if stage == nil || stage.Run == nil {
+		return nil
+	}
+
+	attempts := 1
+	if stage.Retryable {
+		attempts = 2
+	}
+
+	stage.Status = StageStatusPending
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		stage.Status = StageStatusRunning
+		log.LogWrite(0, "[stageRunner] start: %s (attempt=%d/%d)", stage.Name, attempt, attempts)
+
+		if err := stage.Run(ctx); err == nil {
+			stage.Status = StageStatusCompleted
+			log.LogWrite(0, "[stageRunner] completed: %s", stage.Name)
+			return nil
+		} else {
+			lastErr = err
+			stage.Status = StageStatusFailed
+			log.LogWrite(0, "[stageRunner] %s failed: %v", stage.Name, err)
+			if attempt < attempts {
+				log.LogWrite(0, "[stageRunner] %s failed, retrying once", stage.Name)
+				time.Sleep(2 * time.Second)
 			}
 		}
-		if vols, verr := disk.ListVolumes(); verr == nil {
-			for _, v := range vols {
-				vRoot, _ := utils.NormalizeDrive(v.RootPath, 0)
-				if strings.EqualFold(vRoot, imageRoot) {
-					volumeGuid = strings.TrimSpace(v.VolumeGuidPath)
-					break
-				}
-			}
+	}
+
+	return lastErr
+}
+
+// ===== 安装计划持久化 =====
+
+// SaveInstallPlan 持久化安装计划供重启后恢复。
+func SaveInstallPlan(plan *InstallPlan) error {
+	if err := NormalizeInstallPlan(plan); err != nil {
+		return err
+	}
+
+	plan.ImagePath = strings.TrimSpace(plan.ImagePath)
+	if plan.ImagePath == "" {
+		return fmt.Errorf("install image path is empty")
+	}
+
+	if absPath, err := filepath.Abs(plan.ImagePath); err == nil {
+		plan.ImagePath = absPath
+	}
+
+	if plan.ImageIndex <= 0 {
+		if infos, err := image.DetectImageInfos(plan.ImagePath); err == nil {
+			plan.ImageIndex = SelectInstallIndex(infos)
 		}
+	}
+
+	if err := captureInstallImageLocation(plan); err != nil {
+		return err
+	}
+
+	if root, err := utils.NormalizeDrive(plan.TargetRoot, 0); err == nil {
+		plan.TargetRoot = root
 	}
 
 	systemDrive := os.Getenv("SystemDrive")
@@ -183,44 +245,113 @@ func WriteResFile(imagePath string, target, arch string, index int) error {
 		systemDrive = "C:"
 	}
 	sysRoot, _ := utils.NormalizeDrive(systemDrive, 0)
-	restallPath := sysRoot + "restall_win.dat"
-	content := fmt.Sprintf("disk=%s\nimage=%s\n", diskPath, imagePath)
-	if volumeGuid != "" {
-		content += fmt.Sprintf("volume_guid=%s\n", volumeGuid)
+	if sysRoot == "" {
+		sysRoot = systemDrive + `\`
 	}
-	if diskUniqueID != "" {
-		content += fmt.Sprintf("disk_unique_id=%s\n", diskUniqueID)
-	}
-	if imageRel != "" {
-		content += fmt.Sprintf("image_rel=%s\n", imageRel)
-	}
+	restallPath := filepath.Join(sysRoot, "restall_win.dat")
 
-	if target != "" {
-		content += fmt.Sprintf("target=%s\n", target)
+	lines := []string{
+		fmt.Sprintf("mode=%s", plan.Mode),
+		fmt.Sprintf("image=%s", plan.ImagePath),
 	}
-	if arch != "" {
-		content += fmt.Sprintf("arch=%s\n", arch)
+	if plan.TargetRoot != "" {
+		lines = append(lines, fmt.Sprintf("target_root=%s", plan.TargetRoot))
 	}
-	if index > 0 {
-		content += fmt.Sprintf("index=%d\n", index)
+	if plan.DiskPath != "" {
+		lines = append(lines, fmt.Sprintf("disk=%s", plan.DiskPath))
 	}
-	if err := os.WriteFile(restallPath, []byte(content), 0o644); err != nil {
+	if plan.VolumeGUID != "" {
+		lines = append(lines, fmt.Sprintf("volume_guid=%s", plan.VolumeGUID))
+	}
+	if plan.DiskUniqueID != "" {
+		lines = append(lines, fmt.Sprintf("disk_unique_id=%s", plan.DiskUniqueID))
+	}
+	if plan.ImageRel != "" {
+		lines = append(lines, fmt.Sprintf("image_rel=%s", plan.ImageRel))
+	}
+	if plan.TargetOS != "" {
+		lines = append(lines, fmt.Sprintf("target=%s", plan.TargetOS))
+	}
+	if plan.ImageArch != "" {
+		lines = append(lines, fmt.Sprintf("arch=%s", plan.ImageArch))
+	}
+	if plan.PEArch != "" {
+		lines = append(lines, fmt.Sprintf("pe_arch=%s", plan.PEArch))
+	}
+	if plan.ImageIndex > 0 {
+		lines = append(lines, fmt.Sprintf("index=%d", plan.ImageIndex))
+	}
+	lines = append(lines,
+		fmt.Sprintf("flag_need_bitlocker=%t", plan.Flags.NeedBitLockerHandling),
+		fmt.Sprintf("flag_need_backup_before_pe=%t", plan.Flags.NeedBackupBeforePE),
+		fmt.Sprintf("flag_need_offline_drivers=%t", plan.Flags.NeedOfflineDrivers),
+		fmt.Sprintf("flag_need_copy_xml_after_boot=%t", plan.Flags.NeedCopyXMLAfterBoot),
+	)
+
+	if err := os.WriteFile(restallPath, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
 		return err
 	}
 
-	if diskPath == "" && imageRoot != "" {
+	imageRoot, _ := utils.NormalizeDrive(plan.ImagePath, 2)
+	if plan.DiskPath == "" && imageRoot != "" {
 		imgDat := filepath.Join(imageRoot, "restall_img.dat")
-		_ = os.WriteFile(imgDat, []byte("image="+imagePath+"\n"), 0o644)
+		_ = os.WriteFile(imgDat, []byte("image="+plan.ImagePath+"\n"), 0o644)
 	}
+
 	return nil
 }
 
-// 从所有盘符读取 restall_win.dat。
-// 返回：目标盘符、物理磁盘路径、镜像路径、卷 GUID、磁盘唯一 ID、镜像相对路径。
-func LoadResData() (targetRoot string, diskPath string, imagePath string, volumeGuid string, diskUniqueID string, imageRel string, targetOS string, arch string, index int, err error) {
+// captureInstallImageLocation 记录镜像所在磁盘与卷的元数据。
+func captureInstallImageLocation(plan *InstallPlan) error {
+	if plan == nil {
+		return fmt.Errorf("install plan is nil")
+	}
+
+	plan.DiskPath = ""
+	plan.VolumeGUID = ""
+	plan.DiskUniqueID = ""
+	plan.ImageRel = ""
+
+	imageRoot, _ := utils.NormalizeDrive(plan.ImagePath, 2)
+	if imageRoot == "" {
+		return nil
+	}
+
+	plan.ImageRel = strings.TrimPrefix(plan.ImagePath, imageRoot)
+	if plan.ImageRel != "" && !strings.HasPrefix(plan.ImageRel, `\`) {
+		plan.ImageRel = `\` + plan.ImageRel
+	}
+
+	if diskNum, err := disk.GetDiskNum(imageRoot); err == nil {
+		plan.DiskPath = fmt.Sprintf(`\\.\PhysicalDrive%d`, diskNum)
+		if disks, derr := disk.ListPhysicalDisks(); derr == nil {
+			for _, d := range disks {
+				if d.DiskNumber == int(diskNum) {
+					plan.DiskUniqueID = strings.TrimSpace(d.UniqueId)
+					break
+				}
+			}
+		}
+	}
+
+	if vols, err := disk.ListVolumes(); err == nil {
+		for _, v := range vols {
+			vRoot, _ := utils.NormalizeDrive(v.RootPath, 0)
+			if strings.EqualFold(vRoot, imageRoot) {
+				plan.VolumeGUID = strings.TrimSpace(v.VolumeGuidPath)
+				break
+			}
+		}
+	}
+
+	return nil
+}
+
+// LoadInstallPlan 从磁盘恢复已持久化的安装计划。
+func LoadInstallPlan() (*InstallPlan, error) {
 	drives, err := disk.ListDrive()
 	if err != nil {
-		return "", "", "", "", "", "", "", "", 0, err
+		return nil, err
 	}
 
 	type hit struct {
@@ -232,10 +363,7 @@ func LoadResData() (targetRoot string, diskPath string, imagePath string, volume
 	var hits []hit
 	for _, d := range drives {
 		root, _ := utils.NormalizeDrive(d, 0)
-		if root == "" {
-			continue
-		}
-		if strings.HasPrefix(strings.ToUpper(root), "X:") {
+		if root == "" || strings.HasPrefix(strings.ToUpper(root), "X:") {
 			continue
 		}
 
@@ -245,22 +373,18 @@ func LoadResData() (targetRoot string, diskPath string, imagePath string, volume
 		}
 
 		score := 0
-
-		// 固定盘更可信
 		if disk.GetDriveType(root) == 3 {
 			score += 10
 		}
-
 		kind, _ := disk.GetDiskKind(root)
-		if kind == "SSD" {
+		switch kind {
+		case "SSD":
 			score += 30
-		} else if kind == "HDD" {
+		case "HDD":
 			score += 20
-		} else if kind == "Removable" {
+		case "Removable":
 			score -= 50
 		}
-
-		// 有离线Windows说明这盘更可能就是要重装的系统盘
 		if _, werr := windows.DetectWin(root); werr == nil {
 			score += 100
 		}
@@ -269,11 +393,10 @@ func LoadResData() (targetRoot string, diskPath string, imagePath string, volume
 	}
 
 	if len(hits) == 0 {
-		return "", "", "", "", "", "", "", "", 0, fmt.Errorf("未找到 restall_win.dat")
+		return nil, fmt.Errorf("未找到 restall_win.dat")
 	}
 
-	// 选 score 最大的那个；如果读失败再尝试下一个
-	for {
+	for len(hits) > 0 {
 		bestIdx := -1
 		bestScore := -1
 		for i := range hits {
@@ -285,204 +408,96 @@ func LoadResData() (targetRoot string, diskPath string, imagePath string, volume
 		if bestIdx < 0 {
 			break
 		}
+
 		h := hits[bestIdx]
-		// 从列表移除，避免死循环
 		hits = append(hits[:bestIdx], hits[bestIdx+1:]...)
 
-		b, rerr := os.ReadFile(h.path)
-		if rerr != nil {
-			log.LogWrite(0, "[loadResData]读取 %s 失败：%v，尝试下一个", h.path, rerr)
+		b, err := os.ReadFile(h.path)
+		if err != nil {
+			log.LogWrite(0, "[LoadInstallPlan] failed to read %s: %v", h.path, err)
 			if len(hits) == 0 {
-				return "", "", "", "", "", "", "", "", 0, rerr
+				return nil, err
 			}
 			continue
 		}
 
-		targetRoot = h.root
-
-		for _, ln := range strings.Split(string(b), "\n") {
-			ln = strings.TrimSpace(ln)
-			if strings.HasPrefix(ln, "disk=") {
-				diskPath = strings.TrimSpace(strings.TrimPrefix(ln, "disk="))
-			} else if strings.HasPrefix(ln, "image=") {
-				imagePath = strings.TrimSpace(strings.TrimPrefix(ln, "image="))
-			} else if strings.HasPrefix(ln, "volume_guid=") {
-				volumeGuid = strings.TrimSpace(strings.TrimPrefix(ln, "volume_guid="))
-			} else if strings.HasPrefix(ln, "disk_unique_id=") {
-				diskUniqueID = strings.TrimSpace(strings.TrimPrefix(ln, "disk_unique_id="))
-			} else if strings.HasPrefix(ln, "image_rel=") {
-				imageRel = strings.TrimSpace(strings.TrimPrefix(ln, "image_rel="))
-			} else if strings.HasPrefix(ln, "target=") {
-				targetOS = strings.TrimSpace(strings.TrimPrefix(ln, "target="))
-			} else if strings.HasPrefix(ln, "arch=") {
-				arch = strings.TrimSpace(strings.TrimPrefix(ln, "arch="))
-			} else if strings.HasPrefix(ln, "index=") {
-				if v, e := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(ln, "index="))); e == nil {
-					index = v
-				}
-			}
-		}
-
-		return targetRoot, diskPath, imagePath, volumeGuid, diskUniqueID, imageRel, targetOS, arch, index, nil
-	}
-
-	return "", "", "", "", "", "", "", "", 0, fmt.Errorf("读取 restall_win.dat 失败")
-}
-
-// 根据 restall 信息定位镜像：
-// 根据 restall 信息定位镜像：
-func ResolveImagePath(diskPath, volumeGuid, diskUniqueID, imagePath, imageRel string) (string, error) {
-	if imagePath != "" {
-		if _, err := os.Stat(imagePath); err == nil {
-			return imagePath, nil
-		}
-		log.LogWrite(0, "[resolveImagePath]restall镜像路径不可用：%s", imagePath)
-	}
-
-	base := filepath.Base(imagePath)
-	if base == "" && imageRel != "" {
-		base = filepath.Base(imageRel)
-	}
-
-	tryRoot := func(root string) (string, bool) {
-		if nr, err := utils.NormalizeDrive(root, 0); err == nil {
-			root = nr
-		}
-		if root == "" {
-			return "", false
-		}
-		if imageRel != "" {
-			rel := strings.TrimPrefix(imageRel, `\`)
-			cand := filepath.Join(root, rel)
-			if _, err := os.Stat(cand); err == nil {
-				return cand, true
-			}
-		}
-		if imageRel == "" && imagePath != "" && len(imagePath) > 2 {
-			rel := strings.TrimPrefix(imagePath[2:], `\`)
-			cand := filepath.Join(root, rel)
-			if _, err := os.Stat(cand); err == nil {
-				return cand, true
-			}
-		}
-		if base != "" {
-			found, _ := file.FindFile(root, base, 3)
-			if len(found) > 0 {
-				return found[0], true
-			}
-		}
-		return "", false
-	}
-
-	volumeGuid = strings.TrimSpace(volumeGuid)
-	if volumeGuid != "" {
-		vols, err := disk.ListVolumes()
-		if err != nil {
-			log.LogWrite(0, "[resolveImagePath]读取卷GUID失败：%v", err)
-		} else {
-			for _, v := range vols {
-				if strings.EqualFold(strings.TrimRight(v.VolumeGuidPath, `\`), strings.TrimRight(volumeGuid, `\`)) {
-					root := v.RootPath
-					if root == "" {
-						root = v.VolumeGuidPath
-					}
-					if cand, ok := tryRoot(root); ok {
-						return cand, nil
-					}
-					log.LogWrite(0, "[resolveImagePath]卷GUID匹配但未找到镜像：%s", volumeGuid)
-					break
-				}
-			}
-		}
-	}
-
-	diskUniqueID = strings.TrimSpace(diskUniqueID)
-	if diskUniqueID != "" {
-
-		disks, err := disk.ListPhysicalDisks()
-		if err != nil {
-			log.LogWrite(0, "[resolveImagePath]读取物理磁盘唯一ID失败：%v", err)
-		} else {
-			for _, d := range disks {
-				if strings.EqualFold(strings.TrimSpace(d.UniqueId), diskUniqueID) {
-					if _, roots, err := disk.GetDiskPartitions(fmt.Sprintf("%d", d.DiskNumber)); err == nil {
-						for _, root := range roots {
-							if cand, ok := tryRoot(root); ok {
-								return cand, nil
-							}
-						}
-						log.LogWrite(0, "[resolveImagePath]物理磁盘唯一ID匹配但未找到镜像：%s", diskUniqueID)
-					} else {
-						log.LogWrite(0, "[resolveImagePath]物理磁盘唯一ID匹配但分区读取失败：%s err=%v", diskUniqueID, err)
-					}
-					break
-				}
-			}
-		}
-	}
-
-	if diskPath != "" {
-		_, roots, err := disk.GetDiskPartitions(diskPath)
-		if err == nil && len(roots) > 0 {
-			for _, root := range roots {
-				if cand, ok := tryRoot(root); ok {
-					return cand, nil
-				}
-			}
-			log.LogWrite(0, "[resolveImagePath]根据物理磁盘路径未找到镜像：%s", diskPath)
-		} else if err != nil {
-			log.LogWrite(0, "[resolveImagePath]读取物理磁盘路径失败：%s err=%v", diskPath, err)
-		}
-	}
-
-	roots, _ := disk.ListDrive()
-	for _, root := range roots {
-		imgDat := filepath.Join(root, "restall_img.dat")
-		if _, err := os.Stat(imgDat); err != nil {
-			continue
-		}
-		b, err := os.ReadFile(imgDat)
-		if err != nil {
-			continue
+		plan := &InstallPlan{
+			Mode:       ReinstallModeAuto,
+			TargetRoot: h.root,
 		}
 		for _, ln := range strings.Split(string(b), "\n") {
 			ln = strings.TrimSpace(ln)
-			if strings.HasPrefix(ln, "image=") {
-				cand := strings.TrimSpace(strings.TrimPrefix(ln, "image="))
-				if _, err := os.Stat(cand); err == nil {
-					return cand, nil
+			if ln == "" {
+				continue
+			}
+			parts := strings.SplitN(ln, "=", 2)
+			if len(parts) != 2 {
+				continue
+			}
+
+			key := strings.TrimSpace(parts[0])
+			val := strings.TrimSpace(parts[1])
+			switch key {
+			case "mode":
+				plan.Mode = ReinstallMode(val)
+			case "target_root":
+				plan.TargetRoot = val
+			case "disk":
+				plan.DiskPath = val
+			case "image":
+				plan.ImagePath = val
+			case "volume_guid":
+				plan.VolumeGUID = val
+			case "disk_unique_id":
+				plan.DiskUniqueID = val
+			case "image_rel":
+				plan.ImageRel = val
+			case "target":
+				plan.TargetOS = val
+			case "arch":
+				plan.ImageArch = val
+			case "pe_arch":
+				plan.PEArch = val
+			case "index":
+				if v, e := strconv.Atoi(val); e == nil {
+					plan.ImageIndex = v
 				}
-				base = filepath.Base(cand)
-				found, _ := file.FindFile(root, base, 3)
-				if len(found) > 0 {
-					return found[0], nil
-				}
+			case "flag_need_bitlocker":
+				plan.Flags.NeedBitLockerHandling = parsePlanBool(val)
+			case "flag_need_backup_before_pe":
+				plan.Flags.NeedBackupBeforePE = parsePlanBool(val)
+			case "flag_need_offline_drivers":
+				plan.Flags.NeedOfflineDrivers = parsePlanBool(val)
+			case "flag_need_copy_xml_after_boot":
+				plan.Flags.NeedCopyXMLAfterBoot = parsePlanBool(val)
 			}
 		}
+
+		if err := NormalizeInstallPlan(plan); err != nil {
+			return nil, err
+		}
+		if root, err := utils.NormalizeDrive(plan.TargetRoot, 0); err == nil {
+			plan.TargetRoot = root
+		}
+		return plan, nil
 	}
-	return "", fmt.Errorf("未找到镜像文件")
+
+	return nil, fmt.Errorf("读取 restall_win.dat 失败")
 }
 
-const (
-	minImageBytes uint64 = 7 * 1024 * 1024 * 1024
-	tempMarkerRel        = `RESTALL\temp.marker`
-)
+// ===== 目标分区解析与格式化 =====
 
-// 清理指定分区
+// ClearPartition 为未来的分区清理能力预留扩展点。
 func ClearPartition(letter string) error {
-	// TODO: your implementation
 	return nil
 }
 
-// 扫描所有盘符找 marker，返回临时分区根路径（例如 "T:\\"）
+// FindTempRootByMarker 根据标记文件查找临时分区。
 func FindTempRootByMarker() string {
 	drives, _ := disk.ListDrive()
 	for _, d := range drives {
 		root, _ := utils.NormalizeDrive(d, 0)
-		if root == "" {
-			continue
-		}
-		if strings.HasPrefix(strings.ToUpper(root), "X:") {
+		if root == "" || strings.HasPrefix(strings.ToUpper(root), "X:") {
 			continue
 		}
 		marker := filepath.Join(root, tempMarkerRel)
@@ -493,1066 +508,62 @@ func FindTempRootByMarker() string {
 	return ""
 }
 
-// 优先本地找镜像，找不到再下载。
-func findOrDownloadImage(target, arch string) (string, error) {
-	local, _ := image.FindLocalImage(target, arch)
-	if local != "" {
-		return local, nil
+// ResolveInstallTarget 解析并规范化本次安装的目标分区。
+func ResolveInstallTarget(plan *InstallPlan) error {
+	if plan == nil {
+		return fmt.Errorf("install plan is nil")
 	}
-	return DownloadImage(target, arch)
+
+	if root, err := utils.NormalizeDrive(plan.TargetRoot, 0); err == nil {
+		plan.TargetRoot = root
+	}
+	if strings.TrimSpace(plan.TargetRoot) == "" {
+		plan.TargetRoot = chooseInstallTargetRoot()
+	}
+	if strings.TrimSpace(plan.TargetRoot) == "" {
+		return fmt.Errorf("未找到可用系统分区")
+	}
+
+	return EnsureInstallImageOutsideTarget(plan)
 }
 
-// 校验镜像是否有效（先sha1，后解析镜像）
-func validateImageFile(it data.WinImg, imagePath string) error {
-	if strings.TrimSpace(it.SHA1) != "" {
-		ok, got, err := download.CheckFileSHA1(imagePath, it.SHA1)
-		if err != nil {
-			return fmt.Errorf("SHA1校验失败: %w", err)
-		}
-		if !ok {
-			return fmt.Errorf("SHA1不匹配: %s", got)
-		}
-		return nil
+// FormatTargetPartition 按安装要求格式化目标分区。
+func FormatTargetPartition(plan *InstallPlan) error {
+	if plan == nil {
+		return fmt.Errorf("install plan is nil")
+	}
+	if strings.TrimSpace(plan.TargetRoot) == "" {
+		return fmt.Errorf("install target root is empty")
 	}
 
-	switch strings.ToLower(filepath.Ext(imagePath)) {
-	case ".iso", ".wim", ".esd":
-		if _, err := image.DetectImageInfos(imagePath); err != nil {
-			return fmt.Errorf("镜像损坏: %w", err)
-		}
-	}
-	return nil
+	letter := strings.ReplaceAll(strings.ReplaceAll(plan.TargetRoot, `\`, ""), ":", "")
+	return disk.Format(letter, "ntfs", "Windows", true)
 }
 
-// 根据目标系统/架构下载镜像。
-func DownloadImage(target, arch string) (string, error) {
-	ent, err := data.GetWinImgs(target)
-	if err != nil {
-		log.LogWrite(0, "[downloadImage]获取镜像列表失败：%v", err)
-		return "", err
-	}
-
-	candidates := image.FilterWinImgsByArch(ent, arch)
-	if len(candidates) == 0 && arch == "32" {
-		candidates = image.FilterWinImgsByArch(ent, "64")
-	}
-	if len(candidates) == 0 {
-		candidates = ent
-	}
-	log.LogWrite(0, "[downloadImage]可用镜像数量：%d", len(candidates))
-
-	root := chooseDownloadRoot()
-	if root == "" {
-		log.LogWrite(0, "[downloadImage]未找到可用下载分区")
-		return "", fmt.Errorf("未找到可用下载分区")
-	}
-	dstDir := filepath.Join(root, "tempimg")
-	if err := os.MkdirAll(dstDir, 0o755); err != nil {
-		return "", err
-	}
-
-	var errs []string
-
-	// =========================
-	// URL 下载
-	// =========================
-	for _, it := range candidates {
-		if !strings.EqualFold(strings.TrimSpace(it.Type), "url") {
-			continue
-		}
-		links := []string{strings.TrimSpace(it.Link), strings.TrimSpace(it.Link2)}
-		triedLink := false
-		prevLink := ""
-		switchReason := ""
-
-		for _, link := range links {
-			link = strings.TrimSpace(link)
-			if link == "" {
-				continue
-			}
-			if isFailedLink(link) {
-				prevLink = link
-				switchReason = "链接已被标记为失败"
-				continue
-			}
-			if !download.HttpStatus(link) {
-				log.LogWrite(0, "[downloadImage]URL链接不可用：%s", link)
-				markFailedLink(link)
-				prevLink = link
-				switchReason = "链接预检查失败"
-				continue
-			}
-
-			if prevLink != "" && switchReason != "" {
-				logLinkSwitch("downloadImage", prevLink, link, switchReason)
-				switchReason = ""
-			}
-
-			name := data.ImgName(it, link)
-			if strings.TrimSpace(it.File) != "" {
-				name = strings.TrimSpace(it.File)
-			}
-			dstPath := filepath.Join(dstDir, name)
-
-			// 已存在则校验
-			if st, err := os.Stat(dstPath); err == nil && !st.IsDir() && st.Size() > 0 {
-				if err := validateImageFile(it, dstPath); err != nil {
-					log.LogWrite(0, "[downloadImage]镜像校验失败，删除重下：%s err=%v", dstPath, err)
-					_ = file.Remove(dstPath, false)
-				} else {
-					log.LogWrite(0, "[downloadImage]镜像已存在：%s", dstPath)
-					ui.UiSetProgress(60)
-					return dstPath, nil
-				}
-			}
-			if triedLink {
-				_ = file.Remove(dstPath+".part", false)
-			}
-
-			_ = file.Remove(dstPath, false)
-			triedLink = true
-			ui.UiSetProgress(0)
-			ui.UiSetStatus("正在下载镜像... 0.0% 速度: 0.00 MB/s")
-
-			log.LogWrite(0, "[downloadImage]开始下载镜像(URL)：%s -> %s", link, dstPath)
-
-			pr := NewProgressReporter(
-				0, 60,
-				1*time.Second, 1*time.Second,
-				"正在下载镜像... %.1f%% 速度: %.2f MB/s",
-				"镜像下载进度：%.1f%% 速度: %.2f MB/s",
-				true,
-			)
-
-			log.LogWrite(0, "[downloadImage]calling DownloadFile: link=%s dst=%s", link, dstPath)
-			ctx, cancel := context.WithCancel(context.Background())
-			err := download.DownloadFile(ctx, link, dstPath, func(pct float64, speed int64) {
-				pr.Update(pct, speed)
-			})
-			cancel()
-			log.LogWrite(0, "[downloadImage]DownloadFile returned: link=%s dst=%s err=%v", link, dstPath, err)
-			if err != nil {
-				prevLink = link
-				switchReason = fmt.Sprintf("下载报错: %v", err)
-			}
-
-			if err == nil {
-				if vErr := validateImageFile(it, dstPath); vErr != nil {
-					markFailedLink(link)
-					_ = file.Remove(dstPath, false)
-					log.LogWrite(0, "[downloadImage]镜像校验失败，删除重下：%s err=%v", dstPath, vErr)
-					errs = append(errs, fmt.Sprintf("URL校验失败 link=%s err=%v", link, vErr))
-					prevLink = link
-					switchReason = fmt.Sprintf("下载完成但校验失败: %v", vErr)
-					continue
-				}
-				log.LogWrite(0, "[downloadImage]镜像下载完成：%s", dstPath)
-				ui.UiSetProgress(60)
-				return dstPath, nil
-			}
-
-			markFailedLink(link)
-			_ = file.Remove(dstPath, false)
-			log.LogWrite(0, "[downloadImage]镜像下载失败(URL)：link=%s err=%v", link, err)
-			errs = append(errs, fmt.Sprintf("URL失败 link=%s err=%v", link, err))
-		}
-	}
-
-	// =========================
-	// BT 下载（返回真实落盘路径 realPath）
-	// =========================
-	for _, it := range candidates {
-		if strings.EqualFold(strings.TrimSpace(it.Type), "url") {
-			continue
-		}
-
-		link, lerr := data.ImgLink(it)
-		if lerr != nil {
-			errs = append(errs, fmt.Sprintf("BT取链接失败 file=%s err=%v", it.File, lerr))
-			continue
-		}
-		link = strings.TrimSpace(link)
-		if link == "" || isFailedLink(link) {
-			continue
-		}
-
-		// 期望落在 dstDir 的文件名
-		name := data.ImgName(it, link)
-		if strings.TrimSpace(it.File) != "" {
-			name = strings.TrimSpace(it.File)
-		}
-		dstPath := filepath.Join(dstDir, name)
-
-		// 已存在则校验
-		if st, err := os.Stat(dstPath); err == nil && !st.IsDir() && st.Size() > 0 {
-			if err := validateImageFile(it, dstPath); err != nil {
-				log.LogWrite(0, "[downloadImage]镜像校验失败，删除重下：%s err=%v", dstPath, err)
-				_ = file.Remove(dstPath, false)
-			} else {
-				log.LogWrite(0, "[downloadImage]镜像已存在：%s", dstPath)
-				ui.UiSetProgress(60)
-				return dstPath, nil
-			}
-		}
-
-		log.LogWrite(0, "[downloadImage]开始下载镜像(BT)：%s -> %s", link, dstDir)
-
-		lastLog := time.Time{}
-		lastUI := time.Time{}
-
-		realPath, err := download.DownloadBT(link, dstDir, func(pct int, speed, done, total int64) {
-			now := time.Now()
-			if lastUI.IsZero() || now.Sub(lastUI) >= 1*time.Second || pct >= 100 {
-				ui.UiSetStatus(fmt.Sprintf("正在下载镜像... %d%% 速度: %.2f MB/s", pct, float64(speed)/1024/1024))
-				ui.UiSetProgress(MapPct(0, 60, float64(pct)))
-				lastUI = now
-			}
-			if lastLog.IsZero() || now.Sub(lastLog) >= 1*time.Second || pct >= 100 {
-				log.LogWrite(0, "[downloadImage]BT下载进度：%d%% 速度: %.2f MB/s", pct, float64(speed)/1024/1024)
-				lastLog = now
-			}
-		})
-
-		if err == nil {
-			finalPath := realPath
-
-			// 如果 BT 真实落盘不等于你期望的 dstPath，就整理到 dstPath（更利于后续统一处理）
-			if realPath != "" && !strings.EqualFold(realPath, dstPath) {
-				_ = file.Remove(dstPath, false)
-
-				// 同卷优先 rename（快且不占双份空间）
-				if rErr := os.Rename(realPath, dstPath); rErr == nil {
-					finalPath = dstPath
-				} else {
-					// rename 失败再 copy（跨卷/权限等）
-					if cErr := file.Copy(realPath, dstPath, true, true); cErr == nil {
-						finalPath = dstPath
-						// copy 成功后可选择删除 realPath（可留作断点或日志，此处默认删除避免占空间）
-						_ = file.Remove(realPath, false)
-					} else {
-						// 整理失败：至少还能用 realPath
-						log.LogWrite(0, "[downloadImage]BT下载后整理路径失败：real=%s dst=%s err=%v", realPath, dstPath, cErr)
-						finalPath = realPath
-					}
-				}
-			}
-
-			// 校验用最终路径（realPath 或 dstPath）
-			if vErr := validateImageFile(it, finalPath); vErr != nil {
-				markFailedLink(link)
-				_ = file.Remove(finalPath, false)
-				log.LogWrite(0, "[downloadImage]镜像校验失败，删除重下：%s err=%v", finalPath, vErr)
-				errs = append(errs, fmt.Sprintf("BT校验失败 link=%s err=%v", link, vErr))
-				continue
-			}
-
-			log.LogWrite(0, "[downloadImage]镜像下载完成(BT)：%s", finalPath)
-			ui.UiSetProgress(60)
-			return finalPath, nil
-		}
-
-		markFailedLink(link)
-		log.LogWrite(0, "[downloadImage]镜像下载失败(BT)：link=%s err=%v", link, err)
-		errs = append(errs, fmt.Sprintf("BT失败 link=%s err=%v", link, err))
-	}
-
-	if len(errs) > 0 {
-		return "", fmt.Errorf("全部镜像链接下载失败：%s", strings.Join(errs, " | "))
-	}
-	return "", fmt.Errorf("未找到可用镜像下载链接")
-}
-
-// 选择镜像下载盘符。
-func chooseDownloadRoot() string {
-	systemDrive := strings.ToUpper(os.Getenv("SystemDrive")) // "C:"
-	parts := disk.Findpart()
-
-	// 多分区：直接用 Findpart
-	if len(parts) > 1 {
-		for _, p := range parts {
-			if systemDrive == "" || !strings.EqualFold(strings.TrimSuffix(p, `\`), systemDrive) {
-				return p
-			}
-		}
-		return parts[0]
-	}
-
-	// 单分区或 Findpart 为空：优先用系统盘 C
-	root := ""
-	if systemDrive != "" {
-		root = systemDrive + `\`
-	} else {
-		root = windows.SystemDriveRoot()
-	}
-	if nr, err := utils.NormalizeDrive(root, 0); err == nil {
-		root = nr
-	}
-
-	// 先尝试直接用 C
-	if root != "" {
-		if free, err := disk.GetFreeSize(root); err == nil && free >= minImageBytes {
-			return root
-		}
-		// 不够 -> 清理 -> 再试
-		//_ = ClearPartition("C")
-		if free, err := disk.GetFreeSize(root); err == nil && free >= minImageBytes {
-			return root
-		}
-	}
-
-	// 还不够：用未分配创建 TEMP
-	tmp, err := disk.EnsureTempVolumeForBytes(minImageBytes)
-	if err == nil && tmp != "" {
-		return tmp
-	}
-
-	// 兜底
-	drives, _ := disk.ListDrive()
-	for _, d := range drives {
-		if systemDrive != "" && strings.EqualFold(strings.TrimSuffix(d, `\`), systemDrive) {
-			continue
-		}
-		if disk.GetDriveType(d) == 3 { //3=driveFixed固定盘
-			return d
-		}
-	}
-	if systemDrive != "" {
-		return systemDrive + `\`
-	}
-	return ""
-}
-
-// 选择下载镜像与链接。
-func pickWinImg(ent []data.WinImg) (data.WinImg, string, error) {
-	if len(ent) == 0 {
-		return data.WinImg{}, "", fmt.Errorf("未找到可用镜像")
-	}
-	var urlList []data.WinImg
-	var btList []data.WinImg
-	for _, it := range ent {
-		if strings.EqualFold(strings.TrimSpace(it.Type), "url") {
-			urlList = append(urlList, it)
-		} else {
-			btList = append(btList, it)
-		}
-	}
-
-	tryURL := func(it data.WinImg) []string {
-		var links []string
-		link := strings.TrimSpace(it.Link)
-		if link != "" {
-			links = append(links, link)
-		}
-		link = strings.TrimSpace(it.Link2)
-		if link != "" {
-			links = append(links, link)
-		}
-		return links
-	}
-
-	for _, it := range urlList {
-		links := tryURL(it)
-		prevLink := ""
-		switchReason := ""
-		for _, link := range links {
-			if isFailedLink(link) {
-				prevLink = link
-				switchReason = "链接已被标记为失败"
-				continue
-			}
-			if prevLink != "" && switchReason != "" {
-				logLinkSwitch("pickImageLink", prevLink, link, switchReason)
-				switchReason = ""
-			}
-			if download.HttpStatus(link) {
-				return it, link, nil
-			}
-		}
-	}
-	if len(urlList) > 0 {
-		it := urlList[0]
-		link := strings.TrimSpace(it.Link)
-		if link == "" {
-			link = strings.TrimSpace(it.Link2)
-		}
-		if link != "" {
-			return it, link, nil
-		}
-	}
-	if len(btList) > 0 {
-		link, err := data.ImgLink(btList[0])
-		return btList[0], link, err
-	}
-	link, err := data.ImgLink(ent[0])
-	return ent[0], link, err
-}
-
-// 把某个镜像 ID 记到失败集合里。
-func markFailedPEImage(failed map[string]struct{}, id string) {
-	if id == "" {
-		return
-	}
-	failed[id] = struct{}{}
-}
-
-// 将WinPEImg 的关键信息拼成一个字符串 ID
-func peImageID(it data.WinPEImg) string {
-	parts := []string{
-		strings.TrimSpace(it.Grp),
-		strings.TrimSpace(it.Ver),
-		strings.TrimSpace(it.Arch),
-	}
-	links := strings.Join(it.Links, "|")
-	parts = append(parts, strings.TrimSpace(links))
-	return strings.Join(parts, "|")
-}
-
-func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string, error) {
-	arch = strings.TrimSpace(arch)
-	if arch == "" {
-		arch = "64"
-	}
-	if failedPEImages == nil {
-		failedPEImages = map[string]struct{}{}
-	}
-	log.LogWrite(0, "[downloadPE]下载PE，目标架构=%s", arch)
-
-	peList, err := data.GetWinPE()
-	if err != nil {
-		log.LogWrite(0, "[downloadPE]获取PE列表失败：%v", err)
-		return "", "", err
-	}
-
-	var other []data.WinPEImg
-	other = peList
-
-	findByArch := func(list []data.WinPEImg, want string) []data.WinPEImg {
-		var out []data.WinPEImg
-		for _, it := range list {
-			if strings.TrimSpace(it.Arch) == want {
-				out = append(out, it)
-			}
-		}
-		return out
-	}
-
-	// 尝试下载一个 PE 镜像
-	tryDownload := func(it data.WinPEImg) (string, string, error) {
-		id := peImageID(it)
-		if id != "" {
-			if _, ok := failedPEImages[id]; ok {
-				return "", id, fmt.Errorf("PE已标记失败: %s", id)
-			}
-		}
-		if len(it.Links) == 0 {
-			return "", id, fmt.Errorf("PE链接为空")
-		}
-
-		triedLink := false
-		prevLink := ""
-		switchReason := ""
-		for _, link := range it.Links {
-			link = strings.TrimSpace(link)
-			if link == "" {
-				continue
-			}
-			if isFailedLink(link) {
-				prevLink = link
-				switchReason = "链接已被标记为失败"
-				continue
-			}
-			if !download.HttpStatus(link) {
-				log.LogWrite(0, "[downloadPE]PE链接不可用：%s", link)
-				markFailedLink(link)
-				prevLink = link
-				switchReason = "链接预检查失败"
-				continue
-			}
-
-			if prevLink != "" && switchReason != "" {
-				logLinkSwitch("downloadPE", prevLink, link, switchReason)
-				switchReason = ""
-			}
-
-			needBytes := int64(it.Sz * 1024 * 1024)
-			root, err := ChoosePETempRoot(needBytes * 2)
-			if err != nil {
-				return "", id, err
-			}
-			peDir := filepath.Join(root, "PETEMP")
-			if err := file.EnsureCleanDir(peDir); err != nil {
-				return "", id, err
-			}
-
-			wimPath := filepath.Join(peDir, "boot.wim")
-
-			pr := NewProgressReporter(
-				70, 25,
-				1*time.Second, 1*time.Second,
-				"正在下载PE... %.1f%% 速度: %.2f MB/s",
-				"PE下载进度：%.1f%% 速度: %.2f MB/s",
-				true,
-			)
-
-			if strings.HasSuffix(strings.ToLower(link), ".exe") && it.OffsetEnd > it.OffsetStart {
-				exeName := download.GetlinkName(link)
-				if exeName == "" {
-					exeName = "wepe.exe"
-				}
-				exePath := filepath.Join(peDir, exeName)
-
-				useExisting := false
-				if utils.FileExists(exePath) {
-					if strings.TrimSpace(it.MD5) != "" {
-						ok, merr := tools.MatchMD5(exePath, it.MD5)
-						if merr == nil && ok {
-							log.LogWrite(0, "[downloadPE]复用已存在WEPE安装包：%s", exePath)
-							useExisting = true
-						} else {
-							log.LogWrite(0, "[downloadPE]已存在WEPE安装包MD5不匹配，删除重下：%s", exePath)
-							_ = file.Remove(exePath, false)
-						}
-					} else {
-						log.LogWrite(0, "[downloadPE]复用已存在WEPE安装包(无MD5)：%s", exePath)
-						useExisting = true
-					}
-				}
-
-				// 下载
-				if !useExisting {
-					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
-					err := download.DownloadFile(ctx, link, exePath, func(pct float64, speed int64) {
-						pr.Update(pct, speed)
-					})
-					cancel()
-
-					if err != nil {
-						markFailedLink(link)
-						log.LogWrite(0, "[downloadPE]PE下载失败：%v", err)
-						_ = file.Remove(exePath, false)
-						prevLink = link
-						switchReason = fmt.Sprintf("下载报错: %v", err)
-						continue
-					}
-
-					// 下载后校验 MD5
-					if strings.TrimSpace(it.MD5) != "" {
-						ok, merr := tools.MatchMD5(exePath, it.MD5)
-						if merr != nil || !ok {
-							markFailedLink(link)
-							log.LogWrite(0, "[downloadPE]PE下载后MD5校验失败：%s", exePath)
-							_ = file.Remove(exePath, false)
-							prevLink = link
-							switchReason = "下载完成但 MD5 校验失败"
-							continue
-						}
-					}
-				}
-
-				// 从 exe 抽 WIM
-				if err := file.PeelFile(exePath, fmt.Sprintf("%d", it.OffsetStart), fmt.Sprintf("%d", it.OffsetEnd), wimPath); err != nil {
-					markFailedLink(link)
-					log.LogWrite(0, "[downloadPE]PE解包失败：%v", err)
-					continue
-				}
-
-			} else {
-				if triedLink {
-					_ = file.Remove(wimPath+".part", false) // 切换链接清理
-				}
-				triedLink = true
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
-				err := download.DownloadFile(ctx, link, wimPath, func(pct float64, speed int64) {
-					pr.Update(pct, speed)
-				})
-				cancel()
-
-				if err != nil {
-					markFailedLink(link)
-					log.LogWrite(0, "[downloadPE]PE下载失败：%v", err)
-					_ = file.Remove(wimPath, false)
-					prevLink = link
-					switchReason = fmt.Sprintf("下载报错: %v", err)
-					continue
-				}
-			}
-
-			if err := copySDIToPETEMP(peDir); err != nil {
-				return "", id, err
-			}
-			return wimPath, id, nil
-		}
-
-		return "", id, fmt.Errorf("PE下载失败")
-	}
-	//WinPE.json
-	for _, it := range findByArch(other, arch) {
-		if wim, id, err := tryDownload(it); err == nil {
-			return wim, id, nil
-		}
-	}
-	if arch == "32" {
-		for _, it := range findByArch(other, "64") {
-			if wim, id, err := tryDownload(it); err == nil {
-				return wim, id, nil
-			}
-		}
-	}
-	// PEDownload.html
-	if _, _, links, err := data.PELnk(); err == nil {
-		if _, ok := failedPEImages[peLinksID]; !ok {
-			if wim, err := downloadPEFromLinks(links); err == nil {
-				return wim, peLinksID, nil
-			}
-		}
-	}
-
-	return "", "", fmt.Errorf("未找到可用PE")
-}
-
-// 使用 PEDownload.html 的链接下载 PE。
-func downloadPEFromLinks(links []string) (string, error) {
-	seen := map[string]bool{}
-	var out []string
-	for _, l := range links {
-		l = strings.TrimSpace(l)
-		if l == "" || seen[l] {
-			continue
-		}
-		seen[l] = true
-		out = append(out, l)
-	}
-	if len(out) == 0 {
-		return "", fmt.Errorf("PE链接为空")
-	}
-
-	root, err := ChoosePETempRoot(1024 * 1024 * 1024)
-	if err != nil {
-		return "", err
-	}
-	peDir := filepath.Join(root, "PETEMP")
-	if err := file.EnsureCleanDir(peDir); err != nil {
-		return "", err
-	}
-
-	wimPath := filepath.Join(peDir, "boot.wim")
-
-	pr := NewProgressReporter(
-		70, 25,
-		1*time.Second, 1*time.Second,
-		"正在下载PE... %.1f%% 速度: %.2f MB/s",
-		"PE下载进度：%.1f%% 速度: %.2f MB/s",
-		true,
-	)
-
-	triedLink := false
-	prevLink := ""
-	switchReason := ""
-	for _, link := range out {
-		link = strings.TrimSpace(link)
-		if link == "" {
-			continue
-		}
-		if !download.HttpStatus(link) {
-			log.LogWrite(0, "[downloadPEFromLinks]PE链接不可用：%s", link)
-			continue
-		}
-		log.LogWrite(0, "[downloadPEFromLinks]PE链接：%s\n", link)
-
-		if prevLink != "" && switchReason != "" {
-			logLinkSwitch("downloadPEFromLinks", prevLink, link, switchReason)
-			switchReason = ""
-		}
-		if triedLink {
-			_ = file.Remove(wimPath+".part", false)
-		}
-		triedLink = true
-
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
-		err := download.DownloadFile(ctx, link, wimPath, func(pct float64, speed int64) {
-			pr.Update(pct, speed)
-		})
-		cancel()
-
-		if err != nil {
-			markFailedLink(link)
-			log.LogWrite(0, "[downloadPEFromLinks]PE下载失败：%v,url:"+link, err)
-			_ = file.Remove(wimPath, false)
-			prevLink = link
-			switchReason = fmt.Sprintf("下载报错: %v", err)
-			continue
-		}
-
-		if err := copySDIToPETEMP(peDir); err != nil {
-			return "", err
-		}
-		return wimPath, nil
-	}
-
-	return "", fmt.Errorf("PE下载失败")
-}
-
-// 复制 tools 目录下的 SDI 文件到 PETEMP。
-func copySDIToPETEMP(peDir string) error {
-	selfExe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	toolsDir := filepath.Join(filepath.Dir(selfExe), "tools")
-	sdiFiles, _ := file.FindFile(toolsDir, "*.sdi|*.SDI", 1)
-	if len(sdiFiles) == 0 {
-		return fmt.Errorf("未找到SDI文件")
-	}
-	for _, sdi := range sdiFiles {
-		dst := filepath.Join(peDir, filepath.Base(sdi))
-		if err := file.Copy(sdi, dst, true, true); err != nil {
-			return err
-		}
-	}
-	log.LogWrite(0, "[copySDIToPETEMP]已复制SDI文件到PETEMP：%s", peDir)
-	return nil
-}
-
-// 根据wim路径推测sdi路径
-func resolveSdiPath(wimPath string) string {
-	wimPath = strings.TrimSpace(wimPath)
-	if wimPath == "" {
-		return ""
-	}
-	dir := filepath.Dir(wimPath)
-	if dir == "." || dir == "" {
-		return ""
-	}
-	sdi := filepath.Join(dir, "boot.sdi")
-	if utils.FileExists(sdi) {
-		return sdi
-	}
-	if sdis, _ := file.FindFile(dir, "*.sdi|*.SDI", 1); len(sdis) > 0 {
-		return sdis[0]
-	}
-	return ""
-}
-
-// 确保有可用 PE 引导文件，若无则下载 PE。
-func ensurePEAndReboot(arch string) error {
-	arch = strings.TrimSpace(arch)
-	if arch == "" {
-		arch = "64"
-	}
-	const maxAttempts = 3
-	failedPEImages := map[string]struct{}{}
-
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		var (
-			wimPath string
-			sdiPath string
-			peID    string
-		)
-
-		if attempt == 1 {
-			found, wim, sdi, _ := pe.GoToPE(true)
-			if found && strings.TrimSpace(wim) != "" {
-				wimPath = wim
-				sdiPath = sdi
-				log.LogWrite(0, "[ensurePEAndReboot]使用已有PE：%s", wimPath)
-			}
-		}
-
-		if wimPath == "" {
-			log.LogWrite(0, "[ensurePEAndReboot]未检测到PE文件，开始下载/准备PE")
-			wp, id, err := downloadPE(arch, failedPEImages)
-			if err != nil {
-				log.LogWrite(0, "[ensurePEAndReboot]下载PE失败：%v", err)
-				if attempt == maxAttempts {
-					ui.UiShowError("错误", fmt.Sprintf("进入PE失败：%v", err))
-					os.Exit(-1)
-				}
-				continue
-			}
-			wimPath = wp
-			peID = id
-			sdiPath = resolveSdiPath(wimPath)
-			log.LogWrite(0, "[ensurePEAndReboot]PE镜像准备完成：%s", wimPath)
-		}
-		if sdiPath == "" {
-			sdiPath = resolveSdiPath(wimPath)
-		}
-
-		ui.UiSetStatus("正在写入自身到PE...")
-		log.LogWrite(0, "[ensurePEAndReboot]准备Patwim：%s", wimPath)
-
-		if err := pe.Patwim(wimPath); err != nil {
-			log.LogWrite(0, "[ensurePEAndReboot]ensurePEAndReboot Patwim失败：%v", err)
-			markFailedPEImage(failedPEImages, peID)
-			removePEArtifacts(wimPath, sdiPath)
-			if attempt == maxAttempts {
-				ui.UiShowError("错误", fmt.Sprintf("进入PE失败：%v", err))
-				os.Exit(-1)
-			}
-			continue
-		}
-		log.LogWrite(0, "[ensurePEAndReboot]ensurePEAndReboot Patwim成功：%s", wimPath)
-
-		ui.UiSetStatus("正在设置下次启动进入PE...")
-		log.LogWrite(0, "[ensurePEAndReboot]进入PE")
-		log.LogWrite(0, sdiPath+"==="+wimPath)
-
-		if sdiPath == "" {
-			if _, _, _, err := pe.GoToPE(false); err != nil {
-				log.LogWrite(0, "[ensurePEAndReboot]进入PE失败：%v", err)
-				markFailedPEImage(failedPEImages, peID)
-				removePEArtifacts(wimPath, sdiPath)
-				if attempt == maxAttempts {
-					ui.UiShowError("错误", fmt.Sprintf("进入PE失败：%v", err))
-					os.Exit(-1)
-				}
-				continue
-			}
-			return nil
-		}
-
-		if _, _, _, err := pe.GoToPE(false, sdiPath, wimPath); err != nil {
-			log.LogWrite(0, "[ensurePEAndReboot]进入PE失败：%v", err)
-			markFailedPEImage(failedPEImages, peID)
-			removePEArtifacts(wimPath, sdiPath)
-			if attempt == maxAttempts {
-				ui.UiShowError("错误", fmt.Sprintf("进入PE失败：%v", err))
-				os.Exit(-1)
-			}
-			continue
-		}
-		return nil
-	}
-	return fmt.Errorf("进入PE失败")
-}
-
-// 清理 PE 相关的产物文件，主要是：wimPath和sdiPath
-func removePEArtifacts(wimPath, sdiPath string) {
-	if strings.TrimSpace(wimPath) != "" {
-		_ = file.Remove(wimPath, false)
-		if strings.Contains(strings.ToLower(wimPath), `\petemp\`) {
-			_ = file.Remove(filepath.Dir(wimPath), true)
-		}
-	}
-	if strings.TrimSpace(sdiPath) != "" {
-		_ = file.Remove(sdiPath, false)
-	}
-}
-
-// 选择 PETEMP 所在盘符。
-func ChoosePETempRoot(needBytes int64) (string, error) {
-	systemDrive := strings.ToUpper(os.Getenv("SystemDrive"))
-	if systemDrive != "" {
-		free, err := disk.GetFreeSize(systemDrive)
-		if err == nil && int64(free) > needBytes {
-			log.LogWrite(0, "[choosePETempRoot]PETEMP使用系统盘：%s", systemDrive)
-			return systemDrive + `\`, nil
-		}
-	}
-	parts := disk.Findpart()
-	if len(parts) > 0 {
-		for _, p := range parts {
-			free, err := disk.GetFreeSize(p)
-			if err == nil && int64(free) > needBytes {
-				log.LogWrite(0, "[choosePETempRoot]PETEMP使用分区：%s", p)
-				return p, nil
-			}
-		}
-	}
-	if systemDrive != "" {
-		return systemDrive + `\`, nil
-	}
-	return "", fmt.Errorf("未找到可用分区")
-}
-
-// 扫描当前磁盘是否已存在可用 PE 引导文件。
-func hasPEFiles(arch string) (bool, string, string) {
-	drives, err := disk.ListDrive()
-	if err != nil {
-		log.LogWrite(0, "[hasPEFiles]枚举盘符失败：%v", err)
-		return false, "", ""
-	}
-
-	for _, d := range drives {
-		wims, _ := file.FindFile(d, `PETEMP\*.wim|PETEMP\*.WIM`, 1)
-		sdis, _ := file.FindFile(d, `PETEMP\*.sdi|PETEMP\*.SDI`, 1)
-		if len(wims) > 0 {
-			wim := pe.ChooseBestWim(wims, arch)
-			sdi := ""
-			if len(sdis) > 0 {
-				sdi = sdis[0]
-			}
-			log.LogWrite(0, "[hasPEFiles]发现PETEMP中的PE文件：wim=%s sdi=%s", wim, sdi)
-			return true, wim, sdi
-		}
-	}
-
-	type pair struct{ sdi, wim string }
-	opts := []pair{
-		{`FirPE\BOOT.SDI`, `FirPE\11PEX64.WIM`},
-		{`FirPE\BOOT.SDI`, `FirPE\11PEX86.WIM`},
-		{`WEPE\WEPE.SDI`, `WEPE\WEPE64.WIM`},
-		{`WEPE\WEPE.SDI`, `WEPE\WEPE32.WIM`},
-		{`HotPE\boot.sdi`, `HotPE\Boot.wim`},
-		{`boot\boot.sdi`, `boot\11pex64.wim`},
-		{`boot\boot.sdi`, `boot\11pex86.wim`},
-	}
-
-	var wimCands []string
-	sdiMap := map[string]string{}
-
-	for _, d := range drives {
-		for _, o := range opts {
-			wp := filepath.Join(d, o.wim)
-			sp := filepath.Join(d, o.sdi)
-			if utils.FileExists(wp) {
-				wimCands = append(wimCands, wp)
-				if utils.FileExists(sp) {
-					sdiMap[wp] = sp
-				} else {
-					sdiMap[wp] = ""
-				}
-			}
-		}
-	}
-
-	if len(wimCands) == 0 {
-		return false, "", ""
-	}
-
-	bestWim := pe.ChooseBestWim(wimCands, arch)
-	bestSdi := sdiMap[bestWim]
-	log.LogWrite(0, "[hasPEFiles]发现已有PE文件：wim=%s sdi=%s", bestWim, bestSdi)
-	return true, bestWim, bestSdi
-}
-
-// 优先在运行目录和用户下载目录中查找 WEPE 安装包。
-func tryLocalWepe(wepe []data.WinPEImg, arch string) (string, error) {
-	type cand struct {
-		img  data.WinPEImg
-		name string
-	}
-	var all []cand
-	for _, it := range wepe {
-		for _, link := range it.Links {
-			base := filepath.Base(strings.Split(link, "?")[0])
-			if base == "" || base == "." || base == "/" {
-				continue
-			}
-			all = append(all, cand{img: it, name: base})
-			break
-		}
-	}
-	if len(all) == 0 {
-		return "", fmt.Errorf("未找到可用WEPE列表")
-	}
-
-	preferredArch := arch
-	order := func(list []cand) []cand {
-		var a, b []cand
-		for _, it := range list {
-			if strings.TrimSpace(it.img.Arch) == preferredArch {
-				a = append(a, it)
-			} else {
-				b = append(b, it)
-			}
-		}
-		return append(a, b...)
-	}
-	all = order(all)
-
-	searchDirs := localWepeSearchDirs()
-	log.LogWrite(0, "[tryLocalWepe]本地WEPE搜索目录：%s", strings.Join(searchDirs, " | "))
-	for _, dir := range searchDirs {
-		if dir == "" {
-			continue
-		}
-		for _, it := range all {
-			candPath := filepath.Join(dir, it.name)
-			if !utils.FileExists(candPath) {
-				continue
-			}
-			if strings.TrimSpace(it.img.MD5) != "" {
-				ok, err := tools.MatchMD5(candPath, it.img.MD5)
-				if err != nil || !ok {
-					log.LogWrite(0, "[tryLocalWepe]WEPE MD5 校验失败：%s", candPath)
-					continue
-				}
-			}
-			needBytes := int64(it.img.Sz * 1024 * 1024)
-			root, err := ChoosePETempRoot(needBytes * 2)
-			if err != nil {
-				return "", err
-			}
-			peDir := filepath.Join(root, "PETEMP")
-			if err := file.EnsureCleanDir(peDir); err != nil {
-				return "", err
-			}
-			wimPath := filepath.Join(peDir, "boot.wim")
-			if it.img.OffsetEnd > it.img.OffsetStart {
-				if err := file.PeelFile(candPath, fmt.Sprintf("%d", it.img.OffsetStart), fmt.Sprintf("%d", it.img.OffsetEnd), wimPath); err != nil {
-					continue
-				}
-			} else {
-				if err := file.Copy(candPath, wimPath, true, true); err != nil {
-					continue
-				}
-			}
-			if err := copySDIToPETEMP(peDir); err != nil {
-				return "", err
-			}
-			log.LogWrite(0, "[tryLocalWepe]本地WEPE准备完成：%s", wimPath)
-			return wimPath, nil
-		}
-	}
-	return "", fmt.Errorf("未找到本地WEPE")
-}
-
-// 返回本地 WEPE 搜索目录。
-func localWepeSearchDirs() []string {
-	var out []string
-	exe, err := os.Executable()
-	if err == nil {
-		out = append(out, filepath.Dir(exe))
-	}
-	userProfile := strings.TrimSpace(os.Getenv("USERPROFILE"))
-	if userProfile != "" {
-		out = append(out, filepath.Join(userProfile, "Downloads"))
-	}
-	drives, _ := disk.ListDrive()
-	for _, d := range drives {
-		out = append(out, filepath.Join(d, "PETEMP"))
-	}
-	return out
-}
-
-// 选择安装目标分区。
+// chooseInstallTargetRoot 选择优先用于安装的目标分区。
 func chooseInstallTargetRoot() string {
 	parts := disk.Findpart()
 	if len(parts) > 0 {
-		log.LogWrite(0, "[chooseInstallTargetRoot]选择未装系统分区：%s", parts[0])
-		if nr, err := utils.NormalizeDrive(parts[0], 0); err == nil {
-			return nr
-		}
-		return ""
+		log.LogWrite(0, "[chooseInstallTargetRoot] selected uninstalled system partition: %s", parts[0])
+		root, _ := utils.NormalizeDrive(parts[0], 0)
+		return root
 	}
+
 	drives, _ := disk.ListDrive()
 	for _, d := range drives {
 		if strings.HasPrefix(strings.ToUpper(d), "X:") {
 			continue
 		}
 		if disk.GetDriveType(d) == 3 {
-			log.LogWrite(0, "[chooseInstallTargetRoot]回退选择固定盘分区：%s", d)
-			if nr, err := utils.NormalizeDrive(d, 0); err == nil {
-				return nr
-			}
-			return ""
+			log.LogWrite(0, "[chooseInstallTargetRoot] fallback selected fixed drive partition: %s", d)
+			root, _ := utils.NormalizeDrive(d, 0)
+			return root
 		}
 	}
 	return ""
 }
 
-// 列出除目标分区外的其他固定磁盘分区。
+// otherInstallVolumes 列出目标分区之外的其他固定卷。
 func otherInstallVolumes(targetRoot string) []string {
 	drives, _ := disk.ListDrive()
 	var out []string
@@ -1568,8 +579,83 @@ func otherInstallVolumes(targetRoot string) []string {
 	return out
 }
 
-// 安装完成后的文件处理。
-func postInstallTasks(targetRoot, targetOS string) error {
+// ===== 镜像应用与引导修复 =====
+
+// ApplyInstallImage 将选定镜像索引应用到目标分区。
+func ApplyInstallImage(plan *InstallPlan, progress func(string, float64, string)) error {
+	if plan == nil {
+		return fmt.Errorf("install plan is nil")
+	}
+
+	imagePath := strings.TrimSpace(plan.ImagePath)
+	targetRoot := strings.TrimSpace(plan.TargetRoot)
+	if imagePath == "" || targetRoot == "" {
+		return fmt.Errorf("install image or target root is empty")
+	}
+
+	ext := strings.ToLower(filepath.Ext(imagePath))
+	applyPath := imagePath
+	if ext == ".iso" {
+		isoRoot, err := image.MountISO(imagePath, 30*time.Second)
+		if err != nil {
+			return err
+		}
+		applyPath = filepath.Join(isoRoot, "sources", "install.wim")
+		if _, err := os.Stat(applyPath); err != nil {
+			applyPath = filepath.Join(isoRoot, "sources", "install.esd")
+		}
+	}
+
+	log.LogWrite(0, "[ApplyInstallImage] ext=%s image=%s applyPath=%s target=%s index=%d", ext, imagePath, applyPath, targetRoot, plan.ImageIndex)
+	dismSvc := dism.NewDism()
+
+	if progress == nil {
+		return dismSvc.ApplyImageCmd(applyPath, targetRoot, uint32(plan.ImageIndex), nil)
+	}
+
+	progressCh := make(chan dism.DismProgress, 16)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for p := range progressCh {
+			progress("apply", float64(p.Percentage), p.Status)
+		}
+	}()
+
+	err := dismSvc.ApplyImageCmd(applyPath, targetRoot, uint32(plan.ImageIndex), progressCh)
+	close(progressCh)
+	<-done
+	return err
+}
+
+// RepairInstallBoot 为已安装系统修复引导。
+func RepairInstallBoot(plan *InstallPlan) error {
+	if plan == nil {
+		return fmt.Errorf("install plan is nil")
+	}
+	return boot.FixBoot(plan.TargetRoot, "", "zh-cn")
+}
+
+// ===== 内建钩子 =====
+
+// registerBuiltInHooks 注册默认的安装后扩展动作。
+func registerBuiltInHooks(ctx *InstallContext) {
+	if ctx == nil {
+		return
+	}
+	if ctx.Hooks == nil {
+		ctx.Hooks = NewHookRegistry()
+	}
+	ctx.Hooks.Add(HookAfterInstall, builtInAfterInstallCopyArtifacts)
+	ctx.Hooks.Add(HookAfterInstall, builtInAfterInstallPrepareDrivers)
+}
+
+// builtInAfterInstallCopyArtifacts 复制无人值守文件和安装后工具。
+func builtInAfterInstallCopyArtifacts(ctx *InstallContext) error {
+	if ctx == nil || ctx.Plan == nil {
+		return fmt.Errorf("install context is nil")
+	}
+
 	selfExe, err := os.Executable()
 	if err != nil {
 		return err
@@ -1577,97 +663,74 @@ func postInstallTasks(targetRoot, targetOS string) error {
 	baseDir := filepath.Dir(selfExe)
 
 	unattend := filepath.Join(baseDir, "tools", "win10.xml")
-	if targetOS == TargetWin7 {
+	if strings.EqualFold(ctx.Plan.TargetOS, TargetWin7) {
 		unattend = filepath.Join(baseDir, "tools", "win7.xml")
 	}
-	_ = file.Copy(unattend, filepath.Join(targetRoot, "Windows", "Panther", "Unattend.xml"), true, true)
-	_ = file.Copy(filepath.Join(baseDir, "tools", "HEU_KMS_Activator.exe"), filepath.Join(targetRoot, "HEU_KMS_Activator.exe"), true, true)
-	_, _ = tools.CreateShortcut(filepath.Join(targetRoot, "Users", "Public", "Desktop")+`\\`, "应用商店", "https://store.ttraw.com")
-	log.LogWrite(0, "[postInstallTasks]已写入应答文件/激活工具/快捷方式")
-
-	driveExe := filepath.Join(baseDir, "tools", "drive.exe")
-	if utils.FileExists(driveExe) {
-		_ = file.Copy(driveExe, filepath.Join(targetRoot, "drive.exe"), true, true)
-	}
-	log.LogWrite(0, "[postInstallTasks]驱动安装工具准备完成")
+	_ = file.Copy(unattend, filepath.Join(ctx.Plan.TargetRoot, "Windows", "Panther", "Unattend.xml"), true, true)
+	_ = file.Copy(filepath.Join(baseDir, "tools", "HEU_KMS_Activator.exe"), filepath.Join(ctx.Plan.TargetRoot, "HEU_KMS_Activator.exe"), true, true)
+	_, _ = tools.CreateShortcut(filepath.Join(ctx.Plan.TargetRoot, "Users", "Public", "Desktop")+`\`, "应用商店", "https://store.ttraw.com")
+	log.LogWrite(0, "[postInstallTasks] copied answer file, activator, and shortcut")
 	return nil
 }
 
-// 格式化镜像索引信息用于日志输出。
-func formatImageInfos(infos []dism.ImageMeta) string {
-	var parts []string
-	for _, info := range infos {
-		parts = append(parts, fmt.Sprintf("Index=%d Name=%s Desc=%s Edition=%s Flags=%s Arch=%s",
-			info.Index, info.Name, info.Description, info.Edition, info.Flags, info.Arch))
+// builtInAfterInstallPrepareDrivers 预置驱动安装工具。
+func builtInAfterInstallPrepareDrivers(ctx *InstallContext) error {
+	if ctx == nil || ctx.Plan == nil {
+		return fmt.Errorf("install context is nil")
 	}
-	return strings.Join(parts, " | ")
+
+	selfExe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	baseDir := filepath.Dir(selfExe)
+	driveExe := filepath.Join(baseDir, "tools", "drive.exe")
+	if utils.FileExists(driveExe) {
+		_ = file.Copy(driveExe, filepath.Join(ctx.Plan.TargetRoot, "drive.exe"), true, true)
+	}
+	log.LogWrite(0, "[postInstallTasks] driver setup tool is ready")
+	return nil
 }
 
-// 按优先级选择镜像索引。
-func SelectInstallIndex(infos []dism.ImageMeta) int {
-	if len(infos) == 0 {
-		return 1
-	}
-	preferred := []string{
-		"旗舰版", "ultimate",
-		"专业工作站", "professional workstation", "pro workstation",
-		"专业教育", "professional education", "pro education",
-		"专业版", "professional", "pro",
-		"家庭版", "home",
-		"企业版", "enterprise",
-		"教育版", "education",
-		"家庭高级版", "home premium",
-		"家庭普通版", "home basic",
-		"纯净版", "clean",
-	}
-	for _, key := range preferred {
-		for _, info := range infos {
-			if !info.IsOS {
-				continue
-			}
-			text := strings.ToLower(info.Name + " " + info.Description + " " + info.Edition + " " + info.Flags)
-			if strings.Contains(text, strings.ToLower(key)) {
-				return info.Index
-			}
-		}
-	}
-	return infos[len(infos)-1].Index
+// ===== 兼容包装 =====
+
+// WriteResFile 保留旧入口并改为写入安装计划。
+func WriteResFile(imagePath string, target, arch string, index int) error {
+	return SaveInstallPlan(&InstallPlan{
+		Mode:       ReinstallModeAuto,
+		TargetOS:   target,
+		ImageArch:  arch,
+		ImagePath:  imagePath,
+		ImageIndex: index,
+	})
 }
 
-// 统一重试执行器。
-func retryLoop(title string, fn func() error) bool {
-	for attempt := 0; ; attempt++ {
-		if err := fn(); err == nil {
-			return true
-		} else {
-			log.LogWrite(0, "[retryLoop]%s失败：%v", title, err)
-			time.Sleep(2 * time.Second)
-			if attempt == 0 {
-				log.LogWrite(0, "[retryLoop]%s失败，自动重试一次", title)
-				continue
-			}
-			ui.UiShowError("错误", title+"失败："+err.Error())
-			os.Exit(-1)
-			return false
-		}
+// LoadResData 保留旧读取入口并展开安装计划字段。
+func LoadResData() (targetRoot string, diskPath string, imagePath string, volumeGuid string, diskUniqueID string, imageRel string, targetOS string, arch string, index int, err error) {
+	plan, err := LoadInstallPlan()
+	if err != nil {
+		return "", "", "", "", "", "", "", "", 0, err
 	}
+	return plan.TargetRoot, plan.DiskPath, plan.ImagePath, plan.VolumeGUID, plan.DiskUniqueID, plan.ImageRel, plan.TargetOS, plan.ImageArch, plan.ImageIndex, nil
 }
 
-func retryLoopWithResult[T any](title string, fn func() (T, error)) (T, bool) {
-	var zero T
-	for attempt := 0; ; attempt++ {
-		v, err := fn()
-		if err == nil {
-			return v, true
-		}
-		log.LogWrite(0, "[retryLoop]%s失败：%v", title, err)
-		time.Sleep(2 * time.Second)
-		if attempt == 0 {
-			log.LogWrite(0, "[retryLoop]%s失败，自动重试一次", title)
-			continue
-		}
-		ui.UiShowError("错误", title+"失败："+err.Error())
-		os.Exit(-1)
-		return zero, false
-	}
+// ResolveImagePath 保留旧入口并恢复镜像路径。
+func ResolveImagePath(diskPath, volumeGuid, diskUniqueID, imagePath, imageRel string) (string, error) {
+	return RecoverInstallImagePath(&InstallPlan{
+		DiskPath:     diskPath,
+		VolumeGUID:   volumeGuid,
+		DiskUniqueID: diskUniqueID,
+		ImagePath:    imagePath,
+		ImageRel:     imageRel,
+	})
+}
+
+// postInstallTasks 保留旧入口并执行安装后钩子。
+func postInstallTasks(targetRoot, targetOS string) error {
+	ctx := NewInstallContext(&InstallPlan{
+		Mode:       ReinstallModeAuto,
+		TargetRoot: targetRoot,
+		TargetOS:   targetOS,
+	})
+	return ctx.RunHooks(HookAfterInstall)
 }
