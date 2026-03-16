@@ -59,8 +59,8 @@ type HookPoint string
 
 const (
 	HookBeforeEnterPE      HookPoint = "before_enter_pe"
-	HookBeforeResolveDisk  HookPoint = "before_resolve_disk"
-	HookBeforeFormatTarget HookPoint = "before_format_target"
+	HookBeforeResolveDisk  HookPoint = ""
+	HookBeforeFormatTarget HookPoint = "before_forbefore_resolve_diskmat_target"
 	HookBeforeApplyImage   HookPoint = "before_apply_image"
 	HookAfterApplyImage    HookPoint = "after_apply_image"
 	HookAfterRepairBoot    HookPoint = "after_repair_boot"

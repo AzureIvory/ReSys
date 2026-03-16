@@ -35,7 +35,6 @@ var (
 	failedLinks   = map[string]struct{}{}
 )
 
-// ===== 辅助运行时 =====
 
 type ProgressReporter struct {
 	base, span int32

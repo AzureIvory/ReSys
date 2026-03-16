@@ -1,19 +1,23 @@
 package tools
 
 import (
+	"bufio"
 	"bytes"
-	"fmt"
+	"context"
 	"crypto/md5"
+	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 	"unsafe"
-	"io"
 
 	"golang.org/x/text/encoding/simplifiedchinese"
 
@@ -151,6 +155,10 @@ type memoryStatusEx struct {
 // onLine：不为 nil 时，每输出一行就回调一次。
 // dir：工作目录，为空则用 程序目录\tools 。
 func RunCmd(bin string, input []byte, onLine func(string), dir string, args ...string) (string, error) {
+	return RunCmdContext(context.Background(), bin, input, onLine, dir, args...)
+}
+
+func legacyRunCmd(bin string, input []byte, onLine func(string), dir string, args ...string) (string, error) {
 	cmd := exec.Command(bin, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 
@@ -260,6 +268,150 @@ func RunCmd(bin string, input []byte, onLine func(string), dir string, args ...s
 		return out, fmt.Errorf("%s %v failed: %w\n%s", bin, args, err, out)
 	}
 	return out, nil
+}
+
+// RunCmdContext 鍦?RunCmd 鐨勫熀纭€涓婂鍔犱簡 context 鎺у埗锛屽苟鍙戣鍙?stdout/stderr锛屽疄鏃剁粰鍥炶皟銆?
+func RunCmdContext(ctx context.Context, bin string, input []byte, onLine func(string), dir string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	prepareRunCmd(cmd, dir)
+
+	if input != nil {
+		cmd.Stdin = bytes.NewReader(input)
+	}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", fmt.Errorf("stdout pipe failed: %w", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return "", fmt.Errorf("stderr pipe failed: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+
+	var (
+		lines   []string
+		linesMu sync.Mutex
+		readErr error
+		readWg  sync.WaitGroup
+	)
+
+	emitLine := func(line string) {
+		linesMu.Lock()
+		lines = append(lines, line)
+		linesMu.Unlock()
+
+		if onLine != nil {
+			onLine(line)
+			return
+		}
+		fmt.Println(line)
+	}
+
+	readPipe := func(r io.Reader) {
+		defer readWg.Done()
+
+		reader := bufio.NewReader(r)
+		for {
+			chunk, err := reader.ReadBytes('\n')
+			if len(chunk) > 0 {
+				emitLine(decodeConsoleLine(chunk))
+			}
+			if err != nil {
+				if err != io.EOF {
+					linesMu.Lock()
+					if readErr == nil {
+						readErr = err
+					}
+					linesMu.Unlock()
+				}
+				return
+			}
+		}
+	}
+
+	readWg.Add(2)
+	go readPipe(stdout)
+	go readPipe(stderr)
+
+	waitErr := cmd.Wait()
+	readWg.Wait()
+
+	linesMu.Lock()
+	out := strings.Join(lines, "\n")
+	pipeErr := readErr
+	linesMu.Unlock()
+
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return out, ctxErr
+	}
+	if pipeErr != nil {
+		return out, fmt.Errorf("read command output failed: %w", pipeErr)
+	}
+	if waitErr != nil {
+		log.LogWrite(0, "[runCmd]runCmd 鎵ц澶辫触: bin=%s args=%v err=%v", bin, args, waitErr)
+		return out, fmt.Errorf("%s %v failed: %w\n%s", bin, args, waitErr, out)
+	}
+	return out, nil
+}
+
+func prepareRunCmd(cmd *exec.Cmd, dir string) {
+	// 鐩綍锛氫紭鍏堢敤浼犲叆鐨?dir锛涗负绌哄垯鐢?绋嬪簭鐩綍\tools
+	toolDir := strings.TrimSpace(dir)
+	if toolDir == "" {
+		if exe, err := os.Executable(); err == nil {
+			toolDir = filepath.Join(filepath.Dir(exe), "tools")
+		}
+	}
+
+	// 璁剧疆宸ヤ綔鐩綍 + 鎶婅鐩綍鍔犲埌 PATH 鍓嶉潰
+	if toolDir == "" {
+		return
+	}
+
+	cmd.Dir = toolDir
+
+	env := os.Environ()
+	oldPath := os.Getenv("PATH")
+	sep := string(os.PathListSeparator)
+
+	newPath := toolDir
+	if oldPath != "" {
+		newPath = toolDir + sep + oldPath
+	}
+
+	replaced := false
+	for i := range env {
+		if strings.HasPrefix(strings.ToUpper(env[i]), "PATH=") {
+			env[i] = "PATH=" + newPath
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		env = append(env, "PATH="+newPath)
+	}
+	cmd.Env = env
+}
+
+func decodeConsoleLine(raw []byte) string {
+	raw = bytes.TrimRight(raw, "\r\n")
+	if len(raw) == 0 {
+		return ""
+	}
+	if utf8.Valid(raw) {
+		return string(raw)
+	}
+	if decoded, err := simplifiedchinese.GB18030.NewDecoder().Bytes(raw); err == nil {
+		return string(decoded)
+	}
+	if decoded, err := simplifiedchinese.GBK.NewDecoder().Bytes(raw); err == nil {
+		return string(decoded)
+	}
+	return string(raw)
 }
 
 // 把匿名函数适配成 io.Writer
