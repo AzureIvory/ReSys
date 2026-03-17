@@ -35,7 +35,6 @@ var (
 	failedLinks   = map[string]struct{}{}
 )
 
-
 type ProgressReporter struct {
 	base, span int32
 	uiEvery    time.Duration

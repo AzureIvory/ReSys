@@ -563,8 +563,8 @@ func chooseInstallTargetRoot() string {
 	return ""
 }
 
-// otherInstallVolumes 列出目标分区之外的其他固定卷。
-func otherInstallVolumes(targetRoot string) []string {
+// getotherVolumes 列出目标分区之外的其他固定卷。
+func getotherVolumes(targetRoot string) []string {
 	drives, _ := disk.ListDrive()
 	var out []string
 	for _, d := range drives {
@@ -646,12 +646,164 @@ func registerBuiltInHooks(ctx *InstallContext) {
 	if ctx.Hooks == nil {
 		ctx.Hooks = NewHookRegistry()
 	}
-	ctx.Hooks.Add(HookAfterInstall, builtInAfterInstallCopyArtifacts)
-	ctx.Hooks.Add(HookAfterInstall, builtInAfterInstallPrepareDrivers)
+	ctx.Hooks.Add(HookAfterApplyImage, fixwin7drive_updata)
+	ctx.Hooks.Add(HookAfterRepairBoot, fixwin7uefi)
+	ctx.Hooks.Add(HookAfterInstall, autoinstools)
+	ctx.Hooks.Add(HookAfterInstall, adddrivexe)
 }
 
-// builtInAfterInstallCopyArtifacts 复制无人值守文件和安装后工具。
-func builtInAfterInstallCopyArtifacts(ctx *InstallContext) error {
+// fixwin7drive_updata 为 Win7 离线系统预注入驱动和更新。
+func fixwin7drive_updata(ctx *InstallContext) error {
+	if ctx == nil || ctx.Plan == nil {
+		return fmt.Errorf("install context is nil")
+	}
+	if !strings.EqualFold(ctx.Plan.TargetOS, TargetWin7) {
+		return nil
+	}
+	if strings.TrimSpace(ctx.Plan.TargetRoot) == "" {
+		return fmt.Errorf("install target root is empty")
+	}
+
+	selfExe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	baseDir := filepath.Dir(selfExe)
+	usb3Dir := filepath.Join(baseDir, "tools", "w7", "drivers", "usb3")
+	storageDir := filepath.Join(baseDir, "tools", "w7", "drivers", "storage_controller")
+	nvmeDir := filepath.Join(baseDir, "tools", "w7", "drivers", "nvme")
+
+	dismSvc := dism.NewDism()
+
+	if err := fixwin7Driver(dismSvc, ctx.Plan.TargetRoot, usb3Dir, "Win7 USB3 drivers"); err != nil {
+		return err
+	}
+	if err := fixwin7Driver(dismSvc, ctx.Plan.TargetRoot, storageDir, "Win7 storage controller drivers"); err != nil {
+		return err
+	}
+	if err := fixwin7NVMe(dismSvc, ctx.Plan, nvmeDir); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// fixwin7uefi 在修复引导后为 Win7 的 UEFI 引导打补丁。
+func fixwin7uefi(ctx *InstallContext) error {
+	if ctx == nil || ctx.Plan == nil {
+		return fmt.Errorf("install context is nil")
+	}
+	if !strings.EqualFold(ctx.Plan.TargetOS, TargetWin7) {
+		return nil
+	}
+	if strings.TrimSpace(ctx.Plan.ImageArch) == "32" {
+		log.LogWrite(0, "[fixwin7uefi] skip Win7 UEFI patch for 32-bit image")
+		return nil
+	}
+	if strings.TrimSpace(ctx.Plan.TargetRoot) == "" {
+		return fmt.Errorf("install target root is empty")
+	}
+
+	espRoot, err := boot.FindESP(ctx.Plan.TargetRoot)
+	if err != nil {
+		log.LogWrite(0, "[fixwin7uefi] ESP not found, skip UEFI patch: %v", err)
+		return nil
+	}
+
+	selfExe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	baseDir := filepath.Dir(selfExe)
+	uefiDir := filepath.Join(baseDir, "tools", "w7", "uefi")
+	bootShim := filepath.Join(uefiDir, "bootx64.efi")
+	uefiINI := filepath.Join(uefiDir, "UefiSeven.ini")
+	if !utils.FileExists(bootShim) {
+		return fmt.Errorf("Win7 UEFI shim not found: %s", bootShim)
+	}
+	if !utils.FileExists(uefiINI) {
+		return fmt.Errorf("Win7 UEFI config not found: %s", uefiINI)
+	}
+
+	bootDir := filepath.Join(espRoot, "EFI", "Microsoft", "Boot")
+	origBootmgfw := filepath.Join(bootDir, "bootmgfw.efi")
+	backupBootmgfw := filepath.Join(bootDir, "bootmgfw.original.efi")
+	if !utils.FileExists(origBootmgfw) {
+		return fmt.Errorf("Win7 UEFI boot file not found after boot repair: %s", origBootmgfw)
+	}
+
+	log.LogWrite(0, "[fixwin7uefi] patching Win7 UEFI boot: esp=%s", espRoot)
+	if err := file.Copy(origBootmgfw, backupBootmgfw, true, true); err != nil {
+		return fmt.Errorf("backup bootmgfw.efi failed: %w", err)
+	}
+	if err := file.Copy(bootShim, origBootmgfw, true, true); err != nil {
+		return fmt.Errorf("deploy UefiSeven bootx64.efi failed: %w", err)
+	}
+	if err := file.Copy(uefiINI, filepath.Join(bootDir, "UefiSeven.ini"), true, true); err != nil {
+		return fmt.Errorf("deploy UefiSeven.ini failed: %w", err)
+	}
+
+	log.LogWrite(0, "[fixwin7uefi] Win7 UEFI boot patched")
+	return nil
+}
+
+func fixwin7Driver(dismSvc *dism.Dism, imagePath, driverDir, label string) error {
+	if st, err := os.Stat(driverDir); err != nil || !st.IsDir() {
+		return fmt.Errorf("%s directory not found: %s", label, driverDir)
+	}
+
+	log.LogWrite(0, "[fixwin7Driver] injecting %s: image=%s drivers=%s", label, imagePath, driverDir)
+	if err := dismSvc.AddDriverOfflineCmd(imagePath, driverDir, true, true, nil); err != nil {
+		return fmt.Errorf("inject %s failed: %w", label, err)
+	}
+
+	log.LogWrite(0, "[fixwin7Driver] %s injected", label)
+	return nil
+}
+
+func fixwin7NVMe(dismSvc *dism.Dism, plan *InstallPlan, nvmeDir string) error {
+	if plan == nil {
+		return fmt.Errorf("install plan is nil")
+	}
+	if st, err := os.Stat(nvmeDir); err != nil || !st.IsDir() {
+		return fmt.Errorf("Win7 NVMe driver directory not found: %s", nvmeDir)
+	}
+
+	arch := strings.TrimSpace(plan.ImageArch)
+	if arch != "32" {
+		packages := []string{
+			filepath.Join(nvmeDir, "Windows6.1-KB2990941-v3-x64.cab"),
+			filepath.Join(nvmeDir, "Windows6.1-KB3087873-v2-x64.cab"),
+		}
+		for _, pkg := range packages {
+			if !utils.FileExists(pkg) {
+				return fmt.Errorf("Win7 NVMe package not found: %s", pkg)
+			}
+			log.LogWrite(0, "[fixwin7NVMe] installing Win7 NVMe package: image=%s package=%s", plan.TargetRoot, pkg)
+			if err := dismSvc.AddPackageOfflineSimpleCmd(plan.TargetRoot, pkg, nil); err != nil {
+				return fmt.Errorf("install Win7 NVMe package failed: %s: %w", filepath.Base(pkg), err)
+			}
+		}
+	} else {
+		log.LogWrite(0, "[fixwin7NVMe] skip NVMe CAB packages for 32-bit Win7: image=%s", plan.TargetRoot)
+	}
+
+	stornvmeINF := filepath.Join(nvmeDir, "stornvme.inf")
+	if !utils.FileExists(stornvmeINF) {
+		return fmt.Errorf("Win7 NVMe INF not found: %s", stornvmeINF)
+	}
+
+	log.LogWrite(0, "[fixwin7NVMe] injecting Win7 NVMe INF: image=%s inf=%s", plan.TargetRoot, stornvmeINF)
+	if err := dismSvc.AddDriverOfflineCmd(plan.TargetRoot, stornvmeINF, false, true, nil); err != nil {
+		return fmt.Errorf("inject Win7 NVMe INF failed: %w", err)
+	}
+
+	log.LogWrite(0, "[fixwin7NVMe] Win7 NVMe support injected")
+	return nil
+}
+
+// autoinstools 复制无人值守文件和安装后工具。
+func autoinstools(ctx *InstallContext) error {
 	if ctx == nil || ctx.Plan == nil {
 		return fmt.Errorf("install context is nil")
 	}
@@ -673,8 +825,8 @@ func builtInAfterInstallCopyArtifacts(ctx *InstallContext) error {
 	return nil
 }
 
-// builtInAfterInstallPrepareDrivers 预置驱动安装工具。
-func builtInAfterInstallPrepareDrivers(ctx *InstallContext) error {
+// adddrivexe 预置驱动安装工具。
+func adddrivexe(ctx *InstallContext) error {
 	if ctx == nil || ctx.Plan == nil {
 		return fmt.Errorf("install context is nil")
 	}

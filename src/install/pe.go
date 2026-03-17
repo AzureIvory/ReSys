@@ -44,7 +44,7 @@ func PreparePEEnvironment(ctx *InstallContext) error {
 		return nil
 	}
 
-	failedPEImages := failedPEImagesFromContext(ctx)
+	failedPEImages := failedPEImages(ctx)
 
 	found, wimPath, sdiPath, err := pe.GoToPE(true)
 	if err != nil {
@@ -177,8 +177,8 @@ func forgetPreparedPE(ctx *InstallContext) {
 	delete(ctx.State, statePreparedPE)
 }
 
-// failedPEImagesFromContext 返回已标记失败的 PE 集合。
-func failedPEImagesFromContext(ctx *InstallContext) map[string]struct{} {
+// failedPEImages 返回已标记失败的 PE 集合。
+func failedPEImages(ctx *InstallContext) map[string]struct{} {
 	if ctx == nil {
 		return map[string]struct{}{}
 	}
@@ -222,7 +222,7 @@ func setSkipLocalWePE(ctx *InstallContext, skip bool) {
 // cleanupFailedPE 清理失败的 PE 产物并更新重试状态。
 func cleanupFailedPE(ctx *InstallContext, prepared preparedPE) {
 	if prepared.ID != "" {
-		markFailedPEImage(failedPEImagesFromContext(ctx), prepared.ID)
+		markFailedPEImage(failedPEImages(ctx), prepared.ID)
 	}
 	if prepared.ID == "local-wepe" {
 		setSkipLocalWePE(ctx, true)
@@ -439,7 +439,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 
 	if _, _, links, err := data.PELnk(); err == nil {
 		if _, ok := failedPEImages[peLinksID]; !ok {
-			if wim, err := downloadPEFromLinks(links); err == nil {
+			if wim, err := downloadPEUrls(links); err == nil {
 				return wim, peLinksID, nil
 			}
 		}
@@ -448,8 +448,8 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 	return "", "", fmt.Errorf("no available PE found")
 }
 
-// downloadPEFromLinks 从后备链接直接下载 PE。
-func downloadPEFromLinks(links []string) (string, error) {
+// downloadPEUrls 从后备链接直接下载 PE。
+func downloadPEUrls(links []string) (string, error) {
 	seen := map[string]bool{}
 	var out []string
 	for _, l := range links {
@@ -491,13 +491,13 @@ func downloadPEFromLinks(links []string) (string, error) {
 			continue
 		}
 		if !download.HttpStatus(link) {
-			log.LogWrite(0, "[downloadPEFromLinks] PE link unavailable: %s", link)
+			log.LogWrite(0, "[downloadPEUrls] PE link unavailable: %s", link)
 			continue
 		}
-		log.LogWrite(0, "[downloadPEFromLinks] PE link: %s", link)
+		log.LogWrite(0, "[downloadPEUrls] PE link: %s", link)
 
 		if prevLink != "" && switchReason != "" {
-			logLinkSwitch("downloadPEFromLinks", prevLink, link, switchReason)
+			logLinkSwitch("downloadPEUrls", prevLink, link, switchReason)
 			switchReason = ""
 		}
 		if triedLink {
@@ -512,7 +512,7 @@ func downloadPEFromLinks(links []string) (string, error) {
 		cancel()
 		if err != nil {
 			markFailedLink(link)
-			log.LogWrite(0, "[downloadPEFromLinks] PE download failed: %v, url:%s", err, link)
+			log.LogWrite(0, "[downloadPEUrls] PE download failed: %v, url:%s", err, link)
 			_ = file.Remove(wimPath, false)
 			prevLink = link
 			switchReason = fmt.Sprintf("download error: %v", err)

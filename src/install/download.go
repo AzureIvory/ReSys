@@ -20,8 +20,8 @@ import (
 
 // ===== 镜像下载 =====
 
-// downloadMicrosoftInstallImage 下载并校验微软官方直链镜像。
-func downloadMicrosoftInstallImage(target, imgArch string) (string, error) {
+// downloadMSImage 下载并校验微软官方直链镜像。
+func downloadMSImage(target, imgArch string) (string, error) {
 	systemCode := ""
 	switch strings.ToLower(strings.TrimSpace(target)) {
 	case TargetWin10:

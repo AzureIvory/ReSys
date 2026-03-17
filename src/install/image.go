@@ -59,7 +59,7 @@ func findInstallImage(plan *InstallPlan) (string, error) {
 	}
 
 	if plan.TargetOS == TargetWin10 || plan.TargetOS == TargetWin11 {
-		if imgPath, err := downloadMicrosoftInstallImage(plan.TargetOS, plan.ImageArch); err == nil && strings.TrimSpace(imgPath) != "" {
+		if imgPath, err := downloadMSImage(plan.TargetOS, plan.ImageArch); err == nil && strings.TrimSpace(imgPath) != "" {
 			return imgPath, nil
 		} else if err != nil {
 			log.LogWrite(0, "[AcquireInstallImage] Microsoft direct download failed: %v", err)
@@ -315,7 +315,7 @@ func moveImageToDisk(imgPath, systemRoot string, needBytes uint64) (string, bool
 		bestFree uint64
 	)
 
-	for _, root := range otherInstallVolumes(systemRoot) {
+	for _, root := range getotherVolumes(systemRoot) {
 		freeBytes, err := disk.GetFreeSize(root)
 		if err != nil {
 			continue

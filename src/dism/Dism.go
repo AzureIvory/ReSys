@@ -493,10 +493,10 @@ func (d *Dism) AddDriverOfflineCmd(
 	imagePath = normalizeImagePath(imagePath)
 	driverPath = strings.TrimSpace(driverPath)
 
-	if !utils.FileExists(strings.TrimRight(imagePath, `\`)) {
+	if st, err := os.Stat(imagePath); err != nil || !st.IsDir() {
 		return fmt.Errorf("离线映像路径不存在: %s", imagePath)
 	}
-	if !utils.FileExists(driverPath) {
+	if _, err := os.Stat(driverPath); err != nil {
 		return fmt.Errorf("驱动路径不存在: %s", driverPath)
 	}
 
@@ -538,7 +538,7 @@ func (d *Dism) AddPackageOfflineCmd(
 	imagePath = normalizeImagePath(imagePath)
 	packagePath = strings.TrimSpace(packagePath)
 
-	if !utils.FileExists(strings.TrimRight(imagePath, `\`)) {
+	if st, err := os.Stat(imagePath); err != nil || !st.IsDir() {
 		return fmt.Errorf("离线映像路径不存在: %s", imagePath)
 	}
 	if !utils.FileExists(packagePath) {
@@ -577,7 +577,7 @@ func (d *Dism) AddPackagesFromDirectoryCmd(
 	packageDir string,
 	progressCh chan<- DismProgress,
 ) (int, int, error) {
-	if !utils.FileExists(packageDir) {
+	if st, err := os.Stat(packageDir); err != nil || !st.IsDir() {
 		return 0, 0, fmt.Errorf("包目录不存在: %s", packageDir)
 	}
 
@@ -630,7 +630,7 @@ func (d *Dism) ExportDriversOfflineCmd(
 	imagePath = normalizeImagePath(imagePath)
 	destination = strings.TrimSpace(destination)
 
-	if !utils.FileExists(strings.TrimRight(imagePath, `\`)) {
+	if st, err := os.Stat(imagePath); err != nil || !st.IsDir() {
 		return fmt.Errorf("离线映像路径不存在: %s", imagePath)
 	}
 	if err := os.MkdirAll(destination, 0o755); err != nil {
@@ -656,7 +656,7 @@ func (d *Dism) ImportDriversSmartCmd(
 	sourceDir string,
 	progressCh chan<- DismProgress,
 ) error {
-	if !utils.FileExists(sourceDir) {
+	if st, err := os.Stat(sourceDir); err != nil || !st.IsDir() {
 		return fmt.Errorf("源目录不存在: %s", sourceDir)
 	}
 
@@ -709,7 +709,7 @@ func (d *Dism) ImportDriversSmartCmd(
 // GetDriversCmd 获取离线系统中已安装驱动列表。
 func (d *Dism) GetDriversCmd(imagePath string) (string, error) {
 	imagePath = normalizeImagePath(imagePath)
-	if !utils.FileExists(strings.TrimRight(imagePath, `\`)) {
+	if st, err := os.Stat(imagePath); err != nil || !st.IsDir() {
 		return "", fmt.Errorf("离线映像路径不存在: %s", imagePath)
 	}
 
@@ -724,7 +724,7 @@ func (d *Dism) GetDriversCmd(imagePath string) (string, error) {
 // GetPackagesCmd 获取离线系统中已安装更新包列表。
 func (d *Dism) GetPackagesCmd(imagePath string) (string, error) {
 	imagePath = normalizeImagePath(imagePath)
-	if !utils.FileExists(strings.TrimRight(imagePath, `\`)) {
+	if st, err := os.Stat(imagePath); err != nil || !st.IsDir() {
 		return "", fmt.Errorf("离线映像路径不存在: %s", imagePath)
 	}
 
