@@ -1,10 +1,13 @@
+//go:build windows
+
 package ui
 
 import (
 	"ReSys/res"
-	"ReSys/src/winui/core"
-	"ReSys/src/winui/widgets"
 	"time"
+
+	"github.com/AzureIvory/winui/core"
+	"github.com/AzureIvory/winui/widgets"
 )
 
 const (
@@ -54,7 +57,7 @@ func Uiinit() {
 	app, err := core.NewApp(core.Options{
 		ClassName:      "ReSys",
 		Title:          "ReSys-一键重装",
-		Width:          600,
+		Width:          800,
 		Height:         400,
 		Style:          core.DefaultWindowStyle,
 		ExStyle:        core.DefaultWindowExStyle,
@@ -62,6 +65,7 @@ func Uiinit() {
 		Icon:           ui.iconApp,
 		Background:     core.RGB(255, 255, 255),
 		DoubleBuffered: true,
+		RenderMode:     core.RenderModeAuto,
 		OnCreate:       onCreate,
 		OnPaint:        onPaint,
 		OnResize:       onResize,
@@ -137,25 +141,54 @@ func onCreate(app *core.App) error {
 	ui.scene = widgets.NewScene(app)
 	ui.mode = modeSelect
 
-	root := ui.scene.Root()
-
-	ui.titleLabel = widgets.NewLabel("title", "请选择要安装的操作系统")
-	ui.titleLabel.SetStyle(widgets.TextStyle{
+	theme := widgets.DefaultTheme()
+	theme.Text = widgets.TextStyle{
+		Font: widgets.FontSpec{
+			Face:   "Microsoft YaHei UI",
+			SizeDP: 16,
+		},
+		Color:  core.RGB(15, 23, 42),
+		Format: core.DTCenter | core.DTVCenter | core.DTSingleLine,
+	}
+	theme.Title = widgets.TextStyle{
 		Font: widgets.FontSpec{
 			Face:   "Microsoft YaHei UI",
 			SizeDP: 20,
+			Weight: 700,
 		},
-		Color:  core.RGB(16, 16, 16),
+		Color:  core.RGB(15, 23, 42),
 		Format: core.DTCenter | core.DTVCenter | core.DTSingleLine,
-	})
+	}
+	theme.Button = selectButtonStyle()
+	theme.Button.Border = 0
+	theme.Progress = widgets.ProgressStyle{
+		Font: widgets.FontSpec{
+			Face:   "Microsoft YaHei UI",
+			SizeDP: 14,
+			Weight: 700,
+		},
+		TextColor:    core.RGB(255, 255, 255),
+		TrackColor:   core.RGB(243, 244, 246),
+		FillColor:    core.RGB(34, 197, 94),
+		BubbleColor:  core.RGB(22, 163, 74),
+		CornerRadius: 12,
+		ShowPercent:  true,
+	}
+	ui.scene.SetTheme(theme)
+
+	root := ui.scene.Root()
+
+	ui.titleLabel = widgets.NewLabel("title", "请选择要安装的操作系统")
+	ui.titleLabel.SetStyle(theme.Title)
 
 	ui.statusLabel = widgets.NewLabel("status", "正在准备...")
 	ui.statusLabel.SetStyle(widgets.TextStyle{
 		Font: widgets.FontSpec{
 			Face:   "Microsoft YaHei UI",
-			SizeDP: 20,
+			SizeDP: 18,
+			Weight: 700,
 		},
-		Color:  core.RGB(16, 16, 16),
+		Color:  core.RGB(15, 23, 42),
 		Format: core.DTCenter | core.DTVCenter | core.DTSingleLine | core.DTEndEllipsis,
 	})
 
@@ -164,29 +197,28 @@ func onCreate(app *core.App) error {
 	_ = ui.waitImage.LoadGIF(res.WaitGIF)
 
 	ui.progressBar = widgets.NewProgressBar("progress")
-	ui.progressBar.SetStyle(widgets.ProgressStyle{
-		Font: widgets.FontSpec{
-			Face:   "Microsoft YaHei UI",
-			SizeDP: 14,
-			Weight: 700,
-		},
-		TextColor:    core.RGB(255, 255, 255),
-		TrackColor:   core.RGB(243, 244, 246),
-		FillColor:    core.RGB(5, 200, 5),
-		BubbleColor:  core.RGB(5, 200, 5),
-		CornerRadius: 12,
-		ShowPercent:  true,
-	})
+	ui.progressBar.SetStyle(theme.Progress)
 
-	ui.btn7 = widgets.NewButton("btn-win7", "重装 win7")
-	ui.btn10 = widgets.NewButton("btn-win10", "重装 win10")
-	ui.btn11 = widgets.NewButton("btn-win11", "重装 win11")
+	ui.btn7 = widgets.NewButton("btn-win7", "重装 Win7")
+	ui.btn10 = widgets.NewButton("btn-win10", "重装 Win10")
+	ui.btn11 = widgets.NewButton("btn-win11", "重装 Win11")
 	ui.btnAdv = widgets.NewButton("btn-advanced", "高级模式")
+
+	ui.btn7.SetKind(widgets.BtnTop)
+	ui.btn10.SetKind(widgets.BtnTop)
+	ui.btn11.SetKind(widgets.BtnTop)
+	ui.btn7.SetStyle(widgets.ButtonStyle{
+		Pressed: core.RGB(67, 205, 128),
+	})
+	ui.btn11.SetStyle(widgets.ButtonStyle{
+		Pressed: core.RGB(0, 191, 255),
+	})
 
 	ui.btn7.SetOnClick(func() { startInstall(targetWin7) })
 	ui.btn10.SetOnClick(func() { startInstall(targetWin10) })
 	ui.btn11.SetOnClick(func() { startInstall(targetWin11) })
 	ui.btnAdv.SetOnClick(func() { UiSetStatus("高级模式：TODO") })
+	ui.btnAdv.SetStyle(secondaryButtonStyle())
 
 	root.Add(ui.titleLabel)
 	root.Add(ui.statusLabel)
@@ -241,21 +273,18 @@ func onMouseUp(_ *core.App, ev core.MouseEvent) {
 	}
 }
 
-// onKeyDown 转发按键消息到 widgets 场景。
 func onKeyDown(_ *core.App, ev core.KeyEvent) {
 	if ui.scene != nil {
 		ui.scene.DispatchKeyDown(ev)
 	}
 }
 
-// onChar 转发字符输入到 widgets 场景。
 func onChar(_ *core.App, ch rune) {
 	if ui.scene != nil {
 		ui.scene.DispatchChar(ch)
 	}
 }
 
-// onFocus 在窗口失焦时清空控件焦点。
 func onFocus(_ *core.App, focused bool) {
 	if ui.scene != nil && !focused {
 		ui.scene.Blur()
@@ -298,9 +327,10 @@ func reloadIcons() {
 		return
 	}
 
-	icon7, _ := core.LoadIconFromICO(res.IcoWin7, ui.app.DP(48))
-	icon10, _ := core.LoadIconFromICO(res.IcoWin10, ui.app.DP(48))
-	icon11, _ := core.LoadIconFromICO(res.IcoWin11, ui.app.DP(48))
+	iconSize := ui.app.DP(48)
+	icon7, _ := core.LoadIconFromICO(res.IcoWin7, iconSize)
+	icon10, _ := core.LoadIconFromICO(res.IcoWin10, iconSize)
+	icon11, _ := core.LoadIconFromICO(res.IcoWin11, iconSize)
 
 	_ = closeIcon(ui.icon7)
 	_ = closeIcon(ui.icon10)
@@ -344,6 +374,7 @@ func applyMode(mode uiMode) {
 
 	ui.statusLabel.SetVisible(progressVisible)
 	ui.waitImage.SetVisible(progressVisible)
+	ui.waitImage.SetPlaying(progressVisible)
 	ui.progressBar.SetVisible(progressVisible)
 
 	if progressVisible {
@@ -373,7 +404,7 @@ func layoutCurrent(w, h int32) {
 
 func layoutSelect(w, h int32) {
 	btnSize := ui.app.DP(120)
-	gap := ui.app.DP(50)
+	gap := ui.app.DP(48)
 	btnY := h/2 - btnSize/2 + ui.app.DP(20)
 	totalWidth := btnSize*3 + gap*2
 	startX := (w - totalWidth) / 2
@@ -389,8 +420,8 @@ func layoutSelect(w, h int32) {
 	ui.btn10.SetBounds(core.Rect{X: startX + btnSize + gap, Y: btnY, W: btnSize, H: btnSize})
 	ui.btn11.SetBounds(core.Rect{X: startX + (btnSize+gap)*2, Y: btnY, W: btnSize, H: btnSize})
 
-	advW := ui.app.DP(90)
-	advH := ui.app.DP(34)
+	advW := ui.app.DP(96)
+	advH := ui.app.DP(36)
 	ui.btnAdv.SetBounds(core.Rect{
 		X: w - advW - ui.app.DP(20),
 		Y: ui.app.DP(20),
@@ -439,7 +470,7 @@ func layoutProgress(w, h int32) {
 }
 
 func startInstall(target string) {
-	if !Message("提示", "重装系统将会清除C盘数据，是否继续？") {
+	if !Message("提示", "重装系统将会清除 C 盘数据，是否继续？") {
 		return
 	}
 	applyMode(modeProgress)
@@ -451,4 +482,47 @@ func closeIcon(icon *core.Icon) error {
 		return nil
 	}
 	return icon.Close()
+}
+
+func selectButtonStyle() widgets.ButtonStyle {
+	return widgets.ButtonStyle{
+		Font: widgets.FontSpec{
+			Face:   "Microsoft YaHei UI",
+			SizeDP: 15,
+			Weight: 700,
+		},
+		TextColor:    core.RGB(15, 23, 42),
+		DownText:     core.RGB(255, 255, 255),
+		DisabledText: core.RGB(148, 163, 184),
+		Background:   core.RGB(255, 255, 255),
+		Hover:        core.RGB(248, 250, 252),
+		Pressed:      core.RGB(37, 99, 235),
+		Disabled:     core.RGB(241, 245, 249),
+		Border:       core.RGB(226, 232, 240),
+		CornerRadius: 12,
+		IconSizeDP:   40,
+		TextInsetDP:  24,
+		GapDP:        8,
+		PadDP:        12,
+	}
+}
+
+func secondaryButtonStyle() widgets.ButtonStyle {
+	return widgets.ButtonStyle{
+		Font: widgets.FontSpec{
+			Face:   "Microsoft YaHei",
+			SizeDP: 14,
+			Weight: 400,
+		},
+		TextColor:    core.RGB(71, 85, 105),
+		DownText:     core.RGB(255, 255, 255),
+		DisabledText: core.RGB(148, 163, 184),
+		Background:   core.RGB(255, 255, 255),
+		Hover:        core.RGB(248, 250, 252),
+		Pressed:      core.RGB(15, 23, 42),
+		Disabled:     core.RGB(241, 245, 249),
+		Border:       core.RGB(226, 232, 240),
+		CornerRadius: 10,
+		PadDP:        12,
+	}
 }
