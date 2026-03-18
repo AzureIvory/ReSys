@@ -1,4 +1,4 @@
-﻿package install
+package install
 
 import (
 	"ReSys/src/data"
@@ -308,7 +308,7 @@ func EnsureInstallImageOutsideTarget(plan *InstallPlan) error {
 
 // moveImageToDisk 优先把镜像迁移到其他固定盘。
 func moveImageToDisk(imgPath, systemRoot string, needBytes uint64) (string, bool, error) {
-	const extraBytes uint64 = 512 * 1024 * 1024
+	const extraBytes uint64 = 512*1024*1024 + driverBackupReserveBytes
 
 	var (
 		bestRoot string
@@ -343,7 +343,7 @@ func moveImageToDisk(imgPath, systemRoot string, needBytes uint64) (string, bool
 func moveImageToTemp(imgPath string, needBytes uint64) (string, error) {
 	ui.UiSetStatus("镜像位于系统盘，正在创建 TEMP 分区并迁移镜像...")
 
-	tmpRoot, err := disk.EnsureTempVolumeForBytes(needBytes)
+	tmpRoot, err := disk.EnsureTempVolumeForBytes(needBytes + driverBackupReserveBytes)
 	if err != nil {
 		return "", err
 	}

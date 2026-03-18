@@ -1,4 +1,4 @@
-﻿package install
+package install
 
 import (
 	"ReSys/src/dism"
@@ -20,9 +20,13 @@ const (
 )
 
 const (
-	peLinksID            = "pe_links"
-	minImageBytes uint64 = 7 * 1024 * 1024 * 1024
-	tempMarkerRel        = `RESTALL\temp.marker`
+	peLinksID                       = "pe_links"
+	minImageBytes            uint64 = 7 * 1024 * 1024 * 1024
+	driverBackupReserveBytes uint64 = 8 * 1024 * 1024 * 1024
+	tempMarkerRel                   = `RESTALL\temp.marker`
+	driverBackupDirName             = "driverbackup"
+	driverBackupOEMDir              = "oem"
+	driverBackupGUIDDir             = "classguid"
 
 	statePreparedPE     = "prepared_pe"
 	stateFailedPEImages = "failed_pe_images"

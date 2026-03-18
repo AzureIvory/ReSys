@@ -1,4 +1,4 @@
-﻿package install
+package install
 
 import (
 	"ReSys/src/boot"
@@ -115,6 +115,8 @@ func NormalizeInstallPlan(plan *InstallPlan) error {
 	if strings.TrimSpace(plan.PEArch) == "" {
 		plan.PEArch = windows.SystemArch()
 	}
+	plan.Flags.NeedBackupBeforePE = true
+	plan.Flags.NeedOfflineDrivers = true
 
 	return nil
 }
@@ -646,8 +648,10 @@ func registerBuiltInHooks(ctx *InstallContext) {
 	if ctx.Hooks == nil {
 		ctx.Hooks = NewHookRegistry()
 	}
+	ctx.Hooks.Add(HookBeforeEnterPE, backupDriversBeforeEnterPE)
 	ctx.Hooks.Add(HookAfterApplyImage, fixwin7drive_updata)
 	ctx.Hooks.Add(HookAfterRepairBoot, fixwin7uefi)
+	ctx.Hooks.Add(HookAfterRepairBoot, restoreBackedUpDrivers)
 	ctx.Hooks.Add(HookAfterInstall, autoinstools)
 	ctx.Hooks.Add(HookAfterInstall, adddrivexe)
 }

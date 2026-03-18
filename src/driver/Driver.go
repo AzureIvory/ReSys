@@ -1,4 +1,4 @@
-package main
+package driver
 
 import (
 	"ReSys/src/file"
@@ -422,6 +422,47 @@ func (m *DriverManager) EnumerateAllDrivers() ([]DriverInfo, error) {
 	return m.setup.enumerateDrivers()
 }
 
+func (m *DriverManager) EnumerateDriversByClassGUID(classGUID string) ([]DriverInfo, error) {
+	all, err := m.EnumerateAllDrivers()
+	if err != nil {
+		return nil, err
+	}
+
+	target, err := normalizeClassGUID(classGUID)
+	if err != nil {
+		return nil, err
+	}
+	if target == "" {
+		return all, nil
+	}
+
+	var out []DriverInfo
+	for _, d := range all {
+		if strings.EqualFold(strings.TrimSpace(d.ClassGUID), target) {
+			out = append(out, d)
+		}
+	}
+	return out, nil
+}
+
+func normalizeClassGUID(classGUID string) (string, error) {
+	classGUID = strings.TrimSpace(classGUID)
+	if classGUID == "" {
+		return "", nil
+	}
+	if !strings.HasPrefix(classGUID, "{") {
+		classGUID = "{" + classGUID
+	}
+	if !strings.HasSuffix(classGUID, "}") {
+		classGUID += "}"
+	}
+	parsed, err := windows.GUIDFromString(classGUID)
+	if err != nil {
+		return "", fmt.Errorf("invalid class guid %q: %w", classGUID, err)
+	}
+	return parsed.String(), nil
+}
+
 // EnumerateOEMDrivers 枚举当前在线系统中 INF 为 oemXX.inf 的第三方驱动条目。
 func (m *DriverManager) EnumerateOEMDrivers() ([]DriverInfo, error) {
 	all, err := m.setup.enumerateDrivers()
@@ -492,6 +533,47 @@ func (m *DriverManager) ExportDrivers(destination string, oemOnly bool) (int, er
 // - Win8+：优先 SetupGetInfDriverStoreLocationW
 // - Win7：扫描 FileRepository 找同名 INF，再不行用 CatalogFile 推断目录
 // - 再不行返回空，让上层去 Windows\INF 回退。
+func (m *DriverManager) ExportDriversByClassGUID(destination string, classGUID string) (int, error) {
+	if err := os.MkdirAll(destination, 0755); err != nil {
+		log.LogWrite(-2, "[ExportDriversByClassGUID]鍒涘缓鐩綍澶辫触: dir=%s err=%v", destination, err)
+		return 0, err
+	}
+
+	drivers, err := m.EnumerateDriversByClassGUID(classGUID)
+	if err != nil {
+		return 0, err
+	}
+
+	seen := map[string]struct{}{}
+	okCount := 0
+
+	for _, d := range drivers {
+		key := strings.ToLower(filepath.Base(d.InfPath))
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+
+		storeInf := m.resolveDriverStoreInfPath(d.InfPath)
+		if storeInf == "" {
+			storeInf = filepath.Join(filepath.Join(utils.WindowsDir(), "INF"), filepath.Base(d.InfPath))
+		}
+		if _, err := os.Stat(storeInf); err != nil {
+			continue
+		}
+
+		infStem := strings.TrimSuffix(filepath.Base(d.InfPath), filepath.Ext(d.InfPath))
+		dstDir := filepath.Join(destination, infStem)
+		_ = os.MkdirAll(dstDir, 0755)
+
+		if err := m.copyDriverPackage(storeInf, dstDir); err == nil {
+			okCount++
+		}
+	}
+
+	return okCount, nil
+}
+
 func (m *DriverManager) resolveDriverStoreInfPath(infNameOrPath string) string {
 	if p, ok := m.setup.tryGetInfDriverStoreLocation(infNameOrPath); ok && p != "" {
 		return p
@@ -1161,8 +1243,24 @@ func ListAllDrivers() ([]DriverInfo, error) {
 	return m.EnumerateAllDrivers()
 }
 
+func ListDriversByClassGUID(classGUID string) ([]DriverInfo, error) {
+	m, err := NewDriverManager()
+	if err != nil {
+		return nil, err
+	}
+	return m.EnumerateDriversByClassGUID(classGUID)
+}
+
 // isThirdPartyDriverDir 用目录名粗略判断 DriverStore\FileRepository 下是否为第三方驱动目录。
 // 规则：包含 oem 认为是第三方；对一些常见系统前缀返回 false；其它默认 true。
+func ExportDriversByClassGUID(destination string, classGUID string) (int, error) {
+	m, err := NewDriverManager()
+	if err != nil {
+		return 0, err
+	}
+	return m.ExportDriversByClassGUID(destination, classGUID)
+}
+
 func isThirdPartyDriverDir(dirName string) bool {
 	lower := strings.ToLower(dirName)
 	if strings.Contains(lower, "oem") {

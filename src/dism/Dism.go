@@ -651,6 +651,31 @@ func (d *Dism) ExportDriversOfflineCmd(
 }
 
 // ImportDriversSmartCmd 智能导入目录中的驱动和 CAB 包。
+func (d *Dism) ExportDriversOnlineCmd(
+	destination string,
+	progressCh chan<- DismProgress,
+) error {
+	destination = strings.TrimSpace(destination)
+	if destination == "" {
+		return fmt.Errorf("导出目录为空")
+	}
+	if err := os.MkdirAll(destination, 0o755); err != nil {
+		return fmt.Errorf("创建导出目录失败: %w", err)
+	}
+
+	scratchDir := ensureScratchDirectory()
+	sendProgress(progressCh, 0, "正在准备导出在线驱动...")
+
+	args := []string{
+		"/Online",
+		"/Export-Driver",
+		"/Destination:" + destination,
+		"/ScratchDir:" + scratchDir,
+	}
+
+	return d.runDismWithProgressCmd(args, progressCh)
+}
+
 func (d *Dism) ImportDriversSmartCmd(
 	imagePath string,
 	sourceDir string,

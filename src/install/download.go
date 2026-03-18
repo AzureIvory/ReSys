@@ -1,4 +1,4 @@
-﻿package install
+package install
 
 import (
 	"ReSys/src/data"
@@ -361,14 +361,17 @@ func DownloadImage(target, arch string) (string, error) {
 func chooseDownloadRoot() string {
 	systemDrive := strings.ToUpper(os.Getenv("SystemDrive"))
 	parts := disk.Findpart()
+	needBytes := minImageBytes + driverBackupReserveBytes
 
 	if len(parts) > 1 {
 		for _, p := range parts {
-			if systemDrive == "" || !strings.EqualFold(strings.TrimSuffix(p, `\`), systemDrive) {
+			if systemDrive != "" && strings.EqualFold(strings.TrimSuffix(p, `\`), systemDrive) {
+				continue
+			}
+			if free, err := disk.GetFreeSize(p); err == nil && free >= needBytes {
 				return p
 			}
 		}
-		return parts[0]
 	}
 
 	root := ""
@@ -382,20 +385,27 @@ func chooseDownloadRoot() string {
 	}
 
 	if root != "" {
-		if free, err := disk.GetFreeSize(root); err == nil && free >= minImageBytes {
-			return root
-		}
-		if free, err := disk.GetFreeSize(root); err == nil && free >= minImageBytes {
+		if free, err := disk.GetFreeSize(root); err == nil && free >= needBytes {
 			return root
 		}
 	}
 
-	tmp, err := disk.EnsureTempVolumeForBytes(minImageBytes)
+	tmp, err := disk.EnsureTempVolumeForBytes(needBytes)
 	if err == nil && tmp != "" {
 		return tmp
 	}
 
 	drives, _ := disk.ListDrive()
+	for _, d := range drives {
+		if systemDrive != "" && strings.EqualFold(strings.TrimSuffix(d, `\`), systemDrive) {
+			continue
+		}
+		if disk.GetDriveType(d) == 3 {
+			if free, err := disk.GetFreeSize(d); err == nil && free >= needBytes {
+				return d
+			}
+		}
+	}
 	for _, d := range drives {
 		if systemDrive != "" && strings.EqualFold(strings.TrimSuffix(d, `\`), systemDrive) {
 			continue
