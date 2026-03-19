@@ -21,6 +21,35 @@ import (
 // ===== 镜像下载 =====
 
 // downloadMSImage 下载并校验微软官方直链镜像。
+func downloadFileWithRetry(link, dstPath string, progress func(float64, int64)) error {
+	if err := cleanupDownloadArtifacts(dstPath); err != nil {
+		log.LogWrite(0, "[downloadImage] cleanup existing download target failed: path=%s err=%v", dstPath, err)
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= 2; attempt++ {
+		ctx, cancel := context.WithCancel(context.Background())
+		err := download.DownloadFile(ctx, link, dstPath, progress)
+		cancel()
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+		if !isLocalDownloadConflict(err) {
+			return err
+		}
+
+		log.LogWrite(0, "[downloadImage] local file conflict, removing stale target and retrying: path=%s err=%v", dstPath, err)
+		if cleanupErr := cleanupDownloadArtifacts(dstPath); cleanupErr != nil {
+			log.LogWrite(0, "[downloadImage] cleanup after local conflict failed: path=%s err=%v", dstPath, cleanupErr)
+			return err
+		}
+	}
+
+	return lastErr
+}
+
 func downloadMSImage(target, imgArch string) (string, error) {
 	systemCode := ""
 	switch strings.ToLower(strings.TrimSpace(target)) {
@@ -91,7 +120,7 @@ func downloadMSImage(target, imgArch string) (string, error) {
 			if err := verifyMSImage(info, dstPath); err == nil {
 				return dstPath, nil
 			}
-			_ = file.Remove(dstPath, false)
+			_ = cleanupDownloadArtifacts(dstPath)
 		}
 
 		ui.UiSetProgress(0)
@@ -105,14 +134,11 @@ func downloadMSImage(target, imgArch string) (string, error) {
 			true,
 		)
 
-		ctx, cancel := context.WithCancel(context.Background())
-		err := download.DownloadFile(ctx, link, dstPath, func(pct float64, speed int64) {
+		err := downloadFileWithRetry(link, dstPath, func(pct float64, speed int64) {
 			pr.Update(pct, speed)
 		})
-		cancel()
 		if err != nil {
-			markFailedLink(link)
-			_ = file.Remove(dstPath, false)
+			_ = cleanupDownloadArtifacts(dstPath)
 			errs = append(errs, fmt.Sprintf("Microsoft direct download failed: %v", err))
 			prevLink = link
 			switchReason = fmt.Sprintf("download error: %v", err)
@@ -121,7 +147,7 @@ func downloadMSImage(target, imgArch string) (string, error) {
 
 		if err := verifyMSImage(info, dstPath); err != nil {
 			markFailedLink(link)
-			_ = file.Remove(dstPath, false)
+			_ = cleanupDownloadArtifacts(dstPath)
 			errs = append(errs, fmt.Sprintf("Microsoft image verification failed: %v", err))
 			prevLink = link
 			switchReason = fmt.Sprintf("download completed but verification failed: %v", err)
@@ -174,7 +200,6 @@ func DownloadImage(target, arch string) (string, error) {
 		}
 
 		links := []string{strings.TrimSpace(it.Link), strings.TrimSpace(it.Link2)}
-		triedLink := false
 		prevLink := ""
 		switchReason := ""
 
@@ -210,19 +235,14 @@ func DownloadImage(target, arch string) (string, error) {
 			if st, err := os.Stat(dstPath); err == nil && !st.IsDir() && st.Size() > 0 {
 				if err := validateImageFile(it, dstPath); err != nil {
 					log.LogWrite(0, "[downloadImage] image verification failed, removing and retrying: %s err=%v", dstPath, err)
-					_ = file.Remove(dstPath, false)
+					_ = cleanupDownloadArtifacts(dstPath)
 				} else {
 					log.LogWrite(0, "[downloadImage] image already exists: %s", dstPath)
 					ui.UiSetProgress(60)
 					return dstPath, nil
 				}
 			}
-			if triedLink {
-				_ = file.Remove(dstPath+".part", false)
-			}
-
-			_ = file.Remove(dstPath, false)
-			triedLink = true
+			_ = cleanupDownloadArtifacts(dstPath)
 			ui.UiSetProgress(0)
 			ui.UiSetStatus("正在下载镜像... 0.0% 速度: 0.00 MB/s")
 			log.LogWrite(0, "[downloadImage] starting image download (URL): %s -> %s", link, dstPath)
@@ -235,11 +255,9 @@ func DownloadImage(target, arch string) (string, error) {
 				true,
 			)
 
-			ctx, cancel := context.WithCancel(context.Background())
-			err := download.DownloadFile(ctx, link, dstPath, func(pct float64, speed int64) {
+			err := downloadFileWithRetry(link, dstPath, func(pct float64, speed int64) {
 				pr.Update(pct, speed)
 			})
-			cancel()
 			log.LogWrite(0, "[downloadImage] DownloadFile returned: link=%s dst=%s err=%v", link, dstPath, err)
 			if err != nil {
 				prevLink = link
@@ -249,7 +267,7 @@ func DownloadImage(target, arch string) (string, error) {
 			if err == nil {
 				if vErr := validateImageFile(it, dstPath); vErr != nil {
 					markFailedLink(link)
-					_ = file.Remove(dstPath, false)
+					_ = cleanupDownloadArtifacts(dstPath)
 					log.LogWrite(0, "[downloadImage] image verification failed, removing and retrying: %s err=%v", dstPath, vErr)
 					errs = append(errs, fmt.Sprintf("URL verification failed link=%s err=%v", link, vErr))
 					prevLink = link
@@ -262,8 +280,7 @@ func DownloadImage(target, arch string) (string, error) {
 				return dstPath, nil
 			}
 
-			markFailedLink(link)
-			_ = file.Remove(dstPath, false)
+			_ = cleanupDownloadArtifacts(dstPath)
 			log.LogWrite(0, "[downloadImage] image download failed (URL): link=%s err=%v", link, err)
 			errs = append(errs, fmt.Sprintf("URL failed link=%s err=%v", link, err))
 		}
@@ -293,7 +310,7 @@ func DownloadImage(target, arch string) (string, error) {
 		if st, err := os.Stat(dstPath); err == nil && !st.IsDir() && st.Size() > 0 {
 			if err := validateImageFile(it, dstPath); err != nil {
 				log.LogWrite(0, "[downloadImage] image verification failed, removing and retrying: %s err=%v", dstPath, err)
-				_ = file.Remove(dstPath, false)
+				_ = cleanupDownloadArtifacts(dstPath)
 			} else {
 				log.LogWrite(0, "[downloadImage] image already exists: %s", dstPath)
 				ui.UiSetProgress(60)
@@ -321,7 +338,7 @@ func DownloadImage(target, arch string) (string, error) {
 		if err == nil {
 			finalPath := realPath
 			if realPath != "" && !strings.EqualFold(realPath, dstPath) {
-				_ = file.Remove(dstPath, false)
+				_ = cleanupDownloadArtifacts(dstPath)
 				if rErr := os.Rename(realPath, dstPath); rErr == nil {
 					finalPath = dstPath
 				} else if cErr := file.Copy(realPath, dstPath, true, true); cErr == nil {
@@ -335,7 +352,7 @@ func DownloadImage(target, arch string) (string, error) {
 
 			if vErr := validateImageFile(it, finalPath); vErr != nil {
 				markFailedLink(link)
-				_ = file.Remove(finalPath, false)
+				_ = cleanupDownloadArtifacts(finalPath)
 				log.LogWrite(0, "[downloadImage] image verification failed, removing and retrying: %s err=%v", finalPath, vErr)
 				errs = append(errs, fmt.Sprintf("BT verification failed link=%s err=%v", link, vErr))
 				continue
@@ -346,7 +363,6 @@ func DownloadImage(target, arch string) (string, error) {
 			return finalPath, nil
 		}
 
-		markFailedLink(link)
 		log.LogWrite(0, "[downloadImage] image download failed (BT): link=%s err=%v", link, err)
 		errs = append(errs, fmt.Sprintf("BT failed link=%s err=%v", link, err))
 	}

@@ -443,13 +443,13 @@ func (d *Dism) ListImageInfos(imagePath string) ([]ImageMeta, error) {
 
 	if out, err := d.executeAndGetOutputCmd([]string{"/English", "/Get-WimInfo", "/WimFile:" + imagePath}); err == nil {
 		if imgs, perr := parseImageInfoText(out); perr == nil && len(imgs) > 0 {
-			log.LogWrite(0, "[Dism.ListImageInfos] 使用 DISM 结果")
+			log.LogWrite(0, "[Dism.ListImageInfos] 使用 DISM 结果.out=%v,imgs=%v", out, err)
 			return imgs, nil
 		} else {
-			log.LogWrite(0, "[Dism.ListImageInfos] DISM 解析失败，回退 wimlib: err=%v", perr)
+			log.LogWrite(0, "[Dism.ListImageInfos] DISM 解析失败，回退 wimlib: err=%v,out=%v", perr, out)
 		}
 	} else {
-		log.LogWrite(0, "[Dism.ListImageInfos] DISM 失败，回退 wimlib: err=%v", err)
+		log.LogWrite(0, "[Dism.ListImageInfos] DISM 失败，回退 wimlib: err=%v,out=%v", err, out)
 	}
 
 	wimlib := ""

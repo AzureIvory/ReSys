@@ -43,6 +43,17 @@ type adapterUI struct {
 	btn10       *widgets.Button
 	btn11       *widgets.Button
 	btnAdv      *widgets.Button
+
+	bitLockerPromptVisible     bool
+	bitLockerPromptResult      chan bitLockerPromptResult
+	bitLockerPromptPanel       *widgets.Panel
+	bitLockerPromptTitleLabel  *widgets.Label
+	bitLockerPromptTextLabel   *widgets.Label
+	bitLockerPromptErrorLabel  *widgets.Label
+	bitLockerPromptInput       *widgets.EditBox
+	bitLockerPromptPasswordBtn *widgets.Button
+	bitLockerPromptRecoveryBtn *widgets.Button
+	bitLockerPromptCancelBtn   *widgets.Button
 }
 
 var ui adapterUI
@@ -225,6 +236,7 @@ func onCreate(app *core.App, scene *widgets.Scene) error {
 		ui.btn11,
 		ui.btnAdv,
 	)
+	initBitLockerPrompt(theme, root)
 
 	reloadIcons()
 	applyMode(modeSelect)
@@ -245,6 +257,7 @@ func onDPIChanged(_ *core.App, _ *widgets.Scene, _ core.DPIInfo) {
 }
 
 func onDestroy(_ *core.App, _ *widgets.Scene) {
+	closePendingBitLockerPrompt()
 	ui.scene = nil
 	_ = closeIcon(ui.icon7)
 	_ = closeIcon(ui.icon10)
@@ -296,10 +309,12 @@ func switchToProgress() {
 }
 
 func applyMode(mode uiMode) {
+	prevMode := ui.mode
 	ui.mode = mode
 
 	selectVisible := mode == modeSelect
-	progressVisible := mode == modeProgress
+	progressVisible := mode == modeProgress && !ui.bitLockerPromptVisible
+	promptVisible := mode == modeProgress && ui.bitLockerPromptVisible
 
 	ui.titleLabel.SetVisible(selectVisible)
 	ui.btn7.SetVisible(selectVisible)
@@ -311,8 +326,11 @@ func applyMode(mode uiMode) {
 	ui.waitImage.SetVisible(progressVisible)
 	ui.waitImage.SetPlaying(progressVisible)
 	ui.progressBar.SetVisible(progressVisible)
+	if ui.bitLockerPromptPanel != nil {
+		ui.bitLockerPromptPanel.SetVisible(promptVisible)
+	}
 
-	if progressVisible {
+	if progressVisible && prevMode != modeProgress {
 		ui.progressBar.SetValue(0)
 		ui.statusLabel.SetText("正在寻找镜像...")
 	}
@@ -331,7 +349,11 @@ func layoutCurrent(w, h int32) {
 
 	switch ui.mode {
 	case modeProgress:
-		layoutProgress(w, h)
+		if ui.bitLockerPromptVisible {
+			layoutBitLockerPrompt(w, h)
+		} else {
+			layoutProgress(w, h)
+		}
 	default:
 		layoutSelect(w, h)
 	}

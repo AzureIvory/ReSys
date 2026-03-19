@@ -21,27 +21,29 @@ type tokenElevationInfo struct {
 }
 
 var (
-	Shell32                 = windows.NewLazySystemDLL("shell32.dll")
-	procGetCurrentProcess   = Shell32.NewProc("GetCurrentProcess")
-	procCloseHandle         = Shell32.NewProc("CloseHandle")
-	procGetTokenInformation = Shell32.NewProc("GetTokenInformation")
-	procShellExecuteW       = Shell32.NewProc("ShellExecuteW")
+	shell32Admin            = windows.NewLazySystemDLL("shell32.dll")
+	advapi32Admin           = windows.NewLazySystemDLL("advapi32.dll")
+	procGetTokenInformation = advapi32Admin.NewProc("GetTokenInformation")
+	procShellExecuteW       = shell32Admin.NewProc("ShellExecuteW")
 )
 
 // 是否是管理员权限运行
 func IsAdmin() bool {
-	hProc, _, _ := procGetCurrentProcess.Call()
+	hProc, err := syscall.GetCurrentProcess()
+	if err != nil {
+		return false
+	}
 
 	var token windows.Handle
 	r1, _, _ := procOpenProcessToken.Call(
-		hProc,
+		uintptr(hProc),
 		uintptr(tokenQuery),
 		uintptr(unsafe.Pointer(&token)),
 	)
 	if r1 == 0 {
 		return false
 	}
-	defer procCloseHandle.Call(uintptr(token))
+	defer syscall.CloseHandle(syscall.Handle(token))
 
 	var elev tokenElevationInfo
 	var outLen uint32

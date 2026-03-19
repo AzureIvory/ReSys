@@ -88,6 +88,12 @@ func test() {
 }
 
 func main() {
+	if !tools.IsAdmin() {
+		if err := tools.RestartAsAdmin(); err != nil {
+			panic(err)
+		}
+		return
+	}
 	ui.Uiinit()
 	if windows.IsWinPE() {
 		go PE()

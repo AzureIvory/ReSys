@@ -2,6 +2,7 @@ package install
 
 import (
 	"ReSys/src/dism"
+	"ReSys/src/file"
 	"ReSys/src/log"
 	"ReSys/src/ui"
 	"fmt"
@@ -114,6 +115,42 @@ func markFailedLink(link string) {
 	failedLinksMu.Lock()
 	defer failedLinksMu.Unlock()
 	failedLinks[link] = struct{}{}
+}
+
+func cleanupDownloadArtifacts(dstPath string) error {
+	targets := []string{
+		strings.TrimSpace(dstPath),
+		strings.TrimSpace(dstPath) + ".aria2",
+		strings.TrimSpace(dstPath) + ".part",
+		strings.TrimSpace(dstPath) + ".part.aria2",
+	}
+
+	for _, path := range targets {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		if err := file.Remove(path, false); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func isLocalDownloadConflict(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "exists, but a control file(*.aria2) does not exist") ||
+		strings.Contains(msg, "control file(*.aria2) does not exist") ||
+		strings.Contains(msg, "same file already exists") ||
+		strings.Contains(msg, "file already exists")
 }
 
 // isFailedLink 判断下载链接是否已被标记失败。

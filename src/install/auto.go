@@ -1,4 +1,4 @@
-﻿package install
+package install
 
 import (
 	"ReSys/src/log"
@@ -78,6 +78,15 @@ func runAutoPrepareFlow(ctx *InstallContext) error {
 				ui.UiSetStatus("正在寻找镜像...")
 				_, err := AcquireInstallImage(ctx.Plan)
 				return err
+			},
+		},
+		{
+			Name:      "BitLocker 预处理",
+			Retryable: false,
+			Run: func(ctx *InstallContext) error {
+				ui.UiSetProgress(50)
+				ui.UiSetStatus("正在处理 BitLocker...")
+				return handleBitLockerBeforeEnterPE(ctx)
 			},
 		},
 		{

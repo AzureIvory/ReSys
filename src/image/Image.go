@@ -188,6 +188,18 @@ func Findimg() ([]string, error) {
 // - 若仅有 64 位则直接使用 64 位
 func FindLocalImage(target, arch string) (string, error) {
 	imgs, err := Findimg()
+	if len(imgs) == 0 {
+		if err != nil {
+			log.LogWrite(0, "[findLocalImage] local image scan failed: %v", err)
+			return "", err
+		}
+		log.LogWrite(0, "[findLocalImage] no local image found")
+		return "", fmt.Errorf("no local image found")
+	}
+	if err != nil {
+		log.LogWrite(0, "[findLocalImage] skipped inaccessible volume(s): %v", err)
+		err = nil
+	}
 	if err != nil {
 		log.LogWrite(0, "[findLocalImage]全盘搜索镜像失败：%v", err)
 		return "", err
@@ -226,6 +238,8 @@ func FindLocalImage(target, arch string) (string, error) {
 	if len(byArch) == 0 {
 		byArch = matchTarget
 	}
+	log.LogWrite(0, "[findLocalImage] selected local image candidate(s): %s", strings.Join(byArch, " | "))
+	return byArch[0], nil
 	log.LogWrite(0, "[findLocalImage]本地镜像筛选结果：%s", strings.Join(byArch, " | "))
 	return byArch[0], nil
 }

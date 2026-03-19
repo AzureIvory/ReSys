@@ -9,6 +9,10 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/simplifiedchinese"
+	"golang.org/x/text/transform"
 )
 
 type lineHandler struct {
@@ -61,7 +65,7 @@ func initLogger() {
 
 			if f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
 				logFile = f
-				w = f
+				w = transform.NewWriter(f, encoding.ReplaceUnsupported(simplifiedchinese.GBK.NewEncoder()))
 			}
 		}
 

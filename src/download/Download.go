@@ -830,7 +830,66 @@ func CheckNetwork(ctx context.Context) (ok bool, err error) {
 
 // 校验url
 func HttpStatus(raw string) bool {
-	return true
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false
+	}
+
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout: 5 * time.Second,
+		}).DialContext,
+		TLSHandshakeTimeout:   5 * time.Second,
+		ResponseHeaderTimeout: 5 * time.Second,
+		ForceAttemptHTTP2:     true,
+	}
+
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   8 * time.Second,
+	}
+
+	tryRequest := func(method string, rangeHeader string) bool {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+
+		req, err := http.NewRequestWithContext(ctx, method, raw, nil)
+		if err != nil {
+			return false
+		}
+		req.Header.Set("User-Agent", defaultDownloadUserAgent)
+		for _, header := range commonDownloadHeaders() {
+			parts := strings.SplitN(header, ":", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			req.Header.Set(strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
+		}
+		if rangeHeader != "" {
+			req.Header.Set("Range", rangeHeader)
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+			return true
+		}
+		if method == http.MethodHead && (resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusMethodNotAllowed) {
+			return false
+		}
+
+		return false
+	}
+
+	if tryRequest(http.MethodHead, "") {
+		return true
+	}
+	return tryRequest(http.MethodGet, "bytes=0-0")
 }
 
 // 计算文件的 SHA1，并和sha1Hex比较。

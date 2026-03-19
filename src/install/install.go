@@ -115,6 +115,7 @@ func NormalizeInstallPlan(plan *InstallPlan) error {
 	if strings.TrimSpace(plan.PEArch) == "" {
 		plan.PEArch = windows.SystemArch()
 	}
+	plan.Flags.NeedBitLockerHandling = true
 	plan.Flags.NeedBackupBeforePE = true
 	plan.Flags.NeedOfflineDrivers = true
 
