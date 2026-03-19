@@ -54,10 +54,10 @@ func Uiinit() {
 
 	ui.iconApp, _ = core.LoadIconFromICO(res.IcoApp, 32)
 
-	app, err := core.NewApp(core.Options{
+	opts := core.Options{
 		ClassName:      "ReSys",
 		Title:          "ReSys-一键重装",
-		Width:          800,
+		Width:          700,
 		Height:         400,
 		Style:          core.DefaultWindowStyle,
 		ExStyle:        core.DefaultWindowExStyle,
@@ -66,20 +66,15 @@ func Uiinit() {
 		Background:     core.RGB(255, 255, 255),
 		DoubleBuffered: true,
 		RenderMode:     core.RenderModeAuto,
-		OnCreate:       onCreate,
-		OnPaint:        onPaint,
-		OnResize:       onResize,
-		OnMouseMove:    onMouseMove,
-		OnMouseLeave:   onMouseLeave,
-		OnMouseDown:    onMouseDown,
-		OnMouseUp:      onMouseUp,
-		OnKeyDown:      onKeyDown,
-		OnChar:         onChar,
-		OnFocus:        onFocus,
-		OnTimer:        onTimer,
-		OnDPIChanged:   onDPIChanged,
-		OnDestroy:      onDestroy,
+	}
+	widgets.BindScene(&opts, widgets.SceneHooks{
+		OnCreate:     onCreate,
+		OnResize:     onResize,
+		OnDPIChanged: onDPIChanged,
+		OnDestroy:    onDestroy,
 	})
+
+	app, err := core.NewApp(opts)
 	if err != nil {
 		panic(err)
 	}
@@ -136,9 +131,9 @@ func MessageRetryExit(title, text string) bool {
 	return ret == core.MessageBoxResultRetry
 }
 
-func onCreate(app *core.App) error {
+func onCreate(app *core.App, scene *widgets.Scene) error {
 	ui.app = app
-	ui.scene = widgets.NewScene(app)
+	ui.scene = scene
 	ui.mode = modeSelect
 
 	theme := widgets.DefaultTheme()
@@ -176,7 +171,7 @@ func onCreate(app *core.App) error {
 	}
 	ui.scene.SetTheme(theme)
 
-	root := ui.scene.Root()
+	root := scene.Root()
 
 	ui.titleLabel = widgets.NewLabel("title", "请选择要安装的操作系统")
 	ui.titleLabel.SetStyle(theme.Title)
@@ -220,96 +215,36 @@ func onCreate(app *core.App) error {
 	ui.btnAdv.SetOnClick(func() { UiSetStatus("高级模式：TODO") })
 	ui.btnAdv.SetStyle(secondaryButtonStyle())
 
-	root.Add(ui.titleLabel)
-	root.Add(ui.statusLabel)
-	root.Add(ui.waitImage)
-	root.Add(ui.progressBar)
-	root.Add(ui.btn7)
-	root.Add(ui.btn10)
-	root.Add(ui.btn11)
-	root.Add(ui.btnAdv)
+	root.AddAll(
+		ui.titleLabel,
+		ui.statusLabel,
+		ui.waitImage,
+		ui.progressBar,
+		ui.btn7,
+		ui.btn10,
+		ui.btn11,
+		ui.btnAdv,
+	)
 
 	reloadIcons()
 	applyMode(modeSelect)
 	return nil
 }
 
-func onPaint(_ *core.App, canvas *core.Canvas) {
+func onResize(_ *core.App, _ *widgets.Scene, size core.Size) {
 	if ui.scene == nil {
 		return
 	}
-	ui.scene.PaintCore(canvas)
-}
-
-func onResize(_ *core.App, size core.Size) {
-	if ui.scene == nil {
-		return
-	}
-	ui.scene.Resize(core.Rect{X: 0, Y: 0, W: size.Width, H: size.Height})
 	layoutCurrent(size.Width, size.Height)
 }
 
-func onMouseMove(_ *core.App, ev core.MouseEvent) {
-	if ui.scene != nil {
-		ui.scene.DispatchMouseMove(ev)
-	}
-}
-
-func onMouseLeave(_ *core.App) {
-	if ui.scene != nil {
-		ui.scene.DispatchMouseLeave()
-	}
-}
-
-func onMouseDown(_ *core.App, ev core.MouseEvent) {
-	if ui.scene != nil {
-		ui.scene.DispatchMouseDown(ev)
-	}
-}
-
-func onMouseUp(_ *core.App, ev core.MouseEvent) {
-	if ui.scene != nil {
-		ui.scene.DispatchMouseUp(ev)
-	}
-}
-
-func onKeyDown(_ *core.App, ev core.KeyEvent) {
-	if ui.scene != nil {
-		ui.scene.DispatchKeyDown(ev)
-	}
-}
-
-func onChar(_ *core.App, ch rune) {
-	if ui.scene != nil {
-		ui.scene.DispatchChar(ch)
-	}
-}
-
-func onFocus(_ *core.App, focused bool) {
-	if ui.scene != nil && !focused {
-		ui.scene.Blur()
-	}
-}
-
-func onTimer(_ *core.App, id uintptr) {
-	if ui.scene != nil {
-		ui.scene.HandleTimer(id)
-	}
-}
-
-func onDPIChanged(_ *core.App, _ core.DPIInfo) {
+func onDPIChanged(_ *core.App, _ *widgets.Scene, _ core.DPIInfo) {
 	reloadIcons()
-	if ui.scene != nil {
-		ui.scene.ReloadResources()
-	}
 	size := ui.app.ClientSize()
 	layoutCurrent(size.Width, size.Height)
 }
 
-func onDestroy(_ *core.App) {
-	if ui.scene != nil {
-		_ = ui.scene.Close()
-	}
+func onDestroy(_ *core.App, _ *widgets.Scene) {
 	ui.scene = nil
 	_ = closeIcon(ui.icon7)
 	_ = closeIcon(ui.icon10)
