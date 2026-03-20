@@ -103,6 +103,21 @@ func decryptFailure(letter, msg string, code *uint32) DecryptResult {
 }
 
 // BitLockerVolumeInfo 表示枚举到的 BitLocker 卷信息（用于列表展示/筛选）。
+type SuspendResult struct {
+	Letter    string
+	Success   bool
+	Message   string
+	ErrorCode *uint32
+}
+
+func suspendSuccess(letter, msg string) SuspendResult {
+	return SuspendResult{Letter: letter, Success: true, Message: msg}
+}
+
+func suspendFailure(letter, msg string, code *uint32) SuspendResult {
+	return SuspendResult{Letter: letter, Success: false, Message: msg, ErrorCode: code}
+}
+
 type BitLockerVolumeInfo struct {
 	Letter               string // 盘符，如 "C:"
 	Label                string // 卷标（Volume Label）
@@ -156,6 +171,13 @@ func (m *BitLockerManager) GetStatusWithPercentage(driveLetter byte) (VolumeStat
 	return m.getStatusWithPercentageManageBde(driveLetter)
 }
 
+func (m *BitLockerManager) GetProtectionStatus(driveLetter byte) FveProtectionStatus {
+	if m.useFveapi {
+		return m.getProtectionStatusFveapi(driveLetter)
+	}
+	return m.getProtectionStatusManageBde(driveLetter)
+}
+
 // NeedsUnlock 判断指定盘符是否需要解锁（内部复用 GetStatus）。
 func (m *BitLockerManager) NeedsUnlock(driveLetter byte) bool {
 	return m.GetStatus(driveLetter).NeedsUnlock()
@@ -203,6 +225,9 @@ func (m *BitLockerManager) UnlockWithPassword(drive, password string) UnlockResu
 	var res UnlockResult
 	if m.useFveapi {
 		res = m.unlockWithPasswordFveapi(letter, password)
+		if !res.Success {
+			res = unlockWithPasswordManageBde(vol, password)
+		}
 	} else {
 		res = unlockWithPasswordManageBde(vol, password)
 	}
@@ -242,6 +267,9 @@ func (m *BitLockerManager) UnlockWithRecoveryKey(drive, recoveryKey string) Unlo
 	var res UnlockResult
 	if m.useFveapi {
 		res = m.unlockWithRecoveryKeyFveapi(letter, key)
+		if !res.Success {
+			res = unlockWithRecoveryKeyManageBde(vol, key)
+		}
 	} else {
 		res = unlockWithRecoveryKeyManageBde(vol, key)
 	}
@@ -282,6 +310,49 @@ func (m *BitLockerManager) Decrypt(drive string) DecryptResult {
 		// fveapi 失败回退 manage-bde
 	}
 	return decryptManageBde(vol)
+}
+
+func (m *BitLockerManager) DeleteAllProtectors(drive string) SuspendResult {
+	letter := firstDriveLetter(drive)
+	if letter == 0 {
+		letter = 'C'
+	}
+	vol := fmt.Sprintf("%c:", letter)
+
+	st := m.GetStatus(letter)
+	switch st {
+	case VolNotEncrypted:
+		return suspendSuccess(vol, "drive is not encrypted")
+	case VolEncryptedLocked:
+		code := uint32(0x80310000)
+		return suspendFailure(vol, "drive is locked, unlock it before deleting BitLocker protectors", &code)
+	case VolEncrypting:
+		code := uint32(0x80310001)
+		return suspendFailure(vol, "drive is currently encrypting", &code)
+	}
+
+	hasProtectors, err := hasAnyKeyProtectors(vol)
+	if err == nil && !hasProtectors {
+		return suspendSuccess(vol, "BitLocker protectors are already removed")
+	}
+
+	out, err := runManageBde(nil, "-protectors", "-delete", vol)
+	hasProtectors, checkErr := hasAnyKeyProtectors(vol)
+	if checkErr == nil && !hasProtectors {
+		if strings.TrimSpace(out) == "" {
+			out = "BitLocker protectors deleted"
+		}
+		return suspendSuccess(vol, out)
+	}
+	if err != nil && strings.TrimSpace(out) == "" {
+		return suspendFailure(vol, fmt.Sprintf("failed to delete BitLocker protectors: %v", err), nil)
+	}
+
+	return m.waitForProtectorsDeleted(vol)
+}
+
+func (m *BitLockerManager) SuspendProtection(drive string) SuspendResult {
+	return m.DeleteAllProtectors(drive)
 }
 
 // CanDecrypt 判断该盘符是否允许发起解密：只有“已加密且已解锁”才允许。
@@ -420,6 +491,20 @@ func (m *BitLockerManager) getStatusWithPercentageFveapi(letter byte) (VolumeSta
 		return VolNotEncrypted, 0
 	}
 	return m.getStatusWithPercentageManageBde(letter)
+}
+
+func (m *BitLockerManager) getProtectionStatusFveapi(letter byte) FveProtectionStatus {
+	api, err := Instance()
+	if err != nil || api == nil {
+		return m.getProtectionStatusManageBde(letter)
+	}
+
+	vol := fmt.Sprintf("%c:", letter)
+	status, fe := api.GetProtectionStatus(vol)
+	if fe == Success {
+		return status
+	}
+	return m.getProtectionStatusManageBde(letter)
 }
 
 // volumeStatusFromFveInfo 将 fveapi 的 FveVolumeInfo 映射到本文件的 VolumeStatus。
@@ -565,6 +650,25 @@ func (m *BitLockerManager) waitForUnlockComplete(letter byte, vol string) Unlock
 	}
 }
 
+func (m *BitLockerManager) waitForProtectorsDeleted(vol string) SuspendResult {
+	timeout := 10 * time.Second
+	interval := 500 * time.Millisecond
+	start := time.Now()
+
+	for {
+		if time.Since(start) > timeout {
+			return suspendFailure(vol, "timed out waiting for BitLocker protectors to be removed", nil)
+		}
+
+		hasProtectors, err := hasAnyKeyProtectors(vol)
+		if err == nil && !hasProtectors {
+			return suspendSuccess(vol, "BitLocker protectors deleted")
+		}
+
+		time.Sleep(interval)
+	}
+}
+
 // verifyPartitionAccessible 通过读取根目录来验证分区是否已可访问。
 // 返回 true 表示可正常 ReadDir，false 表示可能仍未完全可用或权限受限。
 func verifyPartitionAccessible(letter byte) bool {
@@ -579,7 +683,7 @@ func verifyPartitionAccessible(letter byte) bool {
 func (m *BitLockerManager) getStatusManageBde(letter byte) VolumeStatus {
 	vol := fmt.Sprintf("%c:", letter)
 	out, err := runManageBde(nil, "-status", vol)
-	if err != nil {
+	if err != nil && strings.TrimSpace(out) == "" {
 		return VolUnknown
 	}
 	return determineVolumeStatus(out)
@@ -607,10 +711,25 @@ func (m *BitLockerManager) getStatusWithPercentageManageBde(letter byte) (Volume
 	return st, 0
 }
 
+func (m *BitLockerManager) getProtectionStatusManageBde(letter byte) FveProtectionStatus {
+	vol := fmt.Sprintf("%c:", letter)
+	out, err := runManageBde(nil, "-status", vol)
+	if err != nil {
+		return ProtectionUnknown
+	}
+	return determineProtectionStatus(out)
+}
+
 // unlockWithRecoveryKeyManageBde 使用 manage-bde 通过恢复密钥解锁卷。
 // 规则：调用 -unlock <vol> -recoverypassword <key>，然后根据输出关键词判断成功/失败原因。
 func unlockWithRecoveryKeyManageBde(vol, recoveryKey string) UnlockResult {
 	out, err := runManageBde(nil, "-unlock", vol, "-recoverypassword", recoveryKey)
+	if err != nil && strings.TrimSpace(out) != "" {
+		err = nil
+	}
+	if unlockCommandSucceeded(vol, out) {
+		return unlockSuccess(vol, "瑙ｉ攣鎴愬姛")
+	}
 	if err != nil {
 		return unlockFailure(vol, fmt.Sprintf("执行命令失败: %v", err), nil)
 	}
@@ -642,14 +761,17 @@ func unlockWithRecoveryKeyManageBde(vol, recoveryKey string) UnlockResult {
 // 2) 若不行，则用 -password（让工具提示输入），并把密码写入 stdin（更兼容）。
 func unlockWithPasswordManageBde(vol, password string) UnlockResult {
 	// 1) -password <pwd>（部分系统可用，但非典型）
-	out, err := runManageBde(nil, "-unlock", vol, "-password", password)
-	if err == nil && looksUnlocked(out) {
+	out, _ := runManageBde(nil, "-unlock", vol, "-password", password)
+	if unlockCommandSucceeded(vol, out) {
 		return unlockSuccess(vol, "解锁成功")
 	}
 
 	// 2) 回退：-password（提示输入），我们把密码写进 stdin
 	out2, err2 := runManageBde([]byte(password+"\r\n"), "-unlock", vol, "-password")
-	if err2 != nil {
+	if unlockCommandSucceeded(vol, out2) {
+		return unlockSuccess(vol, "unlock succeeded")
+	}
+	if err2 != nil && strings.TrimSpace(out2) == "" {
 		return unlockFailure(vol, fmt.Sprintf("执行命令失败: %v", err2), nil)
 	}
 
@@ -750,6 +872,7 @@ func getRecoveryKeyManageBde(vol string) (string, error) {
 // 4) 最后兜底 Unknown。
 func determineVolumeStatus(output string) VolumeStatus {
 	l := strings.ToLower(output)
+	protectionStatus := determineProtectionStatus(output)
 
 	// 1) 优先检查“解密/加密进行中”
 	if strings.Contains(l, "decryption in progress") ||
@@ -771,12 +894,10 @@ func determineVolumeStatus(output string) VolumeStatus {
 		return VolNotEncrypted
 	}
 
-	// 3) 未启用 BitLocker / protection off
+	// 3) 未启用 BitLocker
 	if strings.Contains(l, "bitlocker drive encryption is not enabled") ||
 		strings.Contains(output, "未启用") ||
-		strings.Contains(output, "未对此驱动器启用") ||
-		strings.Contains(l, "protection off") ||
-		strings.Contains(output, "保护关闭") {
+		strings.Contains(output, "未对此驱动器启用") {
 		if p := extractEncryptionPercentageFloat(output); p != nil && *p > 0 {
 			return VolDecrypting
 		}
@@ -794,6 +915,10 @@ func determineVolumeStatus(output string) VolumeStatus {
 		strings.Contains(output, "保护开启") ||
 		(strings.Contains(l, "encryption method") && !strings.Contains(l, "none")) ||
 		(strings.Contains(output, "加密方法") && !strings.Contains(output, "无"))
+
+	if protectionStatus == ProtectionOff && isEncrypted {
+		return VolEncryptedUnlocked
+	}
 
 	if isEncrypted {
 		if isLocked {
@@ -813,6 +938,29 @@ func determineVolumeStatus(output string) VolumeStatus {
 	}
 
 	return VolUnknown
+}
+
+func determineProtectionStatus(output string) FveProtectionStatus {
+	l := strings.ToLower(output)
+
+	if strings.Contains(l, "protection off") ||
+		strings.Contains(output, "保护关闭") ||
+		strings.Contains(output, "保护已暂停") ||
+		strings.Contains(output, "已暂停保护") {
+		return ProtectionOff
+	}
+	if strings.Contains(l, "protection on") ||
+		strings.Contains(output, "保护开启") ||
+		strings.Contains(output, "保护已开启") {
+		return ProtectionOn
+	}
+	if strings.Contains(l, "bitlocker drive encryption is not enabled") ||
+		strings.Contains(output, "未启用") ||
+		strings.Contains(output, "未对此驱动器启用") {
+		return ProtectionOff
+	}
+
+	return ProtectionUnknown
 }
 
 // getProtectionMethod 从 manage-bde 输出里粗略提取“保护方式/加密方式”的描述。
@@ -957,6 +1105,54 @@ func takeNumberPrefix(s string) string {
 		}
 	}
 	return b.String()
+}
+
+func unlockCommandSucceeded(vol, output string) bool {
+	if looksUnlocked(output) || strings.Contains(strings.ToLower(output), "already unlocked") || strings.Contains(output, "宸茬粡瑙ｉ攣") {
+		return true
+	}
+
+	statusOut, err := runManageBde(nil, "-status", vol)
+	if err != nil && strings.TrimSpace(statusOut) == "" {
+		return false
+	}
+
+	switch determineVolumeStatus(statusOut) {
+	case VolEncryptedUnlocked, VolDecrypting, VolNotEncrypted:
+		return true
+	default:
+		return false
+	}
+}
+
+func hasAnyKeyProtectors(vol string) (bool, error) {
+	out, err := runManageBde(nil, "-protectors", "-get", vol)
+	if !looksLikeKeyProtectorsPresent(out) {
+		return false, nil
+	}
+	if err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
+func looksLikeKeyProtectorsPresent(output string) bool {
+	if strings.TrimSpace(output) == "" {
+		return false
+	}
+
+	l := strings.ToLower(output)
+	if strings.Contains(l, "no key protectors found") ||
+		strings.Contains(l, "bitlocker drive encryption is not enabled") { /*
+			strings.Contains(output, "鏈惎鐢?) ||
+			strings.Contains(output, "鏈姝ら┍鍔ㄥ櫒鍚敤") ||
+			strings.Contains(output, "鏈壘鍒板瘑閽ヤ繚鎶ゅ櫒") ||
+			strings.Contains(output, "娌℃湁瀵嗛挜淇濇姢鍣?") {
+		*/return false
+	}
+
+	idPattern := regexp.MustCompile(`(?im)^\s*id\s*:\s*\{[0-9a-f-]+\}\s*$`)
+	return idPattern.MatchString(output)
 }
 
 // --------------------- probe fixed drive ---------------------
@@ -1236,6 +1432,14 @@ func UnlockPartitionWithRecoveryKey(drive, recoveryKey string) UnlockResult {
 // DecryptPartition 便捷函数：关闭 BitLocker 并启动解密。
 func DecryptPartition(drive string) DecryptResult {
 	return New().Decrypt(drive)
+}
+
+func DeletePartitionProtectors(drive string) SuspendResult {
+	return New().DeleteAllProtectors(drive)
+}
+
+func SuspendPartitionProtection(drive string) SuspendResult {
+	return DeletePartitionProtectors(drive)
 }
 
 // PartitionCanDecrypt 便捷函数：判断指定分区是否允许启动解密（需已解锁）。

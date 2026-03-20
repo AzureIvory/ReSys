@@ -86,26 +86,26 @@ func initBitLockerPrompt(theme *widgets.Theme, root *widgets.Panel) {
 		Format: 0,
 	})
 
-	ui.bitLockerPromptInput = widgets.NewEditBox("bitlocker-prompt-input")
+	ui.bitLockerPromptInput = widgets.NewEditBox("bitlocker-prompt-input", 0)
 	ui.bitLockerPromptInput.SetStyle(theme.Edit)
 	ui.bitLockerPromptInput.SetPlaceholder("请输入密码或 48 位恢复密钥")
 	ui.bitLockerPromptInput.SetOnSubmit(func(string) {
 		submitBitLockerPrompt(false)
 	})
 
-	ui.bitLockerPromptPasswordBtn = widgets.NewButton("bitlocker-prompt-password", "用密码解锁")
+	ui.bitLockerPromptPasswordBtn = widgets.NewButton("bitlocker-prompt-password", "用密码解锁", 0)
 	ui.bitLockerPromptPasswordBtn.SetStyle(dialogPrimaryButtonStyle())
 	ui.bitLockerPromptPasswordBtn.SetOnClick(func() {
 		submitBitLockerPrompt(false)
 	})
 
-	ui.bitLockerPromptRecoveryBtn = widgets.NewButton("bitlocker-prompt-recovery", "用恢复密钥")
+	ui.bitLockerPromptRecoveryBtn = widgets.NewButton("bitlocker-prompt-recovery", "用恢复密钥", 0)
 	ui.bitLockerPromptRecoveryBtn.SetStyle(dialogPrimaryButtonStyle())
 	ui.bitLockerPromptRecoveryBtn.SetOnClick(func() {
 		submitBitLockerPrompt(true)
 	})
 
-	ui.bitLockerPromptCancelBtn = widgets.NewButton("bitlocker-prompt-cancel", "取消")
+	ui.bitLockerPromptCancelBtn = widgets.NewButton("bitlocker-prompt-cancel", "取消", 0)
 	ui.bitLockerPromptCancelBtn.SetStyle(secondaryButtonStyle())
 	ui.bitLockerPromptCancelBtn.SetOnClick(func() {
 		cancelBitLockerPrompt()

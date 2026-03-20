@@ -205,10 +205,10 @@ func onCreate(app *core.App, scene *widgets.Scene) error {
 	ui.progressBar = widgets.NewProgressBar("progress")
 	ui.progressBar.SetStyle(theme.Progress)
 
-	ui.btn7 = widgets.NewButton("btn-win7", "重装 Win7")
-	ui.btn10 = widgets.NewButton("btn-win10", "重装 Win10")
-	ui.btn11 = widgets.NewButton("btn-win11", "重装 Win11")
-	ui.btnAdv = widgets.NewButton("btn-advanced", "高级模式")
+	ui.btn7 = widgets.NewButton("btn-win7", "重装 Win7", 0)
+	ui.btn10 = widgets.NewButton("btn-win10", "重装 Win10", 0)
+	ui.btn11 = widgets.NewButton("btn-win11", "重装 Win11", 0)
+	ui.btnAdv = widgets.NewButton("btn-advanced", "高级模式", 0)
 
 	ui.btn7.SetKind(widgets.BtnTop)
 	ui.btn10.SetKind(widgets.BtnTop)
