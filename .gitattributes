@@ -1,1 +1,2 @@
 *.filetype linguist-documentation
+tools/** linguist-vendored
