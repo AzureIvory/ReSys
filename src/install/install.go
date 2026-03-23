@@ -35,18 +35,19 @@ type InstallFlags struct {
 }
 
 type InstallPlan struct {
-	Mode         ReinstallMode
-	TargetOS     string
-	ImageArch    string
-	PEArch       string
-	ImagePath    string
-	ImageIndex   int
-	TargetRoot   string
-	DiskPath     string
-	VolumeGUID   string
-	DiskUniqueID string
-	ImageRel     string
-	Flags        InstallFlags
+	Mode          ReinstallMode
+	TargetOS      string
+	ImageArch     string
+	PEArch        string
+	PreparedPEWIM string
+	ImagePath     string
+	ImageIndex    int
+	TargetRoot    string
+	DiskPath      string
+	VolumeGUID    string
+	DiskUniqueID  string
+	ImageRel      string
+	Flags         InstallFlags
 }
 
 type InstallContext struct {
@@ -281,6 +282,9 @@ func SaveInstallPlan(plan *InstallPlan) error {
 	if plan.PEArch != "" {
 		lines = append(lines, fmt.Sprintf("pe_arch=%s", plan.PEArch))
 	}
+	if plan.PreparedPEWIM != "" {
+		lines = append(lines, fmt.Sprintf("prepared_pe_wim=%s", plan.PreparedPEWIM))
+	}
 	if plan.ImageIndex > 0 {
 		lines = append(lines, fmt.Sprintf("index=%d", plan.ImageIndex))
 	}
@@ -461,6 +465,8 @@ func LoadInstallPlan() (*InstallPlan, error) {
 				plan.ImageArch = val
 			case "pe_arch":
 				plan.PEArch = val
+			case "prepared_pe_wim":
+				plan.PreparedPEWIM = val
 			case "index":
 				if v, e := strconv.Atoi(val); e == nil {
 					plan.ImageIndex = v
@@ -655,6 +661,7 @@ func registerBuiltInHooks(ctx *InstallContext) {
 	ctx.Hooks.Add(HookAfterRepairBoot, restoreBackedUpDrivers)
 	ctx.Hooks.Add(HookAfterInstall, autoinstools)
 	ctx.Hooks.Add(HookAfterInstall, adddrivexe)
+	ctx.Hooks.Add(HookAfterInstall, cleanupPreparedPEAfterInstall)
 }
 
 // fixwin7drive_updata 为 Win7 离线系统预注入驱动和更新。

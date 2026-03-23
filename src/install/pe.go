@@ -1,4 +1,4 @@
-﻿package install
+package install
 
 import (
 	"ReSys/src/data"
@@ -111,6 +111,11 @@ func patchPreparedPE(ctx *InstallContext, prepared preparedPE) error {
 	}
 
 	rememberPreparedPE(ctx, prepared)
+	if err := persistPreparedPESelection(ctx, prepared); err != nil {
+		log.LogWrite(0, "[PreparePEEnvironment] persist prepared PE failed: %v", err)
+		cleanupFailedPE(ctx, prepared)
+		return fmt.Errorf("保存 PE 信息失败: %w", err)
+	}
 	return nil
 }
 
@@ -167,6 +172,14 @@ func rememberPreparedPE(ctx *InstallContext, prepared preparedPE) {
 		ctx.State = map[string]any{}
 	}
 	ctx.State[statePreparedPE] = prepared
+}
+
+func persistPreparedPESelection(ctx *InstallContext, prepared preparedPE) error {
+	if ctx == nil || ctx.Plan == nil {
+		return nil
+	}
+	ctx.Plan.PreparedPEWIM = strings.TrimSpace(prepared.WIMPath)
+	return SaveInstallPlan(ctx.Plan)
 }
 
 // forgetPreparedPE 清理上下文中的 PE 缓存。
@@ -580,6 +593,77 @@ func removePEArtifacts(wimPath, sdiPath string) {
 	if strings.TrimSpace(sdiPath) != "" {
 		_ = file.Remove(sdiPath, false)
 	}
+}
+
+func recoverPreparedPEPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if utils.FileExists(path) {
+		return path
+	}
+
+	root, err := utils.NormalizeDrive(path, 2)
+	if err != nil || root == "" {
+		return ""
+	}
+	rel := strings.TrimPrefix(path, root)
+	rel = strings.TrimPrefix(rel, `\`)
+	if rel == "" {
+		return ""
+	}
+
+	drives, err := disk.ListDrive()
+	if err != nil {
+		return ""
+	}
+	for _, d := range drives {
+		drvRoot, derr := utils.NormalizeDrive(d, 0)
+		if derr != nil || drvRoot == "" {
+			continue
+		}
+		cand := filepath.Join(drvRoot, rel)
+		if utils.FileExists(cand) {
+			return cand
+		}
+	}
+	return ""
+}
+
+func cleanupPreparedPEAfterInstall(ctx *InstallContext) error {
+	if ctx == nil || ctx.Plan == nil {
+		return nil
+	}
+
+	wimPath := recoverPreparedPEPath(ctx.Plan.PreparedPEWIM)
+	if wimPath == "" {
+		log.LogWrite(0, "[cleanupPreparedPEAfterInstall] prepared PE WIM not found, skip")
+		return nil
+	}
+
+	targetRoot, err := utils.NormalizeDrive(ctx.Plan.TargetRoot, 0)
+	if err != nil || targetRoot == "" {
+		log.LogWrite(0, "[cleanupPreparedPEAfterInstall] invalid target root, skip: target=%s err=%v", ctx.Plan.TargetRoot, err)
+		return nil
+	}
+	wimRoot, err := utils.NormalizeDrive(wimPath, 2)
+	if err != nil || wimRoot == "" {
+		log.LogWrite(0, "[cleanupPreparedPEAfterInstall] invalid prepared PE path, skip: wim=%s err=%v", wimPath, err)
+		return nil
+	}
+	if strings.EqualFold(wimRoot, targetRoot) {
+		log.LogWrite(0, "[cleanupPreparedPEAfterInstall] prepared PE is on target partition, skip cleanup: wim=%s target=%s", wimPath, targetRoot)
+		return nil
+	}
+
+	if err := pe.Unpatwim(wimPath); err != nil {
+		log.LogWrite(-2, "[cleanupPreparedPEAfterInstall] revert PE failed: wim=%s err=%v", wimPath, err)
+		return nil
+	}
+
+	log.LogWrite(0, "[cleanupPreparedPEAfterInstall] reverted prepared PE: %s", wimPath)
+	return nil
 }
 
 // ChoosePETempRoot 选择拥有足够剩余空间的 PETEMP 根分区。
