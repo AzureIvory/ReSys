@@ -9,7 +9,6 @@ import (
 	"ReSys/src/download"
 	"ReSys/src/install"
 	"ReSys/src/log"
-	"ReSys/src/pe"
 	"ReSys/src/tools"
 	"ReSys/src/ui"
 	"ReSys/src/utils"
@@ -89,8 +88,6 @@ func test() {
 }
 
 func main() {
-	path := `C:\Users\Administrator\Desktop\WEPE64.WIM`
-	fmt.Println(pe.Patwim(path))
 	if !tools.IsAdmin() {
 		if err := tools.RestartAsAdmin(); err != nil {
 			panic(err)

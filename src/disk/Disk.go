@@ -211,6 +211,11 @@ func diskpartDetectError(out, op string) error {
 		"may not be extended",
 		"cannot be extended",
 		"cannot be shrunk",
+		"diskpart 遇到错误",
+		"虚拟磁盘服务错误",
+		"操作失败",
+		"没有足够的可用空间",
+		"请求不受支持",
 	}
 	for _, b := range bad {
 		if strings.Contains(low, b) {

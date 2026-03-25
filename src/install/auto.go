@@ -17,10 +17,19 @@ func init() {
 // StartInstall 启动 Windows 侧的自动重装准备流程。
 func StartInstall(target string) {
 	plan := &InstallPlan{
-		Mode:      ReinstallModeAuto,
-		TargetOS:  target,
-		ImageArch: windows.DesiredArch(),
-		PEArch:    windows.SystemArch(),
+		Mode:         ReinstallModeAuto,
+		TargetOS:     target,
+		ImageArch:    windows.DesiredArch(),
+		PEArch:       windows.SystemArch(),
+		AutoPE:       true,
+		FormatTarget: true,
+		BootRepair:   BootRepairModeAuto,
+		Flags: InstallFlags{
+			NeedBitLockerHandling: true,
+			NeedBackupBeforePE:    true,
+			NeedOfflineDrivers:    true,
+			NeedCopyXMLAfterBoot:  true,
+		},
 	}
 	ctx := NewInstallContext(plan)
 
@@ -47,6 +56,14 @@ func RunPEInstall() error {
 
 	ctx := NewInstallContext(nil)
 	if err := runFlowWithGuard("RunPEInstall", func() error {
+		plan, err := LoadInstallPlan()
+		if err != nil {
+			return err
+		}
+		ctx.Plan = plan
+		if plan.Mode == ReinstallModeManual {
+			return runManualPEFlow(ctx)
+		}
 		return runAutoPEFlow(ctx)
 	}); err != nil {
 		log.LogWrite(-2, "[RunPEInstall] failed: %v", err)

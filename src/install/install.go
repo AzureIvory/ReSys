@@ -27,6 +27,14 @@ const (
 	ReinstallModeManual ReinstallMode = "manual"
 )
 
+type BootRepairMode string
+
+const (
+	BootRepairModeAuto   BootRepairMode = "auto"
+	BootRepairModeSkip   BootRepairMode = "skip"
+	BootRepairModeManual BootRepairMode = "manual"
+)
+
 type InstallFlags struct {
 	NeedBitLockerHandling bool
 	NeedBackupBeforePE    bool
@@ -47,6 +55,12 @@ type InstallPlan struct {
 	VolumeGUID    string
 	DiskUniqueID  string
 	ImageRel      string
+	AutoPE        bool
+	ManualPEWIM   string
+	FormatTarget  bool
+	AutoReboot    bool
+	BootRepair    BootRepairMode
+	BootTargetRef string
 	Flags         InstallFlags
 }
 
@@ -116,9 +130,18 @@ func NormalizeInstallPlan(plan *InstallPlan) error {
 	if strings.TrimSpace(plan.PEArch) == "" {
 		plan.PEArch = windows.SystemArch()
 	}
-	plan.Flags.NeedBitLockerHandling = true
-	plan.Flags.NeedBackupBeforePE = true
-	plan.Flags.NeedOfflineDrivers = true
+	if plan.BootRepair == "" {
+		plan.BootRepair = BootRepairModeAuto
+	}
+	if !plan.Flags.NeedBitLockerHandling &&
+		!plan.Flags.NeedBackupBeforePE &&
+		!plan.Flags.NeedOfflineDrivers &&
+		!plan.Flags.NeedCopyXMLAfterBoot {
+		plan.Flags.NeedBitLockerHandling = true
+		plan.Flags.NeedBackupBeforePE = true
+		plan.Flags.NeedOfflineDrivers = true
+		plan.Flags.NeedCopyXMLAfterBoot = true
+	}
 
 	return nil
 }
@@ -284,6 +307,18 @@ func SaveInstallPlan(plan *InstallPlan) error {
 	}
 	if plan.PreparedPEWIM != "" {
 		lines = append(lines, fmt.Sprintf("prepared_pe_wim=%s", plan.PreparedPEWIM))
+	}
+	lines = append(lines,
+		fmt.Sprintf("auto_pe=%t", plan.AutoPE),
+		fmt.Sprintf("format_target=%t", plan.FormatTarget),
+		fmt.Sprintf("auto_reboot=%t", plan.AutoReboot),
+		fmt.Sprintf("boot_repair=%s", plan.BootRepair),
+	)
+	if plan.ManualPEWIM != "" {
+		lines = append(lines, fmt.Sprintf("manual_pe_wim=%s", plan.ManualPEWIM))
+	}
+	if plan.BootTargetRef != "" {
+		lines = append(lines, fmt.Sprintf("boot_target_ref=%s", plan.BootTargetRef))
 	}
 	if plan.ImageIndex > 0 {
 		lines = append(lines, fmt.Sprintf("index=%d", plan.ImageIndex))
@@ -467,6 +502,18 @@ func LoadInstallPlan() (*InstallPlan, error) {
 				plan.PEArch = val
 			case "prepared_pe_wim":
 				plan.PreparedPEWIM = val
+			case "auto_pe":
+				plan.AutoPE = parsePlanBool(val)
+			case "manual_pe_wim":
+				plan.ManualPEWIM = val
+			case "format_target":
+				plan.FormatTarget = parsePlanBool(val)
+			case "auto_reboot":
+				plan.AutoReboot = parsePlanBool(val)
+			case "boot_repair":
+				plan.BootRepair = BootRepairMode(strings.TrimSpace(val))
+			case "boot_target_ref":
+				plan.BootTargetRef = val
 			case "index":
 				if v, e := strconv.Atoi(val); e == nil {
 					plan.ImageIndex = v
@@ -642,6 +689,12 @@ func RepairInstallBoot(plan *InstallPlan) error {
 	if plan == nil {
 		return fmt.Errorf("install plan is nil")
 	}
+	switch plan.BootRepair {
+	case BootRepairModeSkip:
+		return nil
+	case BootRepairModeManual:
+		return repairInstallBootManual(plan)
+	}
 	return boot.FixBoot(plan.TargetRoot, "", "zh-cn")
 }
 
@@ -716,10 +769,13 @@ func fixwin7uefi(ctx *InstallContext) error {
 		return fmt.Errorf("install target root is empty")
 	}
 
-	espRoot, err := boot.FindESP(ctx.Plan.TargetRoot)
+	espRoot, cleanupESP, err := boot.FindESP(ctx.Plan.TargetRoot)
 	if err != nil {
-		log.LogWrite(0, "[fixwin7uefi] ESP not found, skip UEFI patch: %v", err)
+		log.LogWrite(0, "[fixwin7uefi] FindESP failed, skip UEFI patch: %v", err)
 		return nil
+	}
+	if cleanupESP != nil {
+		defer cleanupESP()
 	}
 
 	selfExe, err := os.Executable()
@@ -818,6 +874,9 @@ func fixwin7NVMe(dismSvc *dism.Dism, plan *InstallPlan, nvmeDir string) error {
 func autoinstools(ctx *InstallContext) error {
 	if ctx == nil || ctx.Plan == nil {
 		return fmt.Errorf("install context is nil")
+	}
+	if !ctx.Plan.Flags.NeedCopyXMLAfterBoot {
+		return nil
 	}
 
 	selfExe, err := os.Executable()

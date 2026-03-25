@@ -131,14 +131,15 @@ type getLengthInformation struct {
 	Length int64
 }
 type PartitionInfo struct {
-	DiskNumber     int
-	OffsetBytes    uint64
-	SizeBytes      uint64
-	PartitionGuid  string
-	Type           string
-	HasVolume      bool
-	VolumeGuidPath string
-	DriveLetter    string
+	DiskNumber      int
+	PartitionNumber int
+	OffsetBytes     uint64
+	SizeBytes       uint64
+	PartitionGuid   string
+	Type            string
+	HasVolume       bool
+	VolumeGuidPath  string
+	DriveLetter     string
 }
 type driveLayoutInformationMbr struct {
 	Signature uint32
@@ -934,9 +935,10 @@ func readDriveLayout(diskNumber int) (string, string, []PartitionInfo, error) {
 		}
 
 		part := PartitionInfo{
-			DiskNumber:  diskNumber,
-			OffsetBytes: uint64(base.StartingOffset),
-			SizeBytes:   uint64(base.PartitionLength),
+			DiskNumber:      diskNumber,
+			PartitionNumber: int(base.PartitionNumber),
+			OffsetBytes:     uint64(base.StartingOffset),
+			SizeBytes:       uint64(base.PartitionLength),
 		}
 		unionOffset := baseOffset + unsafe.Sizeof(partitionInformationEx{})
 		if base.PartitionStyle == partitionStyleGPT {

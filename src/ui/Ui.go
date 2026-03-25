@@ -23,6 +23,7 @@ type uiMode int
 const (
 	modeSelect uiMode = iota
 	modeProgress
+	modeManual
 )
 
 type adapterUI struct {
@@ -180,7 +181,7 @@ func onCreate(app *core.App, scene *widgets.Scene) error {
 		CornerRadius: 12,
 		ShowPercent:  true,
 	}
-	ui.scene.SetTheme(theme)
+	scene.SetTheme(theme)
 
 	root := scene.Root()
 
@@ -205,25 +206,21 @@ func onCreate(app *core.App, scene *widgets.Scene) error {
 	ui.progressBar = widgets.NewProgressBar("progress")
 	ui.progressBar.SetStyle(theme.Progress)
 
-	ui.btn7 = widgets.NewButton("btn-win7", "重装 Win7", 0)
-	ui.btn10 = widgets.NewButton("btn-win10", "重装 Win10", 0)
-	ui.btn11 = widgets.NewButton("btn-win11", "重装 Win11", 0)
-	ui.btnAdv = widgets.NewButton("btn-advanced", "高级模式", 0)
+	ui.btn7 = widgets.NewButton("btn-win7", "重装 Win7", widgets.ModeCustom)
+	ui.btn10 = widgets.NewButton("btn-win10", "重装 Win10", widgets.ModeCustom)
+	ui.btn11 = widgets.NewButton("btn-win11", "重装 Win11", widgets.ModeCustom)
+	ui.btnAdv = widgets.NewButton("btn-advanced", "高级模式", widgets.ModeCustom)
 
 	ui.btn7.SetKind(widgets.BtnTop)
 	ui.btn10.SetKind(widgets.BtnTop)
 	ui.btn11.SetKind(widgets.BtnTop)
-	ui.btn7.SetStyle(widgets.ButtonStyle{
-		Pressed: core.RGB(67, 205, 128),
-	})
-	ui.btn11.SetStyle(widgets.ButtonStyle{
-		Pressed: core.RGB(0, 191, 255),
-	})
+	ui.btn7.SetStyle(widgets.ButtonStyle{Pressed: core.RGB(67, 205, 128)})
+	ui.btn11.SetStyle(widgets.ButtonStyle{Pressed: core.RGB(0, 191, 255)})
 
 	ui.btn7.SetOnClick(func() { startInstall(targetWin7) })
 	ui.btn10.SetOnClick(func() { startInstall(targetWin10) })
 	ui.btn11.SetOnClick(func() { startInstall(targetWin11) })
-	ui.btnAdv.SetOnClick(func() { UiSetStatus("高级模式：TODO") })
+	ui.btnAdv.SetOnClick(func() { UiShowManualMode() })
 	ui.btnAdv.SetStyle(secondaryButtonStyle())
 
 	root.AddAll(
@@ -236,6 +233,7 @@ func onCreate(app *core.App, scene *widgets.Scene) error {
 		ui.btn11,
 		ui.btnAdv,
 	)
+	initManualMode(theme, root)
 	initBitLockerPrompt(theme, root)
 
 	reloadIcons()
@@ -258,6 +256,7 @@ func onDPIChanged(_ *core.App, _ *widgets.Scene, _ core.DPIInfo) {
 
 func onDestroy(_ *core.App, _ *widgets.Scene) {
 	closePendingBitLockerPrompt()
+	destroyManualMode()
 	ui.scene = nil
 	_ = closeIcon(ui.icon7)
 	_ = closeIcon(ui.icon10)
@@ -314,6 +313,7 @@ func applyMode(mode uiMode) {
 
 	selectVisible := mode == modeSelect
 	progressVisible := mode == modeProgress && !ui.bitLockerPromptVisible
+	manualVisible := mode == modeManual
 	promptVisible := mode == modeProgress && ui.bitLockerPromptVisible
 
 	ui.titleLabel.SetVisible(selectVisible)
@@ -326,6 +326,7 @@ func applyMode(mode uiMode) {
 	ui.waitImage.SetVisible(progressVisible)
 	ui.waitImage.SetPlaying(progressVisible)
 	ui.progressBar.SetVisible(progressVisible)
+	manualSetVisible(manualVisible)
 	if ui.bitLockerPromptPanel != nil {
 		ui.bitLockerPromptPanel.SetVisible(promptVisible)
 	}
@@ -354,6 +355,8 @@ func layoutCurrent(w, h int32) {
 		} else {
 			layoutProgress(w, h)
 		}
+	case modeManual:
+		layoutManual(w, h)
 	default:
 		layoutSelect(w, h)
 	}

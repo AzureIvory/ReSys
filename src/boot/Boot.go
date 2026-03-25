@@ -4,7 +4,6 @@ import (
 	"ReSys/src/disk"
 	"ReSys/src/tools"
 	"ReSys/src/utils"
-	winver "ReSys/src/windows"
 	"errors"
 	"fmt"
 	"os"
@@ -18,8 +17,7 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
-// 根据分区取磁盘的分区格式（MBR/GPT/RAW）
-
+// Kernel32 句柄和固件类型 API。
 var (
 	Kernel32            = syscall.NewLazyDLL("kernel32.dll")
 	procGetFirmwareType = Kernel32.NewProc("GetFirmwareType")
@@ -32,7 +30,14 @@ const (
 	fwTypeMax     = 3
 )
 
-// 获取当前系统引导 GUID
+const (
+	espSizeMB                   = 200
+	espSizeBytes         uint64 = espSizeMB * 1024 * 1024
+	espShrinkSafetyBytes        = 64 * 1024 * 1024
+	espProbeWindowBytes         = 32 * 1024 * 1024
+)
+
+// 获取当前系统引导 GUID。
 func GetBootGUID() (string, error) {
 	windir := utils.WindowsDir()
 	if windir == "" {
@@ -45,13 +50,10 @@ func GetBootGUID() (string, error) {
 		if exe, e := os.Executable(); e == nil {
 			fallback := filepath.Join(filepath.Dir(exe), "tools", "bcdedit.exe")
 			out2, err2 := tools.RunCmd(fallback, nil, nil, "", "/enum")
-			// 用 fallback 的结果覆盖
 			out, err = out2, err2
 			bcdeditPath = fallback
 		}
 	}
-	// 这里如果 err != nil，也可能 out 里有内容（你 runCmd 会把输出带回来）
-	// 但 bcdedit 通常需要管理员权限/环境正常，否则解析也没意义：直接返回错误更安全。
 	if err != nil {
 		return "", fmt.Errorf("bcdedit failed (%s): %w", bcdeditPath, err)
 	}
@@ -69,7 +71,6 @@ func GetBootGUID() (string, error) {
 	return id, nil
 }
 
-// 解析`bcdedit /enum`的输出，找到与当前系统盘匹配的引导项，并返回其 Identifier。
 func parseBootIdentifier(out, systemDrive string) (string, error) {
 	type entry struct {
 		title    string
@@ -77,6 +78,13 @@ func parseBootIdentifier(out, systemDrive string) (string, error) {
 		device   string
 		osdevice string
 	}
+
+	const (
+		zhIdentifier       = "\u6807\u8bc6\u7b26"
+		zhDevice           = "\u8bbe\u5907"
+		zhWindowsBootLabel = "Windows \u542f\u52a8\u52a0\u8f7d\u5668"
+		zhBootLoaderLabel  = "\u542f\u52a8\u52a0\u8f7d\u5668"
+	)
 
 	isDashLine := func(s string) bool {
 		s = strings.TrimSpace(s)
@@ -93,11 +101,10 @@ func parseBootIdentifier(out, systemDrive string) (string, error) {
 
 	isBootLoaderTitle := func(title string) bool {
 		t := strings.ToLower(title)
-		// English / Chinese common headings
 		return strings.Contains(t, "windows boot loader") ||
 			strings.Contains(t, "boot loader") ||
-			strings.Contains(title, "Windows 启动加载器") ||
-			strings.Contains(title, "启动加载器")
+			strings.Contains(title, zhWindowsBootLabel) ||
+			strings.Contains(title, zhBootLoaderLabel)
 	}
 
 	matchesSystemDrive := func(v string) bool {
@@ -106,28 +113,27 @@ func parseBootIdentifier(out, systemDrive string) (string, error) {
 		}
 		vl := strings.ToLower(v)
 		sd := strings.ToLower(systemDrive)
-		// 常见形式：partition=C: / partition=C:\ / ...C:
 		return strings.Contains(vl, "partition="+sd) ||
 			strings.Contains(vl, sd+`\`) ||
 			strings.Contains(vl, sd)
 	}
 
-	flush := func(e entry) (hit bool, best bool, id string) {
+	flush := func(e entry) (bool, bool, string) {
 		if e.id == "" {
 			return false, false, ""
 		}
 		if matchesSystemDrive(e.device) || matchesSystemDrive(e.osdevice) {
 			if isBootLoaderTitle(e.title) {
-				return true, true, e.id // best hit
+				return true, true, e.id
 			}
-			return true, false, e.id // hit but not best
+			return true, false, e.id
 		}
 		return false, false, ""
 	}
 
 	var (
 		cur         entry
-		bestAnyHit  string // fallback if only non-boot-loader hits
+		bestAnyHit  string
 		gotAnyEntry bool
 	)
 
@@ -135,8 +141,6 @@ func parseBootIdentifier(out, systemDrive string) (string, error) {
 	for _, raw := range lines {
 		line := strings.TrimRight(raw, "\r")
 		trim := strings.TrimSpace(line)
-
-		// block separator
 		if trim == "" {
 			if gotAnyEntry {
 				hit, best, id := flush(cur)
@@ -155,17 +159,12 @@ func parseBootIdentifier(out, systemDrive string) (string, error) {
 			continue
 		}
 
-		// Try detect title line (usually appears before key/value lines)
-		// Example: "Windows Boot Loader" / "Windows 启动加载器"
-		// We treat a non key-value line as title when current entry hasn't started.
 		if !gotAnyEntry {
 			low := strings.ToLower(trim)
-			if !(strings.HasPrefix(low, "identifier") || strings.HasPrefix(trim, "标识符") ||
-				strings.HasPrefix(low, "device") || strings.HasPrefix(trim, "设备") ||
+			if !(strings.HasPrefix(low, "identifier") || strings.HasPrefix(trim, zhIdentifier) ||
+				strings.HasPrefix(low, "device") || strings.HasPrefix(trim, zhDevice) ||
 				strings.HasPrefix(low, "osdevice")) {
-				// likely a section title
 				cur.title = trim
-				// still not mark gotAnyEntry yet (no properties)
 			}
 		}
 
@@ -176,30 +175,22 @@ func parseBootIdentifier(out, systemDrive string) (string, error) {
 		key := fields[0]
 		val := strings.Join(fields[1:], " ")
 		gotAnyEntry = true
-
 		kl := strings.ToLower(key)
 
-		// identifier / 标识符
-		if kl == "identifier" || key == "标识符" || strings.Contains(trim, "identifier") || strings.Contains(trim, "标识符") {
-			// bcdedit identifier is usually last token
+		if kl == "identifier" || key == zhIdentifier || strings.Contains(trim, "identifier") || strings.Contains(trim, zhIdentifier) {
 			cur.id = fields[len(fields)-1]
 			continue
 		}
-
-		// osdevice
 		if kl == "osdevice" || strings.Contains(kl, "osdevice") {
 			cur.osdevice = val
 			continue
 		}
-
-		// device / 设备
-		if kl == "device" || key == "设备" || strings.Contains(trim, " device") || strings.Contains(trim, "设备") {
+		if kl == "device" || key == zhDevice || strings.Contains(trim, " device") || strings.Contains(trim, zhDevice) {
 			cur.device = val
 			continue
 		}
 	}
 
-	// flush last block
 	if gotAnyEntry {
 		hit, best, id := flush(cur)
 		if best {
@@ -209,17 +200,12 @@ func parseBootIdentifier(out, systemDrive string) (string, error) {
 			bestAnyHit = id
 		}
 	}
-
 	if bestAnyHit != "" {
 		return bestAnyHit, nil
 	}
 	return "", fmt.Errorf("could not find current boot identifier for SystemDrive=%s", systemDrive)
 }
 
-// getFwTypeEx 使用 GetFirmwareEnvironmentVariableW 读“空变量”判断启动模式：
-// - Legacy BIOS：返回 ERROR_INVALID_FUNCTION (1) => Legacy
-// - UEFI：返回其他错误（如 ERROR_NOACCESS / ERROR_ENVVAR_NOT_FOUND 等）=> UEFI
-// 1=bios, 2=uefi
 func getFwTypeEx() (uint32, error) {
 	k32 := syswin.NewLazySystemDLL("kernel32.dll")
 	proc := k32.NewProc("GetFirmwareEnvironmentVariableW")
@@ -230,8 +216,6 @@ func getFwTypeEx() (uint32, error) {
 		return fwTypeBios, err
 	}
 
-	// lpName = ""（空字符串）
-	// lpGuid = "{00000000-0000-0000-0000-000000000000}"（虚拟 GUID）
 	name := syswin.StringToUTF16Ptr("")
 	guid := syswin.StringToUTF16Ptr("{00000000-0000-0000-0000-000000000000}")
 	var buf [1]byte
@@ -242,81 +226,47 @@ func getFwTypeEx() (uint32, error) {
 		uintptr(unsafe.Pointer(&buf[0])),
 		uintptr(len(buf)),
 	)
-
 	if r1 == 0 {
-		// LazyProc.Call 返回的 e1 通常就是 GetLastError()
 		if errno, ok := e1.(syscall.Errno); ok {
 			if errno == syswin.ERROR_INVALID_FUNCTION {
 				return fwTypeBios, nil
 			}
-			// 其他错误基本都视为 UEFI（如 ERROR_NOACCESS / ERROR_ENVVAR_NOT_FOUND）
 			return fwTypeUefi, nil
 		}
-		// 拿不到 errno：保守当作 UEFI
 		return fwTypeUefi, nil
 	}
-
-	// 成功（很少见，因为我们读的是空变量），也说明 UEFI
 	return fwTypeUefi, nil
 }
 
-// 获取固件类型（UEFI/BIOS）
-// win8以上使用
-// 1=bios, 2=uefi, 0=unknown
 func getFwTypePlus() (uint32, error) {
-	var t uint32
-	r, _, err := procGetFirmwareType.Call(uintptr(unsafe.Pointer(&t)))
-	if r == 0 {
-		if err != nil && err != syscall.Errno(0) {
-			return fwTypeUnknown, fmt.Errorf("GetFwType failed: %w", err)
-		}
-		return fwTypeUnknown, fmt.Errorf("GetFwType failed")
-	}
-	return t, nil
+	return getFwTypeEx()
 }
 
-// GetFwType 获取固件类型（UEFI/BIOS）
 func GetFwType() (uint32, error) {
-	version, _, verErr := winver.GetCurrentWinVersion()
-	if verErr != nil {
-		t, err := getFwTypeEx()
-		if err == nil {
-			return t, nil
+	if err := Kernel32.Load(); err == nil {
+		if err := procGetFirmwareType.Find(); err == nil {
+			var fwType uint32
+			r, _, callErr := procGetFirmwareType.Call(uintptr(unsafe.Pointer(&fwType)))
+			if r != 0 {
+				if fwType == 0 || fwType >= fwTypeMax {
+					return fwTypeUnknown, nil
+				}
+				return fwType, nil
+			}
+			if errno, ok := callErr.(syscall.Errno); ok && errno == 0 {
+				// fallback below
+			}
 		}
-		return fwTypeUnknown, fmt.Errorf("detect Windows version failed: %w; GetFwTypeEx failed: %v", verErr, err)
 	}
-
-	if version < 8 {
-		return getFwTypeEx()
-	}
-
-	t, err := getFwTypePlus()
-	if err == nil && t != fwTypeUnknown {
-		return t, nil
-	}
-
-	fallback, fallbackErr := getFwTypeEx()
-	if fallbackErr == nil {
-		return fallback, nil
-	}
-
-	if err != nil {
-		return fwTypeUnknown, fmt.Errorf("GetFwType failed: %v; GetFwTypeEx failed: %w", err, fallbackErr)
-	}
-	return fwTypeUnknown, fmt.Errorf("GetFwType returned unknown; GetFwTypeEx failed: %w", fallbackErr)
+	return getFwTypePlus()
 }
 
-// SecureBootEnabled 通过注册表读取 Secure Boot 状态：
-// HKLM\SYSTEM\CurrentControlSet\Control\SecureBoot\State\UEFISecureBootEnabled (DWORD)
-// - 1 => true
-// - 0 / 不存在（Win7常见）=> false
 func SecureBootEnabled() (bool, error) {
 	const keyPath = `SYSTEM\CurrentControlSet\Control\SecureBoot\State`
-	const valueName = "UEFISecureBootEnabled"
+	const valueName = `UEFISecureBootEnabled`
 
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, keyPath, registry.QUERY_VALUE)
 	if err != nil {
-		// Win7 或不支持 Secure Boot 的平台通常没有这个 key：当作 false，不报错
 		if errors.Is(err, registry.ErrNotExist) {
 			return false, nil
 		}
@@ -333,85 +283,101 @@ func SecureBootEnabled() (bool, error) {
 	}
 	return v != 0, nil
 }
+func FindESP(osRoot string) (string, func(), error) {
+	root, _ := utils.NormalizeDrive(osRoot, 0)
+	if root == "" {
+		return "", nil, fmt.Errorf("empty os root")
+	}
+	osRoot = root
 
-// 找 ESP分区
-// 适用于已经挂载了而且分配了盘符的情况
-// todo：还需要兼容多磁盘多系统多ESP的情况
-// todo：，在多个ESP时优先考虑同盘的，如果同盘没有才考虑其他盘，其他盘也没就创建ESP分区吧
-func FindESP(osRoot string) (string, error) {
-	roots, err := disk.ListDrive()
+	style, diskNum, err := disk.GetDiskInfo(osRoot)
 	if err != nil {
-		return "", fmt.Errorf("ListDrive: %w", err)
+		return "", nil, fmt.Errorf("GetDiskInfo: %w", err)
+	}
+	if !strings.EqualFold(style, "GPT") {
+		return "", nil, fmt.Errorf("target disk %d is %s, ESP requires GPT", diskNum, style)
+	}
+	targetDisk := int(diskNum)
+
+	if root, cleanup, found, err := disk.FindESPOnDisk(targetDisk); err != nil {
+		return "", nil, fmt.Errorf("find target-disk ESP: %w", err)
+	} else if found {
+		fmt.Println("[FindESP] use same-disk EFI:", root)
+		return root, cleanup, nil
 	}
 
-	var (
-		bestWithEFI     string
-		bestWithEFISize uint64 = ^uint64(0)
-
-		bestAny     string
-		bestAnySize uint64 = ^uint64(0)
-	)
-
-	for _, r := range roots {
-		dt := disk.GetDriveType(r)
-		if dt != 3 && dt != 4 {
+	disks, err := disk.ListPhysicalDisks()
+	if err != nil {
+		return "", nil, fmt.Errorf("ListPhysicalDisks: %w", err)
+	}
+	volumes, err := disk.ListVolumes()
+	if err != nil {
+		return "", nil, fmt.Errorf("ListVolumes: %w", err)
+	}
+	for _, d := range disks {
+		if d.DiskNumber == targetDisk {
 			continue
 		}
-		root, _ := utils.NormalizeDrive(r, 0)
-		if root == "" {
+		if disk.ShouldSkipFallbackDisk(d.DiskNumber, volumes) {
+			fmt.Printf("[FindESP] skip fallback disk %d\n", d.DiskNumber)
 			continue
 		}
-		// 跳过osRoot
-		if strings.EqualFold(root, osRoot) {
+		if root, cleanup, found, err := disk.FindESPOnDisk(d.DiskNumber); err != nil {
+			fmt.Printf("[FindESP] enumerate disk %d failed: %v\n", d.DiskNumber, err)
 			continue
-		}
-
-		fs, size, err := disk.GetVolumeInfo(root)
-		if err != nil {
-			continue
-		}
-		if fs != "FAT32" {
-			continue
-		}
-
-		// >4GB
-		if size > 4*1024*1024*1024 {
-			continue
-		}
-
-		hasEFI := false
-		if st, err := os.Stat(root + "EFI"); err == nil && st.IsDir() {
-			hasEFI = true
-		}
-
-		if hasEFI {
-			if size < bestWithEFISize {
-				bestWithEFISize = size
-				bestWithEFI = root
-			}
-		} else {
-			if size < bestAnySize {
-				bestAnySize = size
-				bestAny = root
-			}
+		} else if found {
+			fmt.Println("[FindESP] use fallback EFI:", root)
+			return root, cleanup, nil
 		}
 	}
 
-	if bestWithEFI != "" {
-		fmt.Println("[FindESP] use FAT32 + EFI:", bestWithEFI)
-		return bestWithEFI, nil
-	}
-	if bestAny != "" {
-		fmt.Println("[FindESP] use smallest FAT32:", bestAny)
-		return bestAny, nil
-	}
-	return "", fmt.Errorf("no ESP-like FAT32 volume found")
+	fmt.Printf("[FindESP] no EFI found, create new ESP on disk %d\n", targetDisk)
+	return CreateESP(osRoot)
 }
 
-// FixBoot自动判断并修复引导。
-// osVol:系统分区
-// sysVol: ESP分区，可空；找不到ESP时会使用系统分区
-// locale: 语言（"zh-cn"/"en-us" 等），空则默认 "zh-cn"。
+// CreateESP 在目标 GPT 磁盘上创建一个 200MB 的 ESP 分区。
+func CreateESP(osRoot string) (string, func(), error) {
+	root, _ := utils.NormalizeDrive(osRoot, 0)
+	if root == "" {
+		return "", nil, fmt.Errorf("empty os root")
+	}
+	osRoot = root
+
+	style, diskNum, err := disk.GetDiskInfo(osRoot)
+	if err != nil {
+		return "", nil, fmt.Errorf("GetDiskInfo: %w", err)
+	}
+	if !strings.EqualFold(style, "GPT") {
+		return "", nil, fmt.Errorf("target disk %d is %s, cannot create ESP", diskNum, style)
+	}
+	targetDisk := int(diskNum)
+
+	extents, err := disk.GetDiskFreeExtents(targetDisk)
+	if err != nil {
+		return "", nil, fmt.Errorf("GetDiskFreeExtents: %w", err)
+	}
+	if extent, ok := disk.PickESPFreeExtent(extents, espSizeBytes); ok {
+		fmt.Printf("[CreateESP] use existing free extent on disk %d offset=%d size=%d\n", targetDisk, extent.OffsetBytes, extent.SizeBytes)
+		return disk.CreateESPFromExtent(extent, espSizeMB, "SYSTEM")
+	}
+
+	shrinkRoot, err := disk.PickESPShrinkVolume(osRoot, targetDisk, espSizeBytes+espShrinkSafetyBytes)
+	if err != nil {
+		return "", nil, err
+	}
+	fmt.Printf("[CreateESP] shrink %s to create ESP on disk %d\n", shrinkRoot, targetDisk)
+	if out, err := disk.ShrinkVolume(shrinkRoot, espSizeMB); err != nil {
+		return "", nil, fmt.Errorf("ShrinkVolume %s failed: %w\n输出:\n%s", shrinkRoot, err, out)
+	}
+
+	extent, err := disk.FindESPFreeExtentAfterShrink(shrinkRoot, targetDisk, espSizeBytes, espProbeWindowBytes)
+	if err != nil {
+		return "", nil, err
+	}
+	return disk.CreateESPFromExtent(extent, espSizeMB, "SYSTEM")
+}
+
+// locale: 引导文件语言，例如 "zh-cn" 或 "en-us"，为空时默认 "zh-cn"。
 func FixBoot(osVol, sysVol, locale string) error {
 	if locale == "" {
 		locale = "zh-cn"
@@ -443,7 +409,7 @@ func FixBoot(osVol, sysVol, locale string) error {
 		}
 	}
 
-	// 检测OS卷所在磁盘的分区格式
+	// 检测目标系统所在磁盘的分区格式。
 	diskStyle, diskNum, err := disk.GetDiskInfo(osRoot)
 	if err != nil {
 		fmt.Println("[FixBoot] GetDiskInfo failed, will fallback:", err)
@@ -477,13 +443,14 @@ func FixBoot(osVol, sysVol, locale string) error {
 	return FixBIOS(osRoot, sysVol, locale)
 }
 
-// UEFI引导修复
-// todo 当EFI不存在时不应该直接用系统分区
-// todo 当固件是GPT但是没有esp分区而且安装的是win8以上系统（需要efi引导的系统）时在磁盘新建一个esp，win7之前的系统时就转为mbr格式用bios引导
+// FixUEFI 修复 UEFI 引导。
 func FixUEFI(osRoot, sysHint, locale string) error {
 	winDir := osRoot + "Windows"
 
-	var sysRoot string
+	var (
+		sysRoot string
+		cleanup func()
+	)
 	if sysHint != "" {
 		r, _ := utils.NormalizeDrive(sysHint, 0)
 		if r != "" {
@@ -495,19 +462,16 @@ func FixUEFI(osRoot, sysHint, locale string) error {
 			}
 		}
 	}
-
 	if sysRoot == "" {
-		if r, err := FindESP(osRoot); err == nil {
-			sysRoot = r
-		} else {
-			fmt.Println("[FixUEFI] FindESP failed:", err)
+		r, mountedCleanup, err := FindESP(osRoot)
+		if err != nil {
+			return fmt.Errorf("FindESP failed: %w", err)
 		}
+		sysRoot = r
+		cleanup = mountedCleanup
 	}
-
-	// 找不到ESP就用系统卷
-	if sysRoot == "" {
-		sysRoot = osRoot
-		fmt.Println("[FixUEFI] WARN: no ESP found, fallback to OS volume:", sysRoot)
+	if cleanup != nil {
+		defer cleanup()
 	}
 
 	args := []string{
@@ -529,7 +493,7 @@ func FixUEFI(osRoot, sysHint, locale string) error {
 	return nil
 }
 
-// BIOS/MBR引导修复
+// FixBIOS 修复 BIOS/MBR 引导。
 func FixBIOS(osRoot, sysHint, locale string) error {
 	winDir := osRoot + "Windows"
 	sysRoot, _ := utils.NormalizeDrive(sysHint, 0)
@@ -537,7 +501,7 @@ func FixBIOS(osRoot, sysHint, locale string) error {
 		sysRoot = osRoot
 	}
 
-	// 修复MBR/PBR
+	// 修复 MBR/PBR。
 	if out, err := tools.RunCmd("bootrec.exe", nil, nil, "", "/fixmbr"); err != nil {
 		fmt.Println("[FixBIOS] bootrec /fixmbr failed (may be ok):", err)
 		fmt.Println(out)
@@ -579,7 +543,7 @@ func FixBIOS(osRoot, sysHint, locale string) error {
 	return nil
 }
 
-// 找系统分区
+// 查找系统分区。
 func FindOS(hint string) (string, error) {
 	if hint != "" {
 		root, _ := utils.NormalizeDrive(hint, 0)
@@ -600,7 +564,6 @@ func FindOS(hint string) (string, error) {
 	var cand string
 	for _, r := range roots {
 		dt := disk.GetDriveType(r)
-		// 跳过CD和网络盘
 		if dt != 3 && dt != 4 {
 			continue
 		}
