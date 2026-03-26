@@ -16,6 +16,8 @@ github.com/AzureIvory/winui v0.0.0-20260319063730-a5128f11298e h1:bF4bT7BN35YGL2
 github.com/AzureIvory/winui v0.0.0-20260319063730-a5128f11298e/go.mod h1:Ef/WpTgPdjn9mwvwQaqts9Dk6blP8csUILK6JXv7fqA=
 github.com/AzureIvory/winui v0.0.0-20260320022018-08e683445961 h1:1/tqwHtlVmQD7Iav3lrX+ntqfFz24bOl0LgkOBtc8cc=
 github.com/AzureIvory/winui v0.0.0-20260320022018-08e683445961/go.mod h1:Ef/WpTgPdjn9mwvwQaqts9Dk6blP8csUILK6JXv7fqA=
+github.com/AzureIvory/winui v0.0.0-20260326040254-520a20d1b57f h1:5YV9EauxAnULcTqYwPqzNowAPeVNejcdWpgVoB+9Xq0=
+github.com/AzureIvory/winui v0.0.0-20260326040254-520a20d1b57f/go.mod h1:Ef/WpTgPdjn9mwvwQaqts9Dk6blP8csUILK6JXv7fqA=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/OneOfOne/xxhash v1.2.2 h1:KMrpdQIwFcEqXDklaen+P1axHaj9BSKzvpUUfnHldSE=
 github.com/OneOfOne/xxhash v1.2.2/go.mod h1:HSdplMjZKSmBqAxg5vPj2TmRDmfkzw+cTzAElWljhcU=
