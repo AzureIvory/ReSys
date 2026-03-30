@@ -1403,17 +1403,14 @@ func manualBitLockerText(manager *bl.BitLockerManager, ready bool, root string) 
 }
 
 func manualImageInfoText(info dism.ImageMeta) string {
-	parts := []string{fmt.Sprintf("Index %d", info.Index)}
+	parts := []string{fmt.Sprintf("%d", info.Index)}
 	if name := strings.TrimSpace(info.Name); name != "" {
-		parts = append(parts, name)
+		//parts = append(parts, name)
 	} else if edition := strings.TrimSpace(info.Edition); edition != "" {
-		parts = append(parts, edition)
+		//parts = append(parts, edition)
 	}
 	if desc := strings.TrimSpace(info.Description); desc != "" && !strings.EqualFold(desc, info.Name) {
 		parts = append(parts, desc)
-	}
-	if size := strings.TrimSpace(info.Size); size != "" {
-		parts = append(parts, size)
 	}
 	return strings.Join(parts, " | ")
 }
