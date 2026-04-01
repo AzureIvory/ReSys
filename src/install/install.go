@@ -30,9 +30,11 @@ const (
 type BootRepairMode string
 
 const (
-	BootRepairModeAuto   BootRepairMode = "auto"
-	BootRepairModeSkip   BootRepairMode = "skip"
-	BootRepairModeManual BootRepairMode = "manual"
+	BootRepairModeAuto       BootRepairMode = "auto"
+	BootRepairModeSkip       BootRepairMode = "skip"
+	BootRepairModeManual     BootRepairMode = "manual"
+	BootRepairModeManualUEFI BootRepairMode = "manual_uefi"
+	BootRepairModeManualBIOS BootRepairMode = "manual_bios"
 )
 
 type InstallFlags struct {
@@ -692,7 +694,7 @@ func RepairInstallBoot(plan *InstallPlan) error {
 	switch plan.BootRepair {
 	case BootRepairModeSkip:
 		return nil
-	case BootRepairModeManual:
+	case BootRepairModeManual, BootRepairModeManualUEFI, BootRepairModeManualBIOS:
 		return repairInstallBootManual(plan)
 	}
 	return boot.FixBoot(plan.TargetRoot, "", "zh-cn")

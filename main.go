@@ -88,6 +88,7 @@ func test() {
 }
 
 func main() {
+	fmt.Println("正在检查权限...")
 	if !tools.IsAdmin() {
 		if err := tools.RestartAsAdmin(); err != nil {
 			panic(err)

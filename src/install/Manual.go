@@ -445,22 +445,38 @@ func repairInstallBootManual(plan *InstallPlan) error {
 	if err != nil || targetRoot == "" {
 		return fmt.Errorf("invalid install target root: %s", plan.TargetRoot)
 	}
+	switch plan.BootRepair {
+	case BootRepairModeManualUEFI:
+		return repairInstallBootManualUEFI(targetRoot, part)
+	case BootRepairModeManualBIOS:
+		return repairInstallBootManualBIOS(targetRoot, part)
+	}
+
 	style, _, err := disk.GetDiskInfo(targetRoot)
 	if err != nil {
 		return fmt.Errorf("GetDiskInfo: %w", err)
 	}
-
 	if strings.EqualFold(style, "GPT") {
-		espRoot, cleanup, err := disk.EnsureESPRoot(part)
-		if err != nil {
-			return fmt.Errorf("mount EFI partition failed: %w", err)
-		}
-		if cleanup != nil {
-			defer cleanup()
-		}
-		return boot.FixUEFI(targetRoot, espRoot, "zh-cn")
+		return repairInstallBootManualUEFI(targetRoot, part)
 	}
+	return repairInstallBootManualBIOS(targetRoot, part)
+}
 
+func repairInstallBootManualUEFI(targetRoot string, part disk.PartitionInfo) error {
+	if !strings.EqualFold(strings.TrimSpace(part.Type), "EFI") {
+		return fmt.Errorf("所选分区不是 EFI 分区，无法按 UEFI 方式修复")
+	}
+	espRoot, cleanup, err := disk.EnsureESPRoot(part)
+	if err != nil {
+		return fmt.Errorf("mount EFI partition failed: %w", err)
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
+	return boot.FixUEFI(targetRoot, espRoot, "zh-cn")
+}
+
+func repairInstallBootManualBIOS(targetRoot string, part disk.PartitionInfo) error {
 	if strings.TrimSpace(part.DriveLetter) == "" {
 		return fmt.Errorf("所选 BIOS 引导分区没有盘符，无法手动修复")
 	}

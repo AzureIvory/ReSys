@@ -325,6 +325,9 @@ func decodeWindowsCLIBytes(b []byte) string {
 	if len(b) == 0 {
 		return ""
 	}
+	if s, ok := decodeUTF16CommandOutput(b); ok {
+		return s
+	}
 	if utf8.Valid(b) {
 		return string(b)
 	}
@@ -332,6 +335,88 @@ func decodeWindowsCLIBytes(b []byte) string {
 		return s
 	}
 	return string(b)
+}
+
+func decodeUTF16CommandOutput(b []byte) (string, bool) {
+	if len(b) < 2 {
+		return "", false
+	}
+
+	switch {
+	case b[0] == 0xFF && b[1] == 0xFE:
+		if s, err := decodeUTF16LE(b); err == nil {
+			return s, true
+		}
+	case b[0] == 0xFE && b[1] == 0xFF:
+		if s, err := decodeUTF16BE(b[2:]); err == nil {
+			return s, true
+		}
+	case likelyUTF16LE(b):
+		if s, err := decodeUTF16LE(b); err == nil {
+			return s, true
+		}
+	case likelyUTF16BE(b):
+		if s, err := decodeUTF16BE(b); err == nil {
+			return s, true
+		}
+	}
+
+	return "", false
+}
+
+func likelyUTF16LE(b []byte) bool {
+	sample := min(len(b), 64)
+	if sample < 4 {
+		return false
+	}
+	zeroes := 0
+	pairs := 0
+	for i := 1; i < sample; i += 2 {
+		pairs++
+		if b[i] == 0 {
+			zeroes++
+		}
+	}
+	return pairs >= 2 && zeroes*2 >= pairs
+}
+
+func likelyUTF16BE(b []byte) bool {
+	sample := min(len(b), 64)
+	if sample < 4 {
+		return false
+	}
+	zeroes := 0
+	pairs := 0
+	for i := 0; i < sample; i += 2 {
+		pairs++
+		if b[i] == 0 {
+			zeroes++
+		}
+	}
+	return pairs >= 2 && zeroes*2 >= pairs
+}
+
+func decodeUTF16BE(data []byte) (string, error) {
+	if len(data) < 2 {
+		return "", errors.New("data too short")
+	}
+
+	n := len(data) / 2
+	u16 := make([]uint16, 0, n)
+	for i := 0; i < n; i++ {
+		off := i * 2
+		if off+1 >= len(data) {
+			break
+		}
+		u := uint16(data[off])<<8 | uint16(data[off+1])
+		u16 = append(u16, u)
+	}
+
+	for len(u16) > 0 && u16[len(u16)-1] == 0 {
+		u16 = u16[:len(u16)-1]
+	}
+
+	return string(utf16.Decode(u16)), nil
 }
 
 // CaptureImageApi 以 LZX 压缩格式捕获目录为 WIM 镜像。
@@ -815,7 +900,7 @@ func (d *Dism) executeAndGetOutputCmd(args []string) (string, error) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 
 	out, err := cmd.CombinedOutput()
-	text := strings.TrimSpace(string(out))
+	text := strings.TrimSpace(decodeWindowsCLIBytes(out))
 
 	if err != nil {
 		msg := extractErrorText(text)
@@ -859,7 +944,7 @@ func (d *Dism) runDismWithProgressScaledCmd(args []string, progressCh chan<- Dis
 	var lastPct uint8 = 255
 
 	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
+		line := strings.TrimSpace(decodeWindowsCLIBytes(sc.Bytes()))
 		if line == "" {
 			continue
 		}

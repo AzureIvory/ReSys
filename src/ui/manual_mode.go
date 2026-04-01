@@ -36,13 +36,14 @@ type ManualInstallConfig struct {
 }
 
 type manualUIState struct {
-	panel        *widgets.Panel
-	titleLabel   *widgets.Label
-	imageLabel   *widgets.Label
-	indexLabel   *widgets.Label
-	targetLabel  *widgets.Label
-	detailTitle  *widgets.Label
-	summaryLabel *widgets.Label
+	panel           *widgets.Panel
+	titleLabel      *widgets.Label
+	imageLabel      *widgets.Label
+	indexLabel      *widgets.Label
+	targetLabel     *widgets.Label
+	detailTitle     *widgets.Label
+	summaryLabel    *widgets.Label
+	bootRepairLabel *widgets.Label
 
 	detailPanel *widgets.Panel
 	detailLabel *widgets.Label
@@ -107,6 +108,14 @@ type manualBootTargetOption struct {
 	Text string
 }
 
+const (
+	manualBootRepairAuto       = "auto"
+	manualBootRepairSkip       = "skip"
+	manualBootRepairLegacy     = "manual"
+	manualBootRepairManualUEFI = "manual_uefi"
+	manualBootRepairManualBIOS = "manual_bios"
+)
+
 var manual manualUIState
 
 func initManualMode(theme *widgets.Theme, root *widgets.Panel) {
@@ -151,7 +160,7 @@ func initManualMode(theme *widgets.Theme, root *widgets.Panel) {
 			SizeDP: 12,
 		},
 		Color:  core.RGB(30, 41, 59),
-		Format: 0,
+		Format: 0x00000010,
 	}
 	loadingStyle := widgets.TextStyle{
 		Font: widgets.FontSpec{
@@ -312,6 +321,9 @@ func initManualMode(theme *widgets.Theme, root *widgets.Panel) {
 		manualUpdateSummary()
 	})
 
+	manual.bootRepairLabel = widgets.NewLabel("manual-boot-repair-label", "修复引导")
+	manual.bootRepairLabel.SetStyle(labelStyle)
+
 	manual.bootModeCombo = widgets.NewComboBox("manual-boot-mode", widgets.ModeCustom)
 	manual.bootModeCombo.SetStyle(comboStyle)
 	manual.bootModeCombo.SetItems([]widgets.ListItem{
@@ -322,6 +334,28 @@ func initManualMode(theme *widgets.Theme, root *widgets.Panel) {
 	manual.bootModeCombo.SetSelected(0)
 	manual.bootModeCombo.SetOnChange(func(_ int, _ widgets.ListItem) {
 		manualUpdateBootTargetState()
+		manualUpdateSummary()
+	})
+	manual.bootModeCombo.SetItems([]widgets.ListItem{
+		{Value: manualBootRepairAuto, Text: "自动修复"},
+		{Value: manualBootRepairSkip, Text: "不修复"},
+		{Value: manualBootRepairManualUEFI, Text: "手动修复 UEFI"},
+		{Value: manualBootRepairManualBIOS, Text: "手动修复 BIOS"},
+	})
+	manual.bootModeCombo.SetSelected(0)
+	manual.bootModeCombo.SetOnChange(func(_ int, _ widgets.ListItem) {
+		manualRefreshBootTargets()
+		manualUpdateSummary()
+	})
+	manual.bootModeCombo.SetItems([]widgets.ListItem{
+		{Value: manualBootRepairAuto, Text: "自动"},
+		{Value: manualBootRepairManualUEFI, Text: "UEFI"},
+		{Value: manualBootRepairManualBIOS, Text: "BIOS"},
+		{Value: manualBootRepairSkip, Text: "不修复"},
+	})
+	manual.bootModeCombo.SetSelected(0)
+	manual.bootModeCombo.SetOnChange(func(_ int, _ widgets.ListItem) {
+		manualRefreshBootTargets()
 		manualUpdateSummary()
 	})
 
@@ -375,6 +409,7 @@ func initManualMode(theme *widgets.Theme, root *widgets.Panel) {
 		manual.indexLabel,
 		manual.targetLabel,
 		manual.detailTitle,
+		manual.bootRepairLabel,
 		manual.summaryLabel,
 		manual.imageEdit,
 		manual.imageBrowseBtn,
@@ -523,8 +558,22 @@ func layoutManual(w, h int32) {
 	manual.peBrowseBtn.SetBounds(core.Rect{X: rightX + rightW - browseW, Y: optY, W: browseW, H: rowH})
 
 	optY += rowH + ui.app.DP(6)
-	manual.bootModeCombo.SetBounds(core.Rect{X: rightX, Y: optY, W: ui.app.DP(118), H: rowH})
-	manual.bootTargetCombo.SetBounds(core.Rect{X: rightX + ui.app.DP(124), Y: optY, W: rightW - ui.app.DP(124), H: rowH})
+	bootLabelW := ui.app.DP(64)
+	bootModeW := ui.app.DP(132)
+	bootGap := ui.app.DP(6)
+	manual.bootRepairLabel.SetBounds(core.Rect{X: rightX, Y: optY, W: bootLabelW, H: rowH})
+	manual.bootModeCombo.SetBounds(core.Rect{
+		X: rightX + bootLabelW + bootGap,
+		Y: optY,
+		W: bootModeW,
+		H: rowH,
+	})
+	manual.bootTargetCombo.SetBounds(core.Rect{
+		X: rightX + bootLabelW + bootGap + bootModeW + bootGap,
+		Y: optY,
+		W: rightW - bootLabelW - bootGap - bootModeW - bootGap,
+		H: rowH,
+	})
 
 	manual.formatCheck.SetBounds(core.Rect{X: margin, Y: bottomY, W: ui.app.DP(162), H: rowH})
 	manual.deployCheck.SetBounds(core.Rect{X: margin + ui.app.DP(168), Y: bottomY, W: ui.app.DP(186), H: rowH})
@@ -735,6 +784,7 @@ func manualRefreshBootTargets() {
 		return
 	}
 	row, ok := manualSelectedPartition()
+	mode := manualSelectedBootMode()
 	if !ok {
 		manual.bootTargets = nil
 		manual.bootTargetCombo.SetItems(nil)
@@ -743,8 +793,27 @@ func manualRefreshBootTargets() {
 		return
 	}
 
+	if mode == manualBootRepairSkip {
+		manual.bootTargets = nil
+		manual.bootTargetCombo.SetItems(nil)
+		manual.bootTargetCombo.SetPlaceholder("已关闭引导修复")
+		manualUpdateBootTargetState()
+		return
+	}
+	if mode == manualBootRepairAuto {
+		manual.bootTargets = nil
+		manual.bootTargetCombo.SetItems(nil)
+		if strings.EqualFold(row.DiskStyle, "GPT") {
+			manual.bootTargetCombo.SetPlaceholder("自动修复将自动选择 EFI 引导分区")
+		} else {
+			manual.bootTargetCombo.SetPlaceholder("自动修复将自动选择 BIOS 引导分区")
+		}
+		manualUpdateBootTargetState()
+		return
+	}
+
 	prevRef := manualSelectedBootTargetRef()
-	manual.bootTargets = manualCollectBootTargets(row)
+	manual.bootTargets = manualCollectBootTargets(row, mode)
 	items := make([]widgets.ListItem, 0, len(manual.bootTargets))
 	selected := -1
 	for i, option := range manual.bootTargets {
@@ -765,6 +834,18 @@ func manualRefreshBootTargets() {
 		}
 	} else if strings.EqualFold(row.DiskStyle, "GPT") {
 		manual.bootTargetCombo.SetPlaceholder("选择 EFI 分区")
+	} else {
+		manual.bootTargetCombo.SetPlaceholder("选择 BIOS 引导分区")
+	}
+	bootType := manualBootRepairType(row, mode)
+	if len(items) == 0 {
+		if bootType == "UEFI" {
+			manual.bootTargetCombo.SetPlaceholder("未找到可用 EFI 分区")
+		} else {
+			manual.bootTargetCombo.SetPlaceholder("未找到可用 BIOS 引导分区")
+		}
+	} else if bootType == "UEFI" {
+		manual.bootTargetCombo.SetPlaceholder("选择 EFI 引导分区")
 	} else {
 		manual.bootTargetCombo.SetPlaceholder("选择 BIOS 引导分区")
 	}
@@ -809,7 +890,7 @@ func manualUpdateBootTargetState() {
 	if manual.bootTargetCombo == nil {
 		return
 	}
-	manual.bootTargetCombo.SetEnabled(!manual.partitionLoading && manualSelectedBootMode() == "manual" && len(manual.bootTargets) > 0)
+	manual.bootTargetCombo.SetEnabled(!manual.partitionLoading && manualBootModeNeedsTarget() && len(manual.bootTargets) > 0)
 	manualUpdateActionState()
 }
 
@@ -864,6 +945,9 @@ func manualUpdateSummary() {
 	} else {
 		parts = append(parts, "未选择目标分区")
 	}
+	if bootSummary := manualBootRepairSummary(); bootSummary != "" {
+		parts = append(parts, bootSummary)
+	}
 
 	if reason := manualValidationReason(); reason != "" {
 		parts = append(parts, "未就绪: "+reason)
@@ -899,7 +983,7 @@ func manualBuildConfig() (ManualInstallConfig, error) {
 	if cfg.TargetOS == "" {
 		cfg.TargetOS = targetWin10
 	}
-	if cfg.BootRepair == "manual" {
+	if manualBootModeNeedsTarget() {
 		cfg.BootTargetRef = manualSelectedBootTargetRef()
 	}
 	return cfg, nil
@@ -937,13 +1021,58 @@ func manualSelectedPartitionRef() string {
 
 func manualSelectedBootMode() string {
 	if manual.bootModeCombo == nil {
-		return "auto"
+		return manualBootRepairAuto
 	}
 	item, ok := manual.bootModeCombo.SelectedItem()
 	if !ok || strings.TrimSpace(item.Value) == "" {
-		return "auto"
+		return manualBootRepairAuto
 	}
 	return strings.TrimSpace(item.Value)
+}
+
+func manualBootModeNeedsTarget() bool {
+	switch manualSelectedBootMode() {
+	case manualBootRepairLegacy, manualBootRepairManualUEFI, manualBootRepairManualBIOS:
+		return true
+	default:
+		return false
+	}
+}
+
+func manualBootRepairSummary() string {
+	switch manualSelectedBootMode() {
+	case manualBootRepairSkip:
+		return "引导修复: 已关闭"
+	case manualBootRepairManualUEFI:
+		if text := manualSelectedBootTargetText(); text != "" {
+			return "引导修复: UEFI -> " + text
+		}
+		return "引导修复: UEFI"
+	case manualBootRepairManualBIOS:
+		if text := manualSelectedBootTargetText(); text != "" {
+			return "引导修复: BIOS -> " + text
+		}
+		return "引导修复: BIOS"
+	default:
+		row, ok := manualSelectedPartition()
+		if ok {
+			return "引导修复: 自动 (" + manualBootRepairType(row, manualBootRepairAuto) + ")"
+		}
+		return "引导修复: 自动"
+	}
+}
+
+func manualSelectedBootTargetText() string {
+	ref := strings.TrimSpace(manualSelectedBootTargetRef())
+	if ref == "" {
+		return ""
+	}
+	for _, option := range manual.bootTargets {
+		if strings.EqualFold(option.Ref, ref) {
+			return option.Text
+		}
+	}
+	return ""
 }
 
 func manualSelectedBootTargetRef() string {
@@ -1002,7 +1131,7 @@ func manualValidationReason() string {
 	if row.CurrentSystem && !manual.autoPECheck.IsChecked() && strings.TrimSpace(manual.peEdit.TextValue()) == "" {
 		return "当前系统分区需要手动指定 PE WIM"
 	}
-	if manualSelectedBootMode() == "manual" && strings.TrimSpace(manualSelectedBootTargetRef()) == "" {
+	if manualBootModeNeedsTarget() && strings.TrimSpace(manualSelectedBootTargetRef()) == "" {
 		return "请选择引导分区"
 	}
 	return ""
@@ -1247,12 +1376,11 @@ func manualBuildBootRows(
 	return rows
 }
 
-func manualCollectBootTargets(target manualPartitionRow) []manualBootTargetOption {
+func manualCollectBootTargets(target manualPartitionRow, mode string) []manualBootTargetOption {
 	options := make([]manualBootTargetOption, 0, 4)
-	style := strings.ToUpper(strings.TrimSpace(target.DiskStyle))
-	if style == "GPT" {
+	if manualBootRepairType(target, mode) == "UEFI" {
 		for _, row := range manual.bootRows {
-			if !strings.EqualFold(row.PartitionType, "EFI") {
+			if !manualIsUEFIBootPartition(row) {
 				continue
 			}
 			options = append(options, manualBootTargetOption{
@@ -1278,10 +1406,7 @@ func manualCollectBootTargets(target manualPartitionRow) []manualBootTargetOptio
 	}
 
 	for _, row := range manual.bootRows {
-		if row.TargetRoot == "" {
-			continue
-		}
-		if strings.EqualFold(row.PartitionType, "EFI") || strings.EqualFold(row.PartitionType, "MSR") {
+		if !manualIsBIOSBootPartition(row) {
 			continue
 		}
 		options = append(options, manualBootTargetOption{
@@ -1310,6 +1435,62 @@ func manualCollectBootTargets(target manualPartitionRow) []manualBootTargetOptio
 		return pi < pj
 	})
 	return options
+}
+
+func manualBootRepairType(target manualPartitionRow, mode string) string {
+	switch strings.TrimSpace(mode) {
+	case manualBootRepairManualUEFI:
+		return "UEFI"
+	case manualBootRepairManualBIOS:
+		return "BIOS"
+	case manualBootRepairLegacy:
+		if strings.EqualFold(target.DiskStyle, "GPT") {
+			return "UEFI"
+		}
+		return "BIOS"
+	default:
+		if strings.EqualFold(target.DiskStyle, "GPT") {
+			return "UEFI"
+		}
+		return "BIOS"
+	}
+}
+
+func manualIsUEFIBootPartition(row manualPartitionRow) bool {
+	if !strings.EqualFold(strings.TrimSpace(row.DiskStyle), "GPT") {
+		return false
+	}
+
+	partType := strings.ToUpper(strings.TrimSpace(row.PartitionType))
+	if partType == "EFI" {
+		return true
+	}
+
+	if !strings.EqualFold(strings.TrimSpace(row.FileSystem), "FAT32") {
+		return false
+	}
+
+	label := strings.ToLower(strings.TrimSpace(row.VolumeLabel))
+	if strings.Contains(label, "efi") || strings.Contains(label, "esp") {
+		return true
+	}
+
+	if row.SizeBytes > 0 && row.SizeBytes <= 2*1024*1024*1024 && !row.TargetSelectable {
+		return true
+	}
+
+	return false
+}
+
+func manualIsBIOSBootPartition(row manualPartitionRow) bool {
+	if !strings.EqualFold(strings.TrimSpace(row.DiskStyle), "MBR") {
+		return false
+	}
+	if strings.TrimSpace(row.TargetRoot) == "" {
+		return false
+	}
+	partType := strings.ToUpper(strings.TrimSpace(row.PartitionType))
+	return partType != "EFI" && partType != "MSR"
 }
 
 func manualDefaultPartitionIndex() int {
@@ -1416,17 +1597,25 @@ func manualImageInfoText(info dism.ImageMeta) string {
 }
 
 func manualPartitionSummary(row manualPartitionRow) string {
-	name := manualPartitionDisplayName(row)
-	if !row.TargetSelectable {
-		name += " [仅查看]"
+	parts := make([]string, 0, 5)
+	if drive := strings.TrimRight(strings.TrimSpace(row.TargetRoot), `\`); drive != "" {
+		parts = append(parts, drive)
+	} else {
+		parts = append(parts, fmt.Sprintf("磁盘%d分区%d", row.DiskNumber, row.PartitionNumber))
 	}
-	tags := []string{
-		manualFirstNonEmpty(strings.TrimSpace(row.FileSystem), strings.TrimSpace(row.PartitionType)),
-		manualFirstNonEmpty(strings.TrimSpace(row.DiskStyle), "未知分区表"),
-		manualFirstNonEmpty(strings.TrimSpace(row.DiskKind), "Unknown"),
-		manualFirstNonEmpty(strings.TrimSpace(row.BitLocker), "未知"),
+	if label := strings.TrimSpace(row.VolumeLabel); label != "" {
+		parts = append(parts, label)
 	}
-	return fmt.Sprintf("%s %s [%s]", name, manualSizePairText(row.SizeBytes, row.FreeBytes), strings.Join(tags, "]["))
+	if size := manualSizeText(row.SizeBytes); size != "-" {
+		parts = append(parts, size)
+	}
+	if style := strings.TrimSpace(row.DiskStyle); style != "" {
+		parts = append(parts, style)
+	}
+	if kind := strings.TrimSpace(row.DiskKind); kind != "" && !strings.EqualFold(kind, "Unknown") {
+		parts = append(parts, kind)
+	}
+	return strings.Join(parts, " ")
 }
 
 func manualPartitionDetail(row manualPartitionRow) string {
@@ -1467,11 +1656,14 @@ func manualPartitionDisplayName(row manualPartitionRow) string {
 }
 
 func manualBootTargetText(row manualPartitionRow) string {
-	name := manualPartitionDisplayName(row)
-	if strings.EqualFold(row.PartitionType, "EFI") {
-		return fmt.Sprintf("%s [%s] [磁盘%d 分区%d]", name, manualSizeText(row.SizeBytes), row.DiskNumber, row.PartitionNumber)
+	name := strings.TrimRight(strings.TrimSpace(row.TargetRoot), `\`)
+	if name == "" {
+		name = fmt.Sprintf("磁盘%d分区%d", row.DiskNumber, row.PartitionNumber)
 	}
-	return fmt.Sprintf("%s [磁盘%d 分区%d]", name, row.DiskNumber, row.PartitionNumber)
+	if label := strings.TrimSpace(row.VolumeLabel); label != "" {
+		name += " " + label
+	}
+	return fmt.Sprintf("%s [磁盘%d分区%d]", name, row.DiskNumber, row.PartitionNumber)
 }
 
 func manualFriendlyTarget(target string) string {

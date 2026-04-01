@@ -3,7 +3,7 @@ module ReSys
 go 1.24.0
 
 require (
-	github.com/AzureIvory/winui v0.0.0-20260326040254-520a20d1b57f
+	github.com/AzureIvory/winui v0.0.0-20260401025720-0ed1c2f26d15
 	github.com/anacrolix/generics v0.2.0
 	github.com/anacrolix/torrent v1.61.0
 	github.com/kdomanski/iso9660 v0.4.0
@@ -93,3 +93,5 @@ require (
 	modernc.org/sqlite v1.21.1 // indirect
 	zombiezen.com/go/sqlite v0.13.1 // indirect
 )
+
+replace github.com/AzureIvory/winui => ../winui
