@@ -88,11 +88,27 @@ func getb(u string) ([]byte, error) {
 
 // localDataPath 函数。
 func localDataPath(name string) string {
-	exe, err := os.Executable()
-	if err != nil {
+	baseDir := ""
+	if exe, err := os.Executable(); err == nil && strings.TrimSpace(exe) != "" {
+		baseDir = filepath.Dir(exe)
+	} else if wd, err := filepath.Abs("."); err == nil {
+		baseDir = wd
+	}
+	if baseDir == "" {
 		return name
 	}
-	return filepath.Join(filepath.Dir(exe), name)
+
+	toolPath := filepath.Join(baseDir, "tools", name)
+	if st, err := os.Stat(toolPath); err == nil && !st.IsDir() {
+		return toolPath
+	}
+
+	legacyPath := filepath.Join(baseDir, name)
+	if st, err := os.Stat(legacyPath); err == nil && !st.IsDir() {
+		return legacyPath
+	}
+
+	return toolPath
 }
 
 // getbWithFallback 函数。

@@ -122,6 +122,12 @@ func trackerFallbackPath() string {
 	if err != nil {
 		return ""
 	}
+
+	toolPath := filepath.Join(runtimeDir, "tools", "trackers.txt")
+	if st, err := os.Stat(toolPath); err == nil && !st.IsDir() {
+		return toolPath
+	}
+
 	return filepath.Join(runtimeDir, "trackers.txt")
 }
 

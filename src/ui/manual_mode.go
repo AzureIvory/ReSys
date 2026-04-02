@@ -198,10 +198,12 @@ func initManualMode(theme *widgets.Theme, root *widgets.Panel) {
 	editStyle.Font = widgets.FontSpec{Face: "Microsoft YaHei UI", SizeDP: 12}
 	editStyle.PaddingDP = 8
 	editStyle.CornerRadius = 10
+	editStyle.Background = core.RGB(255, 255, 255)
 	editStyle.BorderColor = core.RGB(203, 213, 225)
 	editStyle.HoverBorder = core.RGB(59, 130, 246)
 	editStyle.FocusBorder = core.RGB(37, 99, 235)
-	editStyle.DisabledBg = core.RGB(248, 250, 252)
+	editStyle.DisabledBg = editStyle.Background
+	editStyle.DisabledText = core.RGB(30, 41, 59)
 
 	checkStyle := theme.CheckBox
 	checkStyle.Font = widgets.FontSpec{Face: "Microsoft YaHei UI", SizeDP: 12}
@@ -228,6 +230,7 @@ func initManualMode(theme *widgets.Theme, root *widgets.Panel) {
 	manual.imageEdit = widgets.NewEditBox("manual-image-edit", widgets.ModeCustom)
 	manual.imageEdit.SetStyle(editStyle)
 	manual.imageEdit.SetReadOnly(true)
+	manual.imageEdit.SetEnabled(false)
 	manual.imageEdit.SetPlaceholder("选择本地 ISO / WIM / ESD 镜像")
 
 	manual.imageBrowseBtn = widgets.NewButton("manual-image-browse", "浏览", widgets.ModeCustom)
@@ -301,6 +304,8 @@ func initManualMode(theme *widgets.Theme, root *widgets.Panel) {
 
 	manual.peEdit = widgets.NewEditBox("manual-pe-edit", widgets.ModeCustom)
 	manual.peEdit.SetStyle(editStyle)
+	manual.peEdit.SetReadOnly(true)
+	manual.peEdit.SetEnabled(false)
 	manual.peEdit.SetPlaceholder("自动处理 PE 关闭后，可手动指定 PE WIM")
 	manual.peEdit.SetOnChange(func(string) {
 		manualUpdateSummary()
@@ -879,7 +884,7 @@ func manualUpdatePEInputState() {
 		manual.autoPECheck.SetEnabled(needsPE)
 	}
 	if manual.peEdit != nil {
-		manual.peEdit.SetEnabled(needsPE && !autoPE)
+		manual.peEdit.SetEnabled(false)
 	}
 	if manual.peBrowseBtn != nil {
 		manual.peBrowseBtn.SetEnabled(needsPE && !autoPE)

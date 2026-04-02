@@ -962,10 +962,7 @@ func Patwim(wim string) error {
 
 	resList := []wimRes{
 		{src: selfExe, dst: peRuntimeDirInWim + `\` + selfName, isDir: false},
-		{src: filepath.Join(dir, "Windows.json"), dst: peRuntimeDirInWim + `\Windows.json`, isDir: false},
-		{src: filepath.Join(dir, "WinPE.json"), dst: peRuntimeDirInWim + `\WinPE.json`, isDir: false},
 		{src: filepath.Join(dir, "disk.dll"), dst: peRuntimeDirInWim + `\disk.dll`, isDir: false},
-		{src: filepath.Join(dir, "trackers.txt"), dst: peRuntimeDirInWim + `\trackers.txt`, isDir: false},
 		{src: filepath.Join(dir, "tools"), dst: peRuntimeDirInWim + `\tools`, isDir: true},
 	}
 	legacyResList := []wimRes{

