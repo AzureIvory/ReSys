@@ -254,9 +254,8 @@ func validateImageFile(it data.WinImg, imagePath string) error {
 
 // relocateInstallImage 在镜像落在系统盘时将其迁走。
 func relocateInstallImage(imgPath string) (string, error) {
-	systemRoot, _ := utils.NormalizeDrive(windows.SystemDriveRoot(), 0)
-	imageRoot, _ := utils.NormalizeDrive(imgPath, 2)
-	if systemRoot == "" || imageRoot == "" || !strings.EqualFold(systemRoot, imageRoot) {
+	systemRoot := windows.SystemDriveRoot()
+	if strings.TrimSpace(systemRoot) == "" || !sameVolumePath(imgPath, systemRoot) {
 		return imgPath, nil
 	}
 
@@ -280,9 +279,8 @@ func EnsureInstallImageOutsideTarget(plan *InstallPlan) error {
 		return nil
 	}
 
-	imageRoot, _ := utils.NormalizeDrive(plan.ImagePath, 2)
 	targetRoot, _ := utils.NormalizeDrive(plan.TargetRoot, 0)
-	if imageRoot == "" || targetRoot == "" || !strings.EqualFold(imageRoot, targetRoot) {
+	if targetRoot == "" || !sameVolumePath(plan.ImagePath, targetRoot) {
 		return nil
 	}
 
@@ -308,7 +306,7 @@ func EnsureInstallImageOutsideTarget(plan *InstallPlan) error {
 
 // moveImageToDisk 优先把镜像迁移到其他固定盘。
 func moveImageToDisk(imgPath, systemRoot string, needBytes uint64) (string, bool, error) {
-	const extraBytes uint64 = 512*1024*1024 + driverBackupReserveBytes
+	extraBytes := uint64(512*1024*1024) + driverBackupWorkspaceReserveBytes()
 
 	var (
 		bestRoot string
@@ -343,7 +341,7 @@ func moveImageToDisk(imgPath, systemRoot string, needBytes uint64) (string, bool
 func moveImageToTemp(imgPath string, needBytes uint64) (string, error) {
 	ui.UiSetStatus("镜像位于系统盘，正在创建 TEMP 分区并迁移镜像...")
 
-	tmpRoot, err := disk.EnsureTempVolumeForBytes(needBytes + driverBackupReserveBytes)
+	tmpRoot, err := disk.EnsureTempVolumeForBytes(needBytes + driverBackupWorkspaceReserveBytes())
 	if err != nil {
 		return "", err
 	}

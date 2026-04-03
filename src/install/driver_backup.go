@@ -32,6 +32,10 @@ func backupDriversBeforeEnterPE(ctx *InstallContext) error {
 	if ctx == nil || ctx.Plan == nil {
 		return fmt.Errorf("install context is nil")
 	}
+	if !driverBackupEnabled() {
+		log.LogWrite(0, "[backupDriversBeforeEnterPE] skip: driver backup disabled")
+		return nil
+	}
 	if !ctx.Plan.Flags.NeedBackupBeforePE {
 		return nil
 	}
@@ -79,6 +83,10 @@ func restoreBackedUpDrivers(ctx *InstallContext) error {
 	if ctx == nil || ctx.Plan == nil {
 		return fmt.Errorf("install context is nil")
 	}
+	if !driverBackupEnabled() {
+		log.LogWrite(0, "[restoreBackedUpDrivers] skip: driver restore disabled")
+		return nil
+	}
 	if !ctx.Plan.Flags.NeedOfflineDrivers {
 		return nil
 	}
@@ -118,6 +126,9 @@ func restoreBackedUpDrivers(ctx *InstallContext) error {
 func ensureDriverBackupWorkspace(plan *InstallPlan) error {
 	if plan == nil {
 		return fmt.Errorf("install plan is nil")
+	}
+	if !driverBackupEnabled() {
+		return nil
 	}
 	imagePath := plan.ImagePath
 	if imagePath == "" {

@@ -710,10 +710,12 @@ func registerBuiltInHooks(ctx *InstallContext) {
 	if ctx.Hooks == nil {
 		ctx.Hooks = NewHookRegistry()
 	}
-	ctx.Hooks.Add(HookBeforeEnterPE, backupDriversBeforeEnterPE)
 	ctx.Hooks.Add(HookAfterApplyImage, fixwin7drive_updata)
 	ctx.Hooks.Add(HookAfterRepairBoot, fixwin7uefi)
-	ctx.Hooks.Add(HookAfterRepairBoot, restoreBackedUpDrivers)
+	if driverBackupEnabled() {
+		ctx.Hooks.Add(HookBeforeEnterPE, backupDriversBeforeEnterPE)
+		ctx.Hooks.Add(HookAfterRepairBoot, restoreBackedUpDrivers)
+	}
 	ctx.Hooks.Add(HookAfterInstall, autoinstools)
 	ctx.Hooks.Add(HookAfterInstall, adddrivexe)
 	ctx.Hooks.Add(HookAfterInstall, cleanupPreparedPEAfterInstall)
