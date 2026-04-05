@@ -26,8 +26,8 @@ func StartInstall(target string) {
 		BootRepair:   BootRepairModeAuto,
 		Flags: InstallFlags{
 			NeedBitLockerHandling: true,
-			NeedBackupBeforePE:    driverBackupEnabled(),
-			NeedOfflineDrivers:    driverBackupEnabled(),
+			NeedBackupBeforePE:    true,
+			NeedOfflineDrivers:    true,
 			NeedCopyXMLAfterBoot:  true,
 		},
 	}

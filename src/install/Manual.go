@@ -82,8 +82,8 @@ func buildManualInstallPlan(cfg ui.ManualInstallConfig) (*InstallPlan, error) {
 		BootTargetRef: strings.TrimSpace(cfg.BootTargetRef),
 		Flags: InstallFlags{
 			NeedBitLockerHandling: true,
-			NeedBackupBeforePE:    driverBackupEnabled(),
-			NeedOfflineDrivers:    driverBackupEnabled(),
+			NeedBackupBeforePE:    cfg.BackupDrivers,
+			NeedOfflineDrivers:    cfg.BackupDrivers,
 			NeedCopyXMLAfterBoot:  cfg.AutoDeploy,
 		},
 	}
@@ -201,7 +201,7 @@ func runManualDirectFlow(ctx *InstallContext) error {
 		{
 			Name: "备份驱动",
 			Run: func(ctx *InstallContext) error {
-				if !driverBackupEnabled() {
+				if ctx == nil || ctx.Plan == nil || !ctx.Plan.Flags.NeedBackupBeforePE {
 					return nil
 				}
 				ui.UiSetProgress(8)

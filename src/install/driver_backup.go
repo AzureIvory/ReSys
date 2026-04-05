@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 )
 
+/*
 type driverBackupSpec struct {
 	Label string
 	GUID  string
@@ -52,7 +53,7 @@ func backupDriversBeforeEnterPE(ctx *InstallContext) error {
 		return err
 	}
 
-	ui.UiSetStatus("正在备份驱动...")
+	ui.UiSetStatus("Backing up drivers...")
 	log.LogWrite(0, "[backupDriversBeforeEnterPE] backup root=%s image=%s", backupRoot, ctx.Plan.ImagePath)
 
 	dismSvc := dism.NewDism()
@@ -78,16 +79,53 @@ func backupDriversBeforeEnterPE(ctx *InstallContext) error {
 	log.LogWrite(0, "[backupDriversBeforeEnterPE] completed: backupRoot=%s infCount=%d", backupRoot, infCount)
 	return SaveInstallPlan(ctx.Plan)
 }
+*/
+
+// backupDriversBeforeEnterPE keeps only the OEM export path enabled for test runs.
+func backupDriversBeforeEnterPE(ctx *InstallContext) error {
+	if ctx == nil || ctx.Plan == nil {
+		return fmt.Errorf("install context is nil")
+	}
+	if !ctx.Plan.Flags.NeedBackupBeforePE {
+		log.LogWrite(0, "[backupDriversBeforeEnterPE] skip: backup not requested")
+		return nil
+	}
+
+	if err := ensureDriverBackupWorkspace(ctx.Plan); err != nil {
+		return err
+	}
+
+	backupRoot, err := driverBackupRoot(ctx.Plan)
+	if err != nil {
+		return err
+	}
+	if err := resetDriverBackupRoot(backupRoot); err != nil {
+		return err
+	}
+
+	oemDir := filepath.Join(backupRoot, driverBackupOEMDir)
+	ui.UiSetStatus("Backing up OEM drivers...")
+	log.LogWrite(0, "[backupDriversBeforeEnterPE] OEM-only backup root=%s image=%s dir=%s", backupRoot, ctx.Plan.ImagePath, oemDir)
+
+	dismSvc := dism.NewDism()
+	if err := dismSvc.ExportDriversOnlineCmd(oemDir, nil); err != nil {
+		return fmt.Errorf("backup online OEM drivers failed: %w", err)
+	}
+
+	infCount, err := countINFUnderDir(oemDir)
+	if err != nil {
+		return err
+	}
+	log.LogWrite(0, "[backupDriversBeforeEnterPE] OEM-only backup completed: dir=%s infCount=%d", oemDir, infCount)
+	return SaveInstallPlan(ctx.Plan)
+}
 
 func restoreBackedUpDrivers(ctx *InstallContext) error {
 	if ctx == nil || ctx.Plan == nil {
 		return fmt.Errorf("install context is nil")
 	}
-	if !driverBackupEnabled() {
-		log.LogWrite(0, "[restoreBackedUpDrivers] skip: driver restore disabled")
-		return nil
-	}
 	if !ctx.Plan.Flags.NeedOfflineDrivers {
+		log.LogWrite(0, "[restoreBackedUpDrivers] skip: restore not requested")
 		return nil
 	}
 	if ctx.Plan.TargetRoot == "" {
@@ -111,7 +149,7 @@ func restoreBackedUpDrivers(ctx *InstallContext) error {
 		return nil
 	}
 
-	ui.UiSetStatus("正在恢复备份驱动...")
+	ui.UiSetStatus("Restoring backed up drivers...")
 	log.LogWrite(0, "[restoreBackedUpDrivers] restore start: offlineRoot=%s backupRoot=%s infCount=%d", ctx.Plan.TargetRoot, backupRoot, infCount)
 
 	success, fail, err := driversvc.ImportDriversOffline(ctx.Plan.TargetRoot, backupRoot)
@@ -126,9 +164,6 @@ func restoreBackedUpDrivers(ctx *InstallContext) error {
 func ensureDriverBackupWorkspace(plan *InstallPlan) error {
 	if plan == nil {
 		return fmt.Errorf("install plan is nil")
-	}
-	if !driverBackupEnabled() {
-		return nil
 	}
 	imagePath := plan.ImagePath
 	if imagePath == "" {

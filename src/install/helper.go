@@ -25,7 +25,6 @@ const (
 )
 
 const (
-	enableDriverBackupFlow          = false
 	peLinksID                       = "pe_links"
 	minImageBytes            uint64 = 7 * 1024 * 1024 * 1024
 	driverBackupReserveBytes uint64 = 8 * 1024 * 1024 * 1024
@@ -49,15 +48,8 @@ var (
 	procGetVolumeNameForMountPointW = installKernel32.NewProc("GetVolumeNameForVolumeMountPointW")
 )
 
-func driverBackupEnabled() bool {
-	return enableDriverBackupFlow
-}
-
 func driverBackupWorkspaceReserveBytes() uint64 {
-	if driverBackupEnabled() {
-		return driverBackupReserveBytes
-	}
-	return 0
+	return driverBackupReserveBytes
 }
 
 // sameVolumePath compares real volume identities so mounted partitions under the

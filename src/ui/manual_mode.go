@@ -33,6 +33,7 @@ type ManualInstallConfig struct {
 	BootRepair    string
 	BootTargetRef string
 	AutoDeploy    bool
+	BackupDrivers bool
 }
 
 type manualUIState struct {
@@ -66,6 +67,7 @@ type manualUIState struct {
 	bootTargetCombo *widgets.ComboBox
 
 	formatCheck     *widgets.CheckBox
+	backupCheck     *widgets.CheckBox
 	deployCheck     *widgets.CheckBox
 	autoRebootCheck *widgets.CheckBox
 	startBtn        *widgets.Button
@@ -378,7 +380,14 @@ func initManualMode(theme *widgets.Theme, root *widgets.Panel) {
 		manualUpdateSummary()
 	})
 
-	manual.deployCheck = widgets.NewCheckBox("manual-deploy", "安装后自动部署", widgets.ModeCustom)
+	manual.backupCheck = widgets.NewCheckBox("manual-backup-drivers", "备份驱动", widgets.ModeCustom)
+	manual.backupCheck.SetStyle(checkStyle)
+	manual.backupCheck.SetChecked(false)
+	manual.backupCheck.SetOnChange(func(bool) {
+		manualUpdateSummary()
+	})
+
+	manual.deployCheck = widgets.NewCheckBox("manual-deploy", "无人值守", widgets.ModeCustom)
 	manual.deployCheck.SetStyle(checkStyle)
 	manual.deployCheck.SetChecked(true)
 	manual.deployCheck.SetOnChange(func(bool) {
@@ -428,6 +437,7 @@ func initManualMode(theme *widgets.Theme, root *widgets.Panel) {
 		manual.bootModeCombo,
 		manual.bootTargetCombo,
 		manual.formatCheck,
+		manual.backupCheck,
 		manual.deployCheck,
 		manual.autoRebootCheck,
 		manual.startBtn,
@@ -580,13 +590,21 @@ func layoutManual(w, h int32) {
 		H: rowH,
 	})
 
-	manual.formatCheck.SetBounds(core.Rect{X: margin, Y: bottomY, W: ui.app.DP(162), H: rowH})
-	manual.deployCheck.SetBounds(core.Rect{X: margin + ui.app.DP(168), Y: bottomY, W: ui.app.DP(186), H: rowH})
-	manual.autoRebootCheck.SetBounds(core.Rect{X: margin + ui.app.DP(360), Y: bottomY, W: ui.app.DP(110), H: rowH})
+	startBtnW := ui.app.DP(108)
+	optionGap := ui.app.DP(8)
+	optionAreaW := w - margin*2 - startBtnW - ui.app.DP(12)
+	optionW := (optionAreaW - optionGap*3) / 4
+	if optionW < ui.app.DP(92) {
+		optionW = ui.app.DP(92)
+	}
+	manual.formatCheck.SetBounds(core.Rect{X: margin, Y: bottomY, W: optionW, H: rowH})
+	manual.backupCheck.SetBounds(core.Rect{X: margin + optionW + optionGap, Y: bottomY, W: optionW, H: rowH})
+	manual.deployCheck.SetBounds(core.Rect{X: margin + (optionW+optionGap)*2, Y: bottomY, W: optionW, H: rowH})
+	manual.autoRebootCheck.SetBounds(core.Rect{X: margin + (optionW+optionGap)*3, Y: bottomY, W: optionW, H: rowH})
 	manual.startBtn.SetBounds(core.Rect{
-		X: w - margin - ui.app.DP(108),
+		X: w - margin - startBtnW,
 		Y: bottomY - ui.app.DP(2),
-		W: ui.app.DP(108),
+		W: startBtnW,
 		H: rowH + ui.app.DP(4),
 	})
 }
@@ -953,6 +971,22 @@ func manualUpdateSummary() {
 	if bootSummary := manualBootRepairSummary(); bootSummary != "" {
 		parts = append(parts, bootSummary)
 	}
+	options := make([]string, 0, 4)
+	if manual.formatCheck != nil && manual.formatCheck.IsChecked() {
+		options = append(options, "格式化")
+	}
+	if manual.backupCheck != nil && manual.backupCheck.IsChecked() {
+		options = append(options, "备份驱动")
+	}
+	if manual.deployCheck != nil && manual.deployCheck.IsChecked() {
+		options = append(options, "无人值守")
+	}
+	if manual.autoRebootCheck != nil && manual.autoRebootCheck.IsChecked() {
+		options = append(options, "自动重启")
+	}
+	if len(options) > 0 {
+		parts = append(parts, "选项: "+strings.Join(options, "/"))
+	}
 
 	if reason := manualValidationReason(); reason != "" {
 		parts = append(parts, "未就绪: "+reason)
@@ -964,23 +998,24 @@ func manualUpdateSummary() {
 
 func manualBuildConfig() (ManualInstallConfig, error) {
 	if reason := manualValidationReason(); reason != "" {
-		return ManualInstallConfig{}, fmt.Errorf(reason)
+		return ManualInstallConfig{}, fmt.Errorf("%s", reason)
 	}
 
 	row, _ := manualSelectedPartition()
 	info, _ := manualSelectedImageInfo()
 	cfg := ManualInstallConfig{
-		TargetOS:     manualSelectedTargetOS(),
-		ImageArch:    utils.NormalizeArch(info.Arch),
-		ImagePath:    strings.TrimSpace(manual.imagePath),
-		ImageIndex:   info.Index,
-		TargetRoot:   row.TargetRoot,
-		AutoPE:       manual.autoPECheck.IsChecked(),
-		ManualPEWIM:  strings.TrimSpace(manual.peEdit.TextValue()),
-		FormatTarget: manual.formatCheck.IsChecked(),
-		AutoReboot:   manual.autoRebootCheck.IsChecked(),
-		BootRepair:   manualSelectedBootMode(),
-		AutoDeploy:   manual.deployCheck.IsChecked(),
+		TargetOS:      manualSelectedTargetOS(),
+		ImageArch:     utils.NormalizeArch(info.Arch),
+		ImagePath:     strings.TrimSpace(manual.imagePath),
+		ImageIndex:    info.Index,
+		TargetRoot:    row.TargetRoot,
+		AutoPE:        manual.autoPECheck.IsChecked(),
+		ManualPEWIM:   strings.TrimSpace(manual.peEdit.TextValue()),
+		FormatTarget:  manual.formatCheck.IsChecked(),
+		AutoReboot:    manual.autoRebootCheck.IsChecked(),
+		BootRepair:    manualSelectedBootMode(),
+		AutoDeploy:    manual.deployCheck.IsChecked(),
+		BackupDrivers: manual.backupCheck != nil && manual.backupCheck.IsChecked(),
 	}
 	if cfg.ImageArch == "" {
 		cfg.ImageArch = winos.DesiredArch()
