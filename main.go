@@ -13,6 +13,7 @@ import (
 	"ReSys/src/ui"
 	"ReSys/src/utils"
 	"ReSys/src/windows"
+	"ReSys/src/data"
 )
 
 var t = D.NewDism()
@@ -88,7 +89,9 @@ func test() {
 }
 
 func main() {
-	fmt.Println("正在检查权限...")
+	fmt.Println(data.ParseRuleWinImgs(`C:\Users\Administrator\Desktop\ReSys\rules\core\image-sources\10\win10-ms.json`))
+
+	os.Exit(1)
 	if !tools.IsAdmin() {
 		if err := tools.RestartAsAdmin(); err != nil {
 			panic(err)
