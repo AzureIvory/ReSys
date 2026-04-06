@@ -1,0 +1,32 @@
+{
+    "system":"10",
+    "url":{
+        "url1":"https://api.ttraw.com/api/win/win10",
+        "url2":"https://api.hotpe.top/winnew/file-list?SystemCode=10"
+    },
+    "method":"get",
+    "headers":{},
+    "data":{},
+    "SizeUnit":"B",
+    "timeout":8000,
+    "rules":{
+        "Name":"",
+        "FileName":"$.data[number].FileName",
+        "Language":"$.data[number].LanguageCode",
+        "Edition":"$.data[number].Edition",
+        "Arch":"$.data[number].Architecture",
+        "Size":"$.data[number].Size",
+        "hash":{
+            "Sha1":"$.data[number].Sha1",
+            "Sha256":"",
+            "MD5":""
+        },
+        "link":{
+            "link1":"$.data[number].FilePath"
+        },
+        "ver":"$.data[number].VerCode",
+        "index":-1
+
+    }
+
+}

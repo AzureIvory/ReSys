@@ -1,0 +1,78 @@
+{
+    "method":"get",
+    "headers":{},
+    "data":{},
+    "SizeUnit":"MB",
+    "timeout":8000,
+    "items":{
+        "wepe2.3-64":{
+            "System":"10",
+            "Name":"微PE-2.3-64",
+            "FileName":"WePE_64_V2.3.exe",
+            "Language":"zh-cn",
+            "Arch":"64",
+            "Size":"227",
+            "hash":{
+                "MD5":"ff350f20c45582df749c2498a5ddf149"
+            },
+            "offset":"0x2071A4 | 0xD3B8DFE",
+            "link":{
+                "type":"url",
+                "link1":"https://mirrors.sdu.edu.cn/wepe/WePE_64_V2.3.exe",
+                "link2":"https://mirrors.lzu.edu.cn/wepe/WePE_64_V2.3.exe"
+            }
+        },
+        "wepe2.3-32":{
+            "System":"10",
+            "Name":"微PE-2.3-32",
+            "FileName":"WePE_32_V2.3.exe",
+            "Language":"zh-cn",
+            "Arch":"32",
+            "Size":"183",
+            "hash":{
+                "MD5":"661c352ba4ae60b08b6dc47656a23c14"
+            },
+            "offset":"0x207197 | 0xa6eb120",
+            "link":{
+                "type":"url",
+                "link1":"https://mirrors.sdu.edu.cn/wepe/WePE_32_V2.3.exe",
+                "link2":"https://mirrors.lzu.edu.cn/wepe/WePE_32_V2.3.exe"
+            }
+        },
+        "wepe1.3-64":{
+            "System":"8",
+            "Name":"微PE-1.3-64",
+            "FileName":"WePE_64_V1.3.exe",
+            "Language":"zh-cn",
+            "Arch":"64",
+            "Size":"201",
+            "hash":{
+                "MD5":"0068f01a9f39e537ae84586a090bc3e6"
+            },
+            "offset":"0x207194 | 0xb505008",
+            "link":{
+                "type":"url",
+                "link1":"https://mirrors.sdu.edu.cn/wepe/WePE_64_V1.3.exe",
+                "link2":"https://mirrors.lzu.edu.cn/wepe/WePE_64_V1.3.exe"
+            }
+        },
+        "wepe1.3-32":{
+            "System":"8",
+            "Name":"微PE-1.3-32",
+            "FileName":"WePE_32_V1.3.exe",
+            "Language":"zh-cn",
+            "Arch":"32",
+            "Size":"124",
+            "hash":{
+                "MD5":"5498a6cb85708c5189f20efc8c1786be"
+            },
+            "offset":"0x207194 | 0x6a09d11",
+            "link":{
+                "type":"url",
+                "link1":"https://mirrors.sdu.edu.cn/wepe/WePE_32_V1.3.exe",
+                "link2":"https://mirrors.lzu.edu.cn/wepe/WePE_32_V1.3.exe"
+            }
+        }
+    }
+}
+    

@@ -1,0 +1,26 @@
+{
+    "method":"get",
+    "headers":{},
+    "data":{},
+    "SizeUnit":"GB",
+    "timeout":8000,
+    "items":{
+        "wepe2.3-64":{
+            "System":"7",
+            "Name":"Windows 7 Ultimate with Service Pack 1 (7601.24214) (x64) - DVD (English)",
+            "FileName":"7601.24214.180801-1700.win7sp1_ldr_escrow_CLIENT_ULTIMATE_x64FRE_en-us.iso",
+            "Language":"en-us",
+            "Arch":"64",
+            "Size":"5.47",
+            "hash":{
+                "SHA1":"7CC76B0015220DE956328FB934D61B710A94293D"
+            },
+            "offset":"0x2071A4 | 0xD3B8DFE",
+            "link":{
+                "type":"bt",
+                "link1":"magnet:?xt=urn:btih:0499F84DB242096F2185E38B696CD3D6C8D0E62C&dn=7601.24214.180801-1700.win7sp1_ldr_escrow_CLIENT_ULTIMATE_x64FRE_en-us.iso&xl=5876357120"
+            }
+        }
+    }
+}
+    

@@ -1,0 +1,31 @@
+{
+    "system":"10",
+    "url":{
+        "url1":"https://api.ttraw.com/Windows.json"
+    },
+    "method":"get",
+    "headers":{},
+    "data":{},
+    "SizeUnit":"GB",
+    "timeout":8000,
+    "rules":{
+        "Name":"$.win10[key]",
+        "FileName":"$.win10[number].file",
+        "Language":"zh-cn",
+        "Edition":"",
+        "Arch":"$.win10[number].arch",
+        "Size":"$.win10[number].size",
+        "hash":{
+            "Sha1":"$.win10[number].SHA1",
+            "Sha256":"",
+            "MD5":""
+        },
+        "link":{
+            "type":"$.win10[number].type",
+            "link1":"$.win10[number].link",
+            "link2":"$.win10[number].link2"
+        },
+        "ver":"",
+        "index":"$.win10[number].index"
+    }
+}

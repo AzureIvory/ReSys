@@ -1,0 +1,30 @@
+{
+    "system":"11",
+    "url":{
+        "url1":"https://api.ttraw.com/Windows.json"
+    },
+    "method":"get",
+    "headers":{},
+    "data":{},
+    "SizeUnit":"GB",
+    "timeout":8000,
+    "rules":{
+        "Name":"$.win11[key]",
+        "FileName":"$.win11[number].file",
+        "Language":"zh-cn",
+        "Edition":"",
+        "Arch":"$.win11[number].arch",
+        "Size":"$.win11[number].size",
+        "hash":{
+            "Sha1":"$.win11[number].SHA1",
+            "Sha256":"",
+            "MD5":""
+        },
+        "link":{
+            "type":"$.win11[number].type",
+            "link1":"$.win11[number].link",
+            "link2":"$.win11[number].link2"
+        },
+        "ver":""
+    }
+}
