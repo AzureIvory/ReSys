@@ -18,9 +18,16 @@ import (
 	"time"
 )
 
-// ===== 闂傚倵鍋撴繝濠傚暙閸撶厧鈽夐幘鎰佸創婵?=====
+// Image download and selection helpers.
 
-// downloadFileWithRetry 闁革负鍔岄ˇ鈺呮偠閸℃ɑ鎷遍柛锔惧閻ｎ偊鎮惧▎鎰€ù鐘烘硾閸熻法绮ｆ担瑙勵槯闁煎浜滄慨鈺併€掗崨顖涘€為柛姘叄閸ｅ摜鎷犻弴姘鳖伇婵炲枴鎵冲亾?
+// downloadFileWithRetry downloads one HTTP/HTTPS link and retries once after
+// cleaning stale local artifacts when the downloader reports a local conflict.
+//
+// Large image downloads are often interrupted and leave behind partial files,
+// `.aria2` sidecars, or other temporary artifacts. Those leftovers make the
+// next attempt fail immediately on the destination path. This helper performs
+// a pre-cleanup before the first attempt and one more cleanup before the retry
+// so callers can treat local-conflict recovery as part of the normal flow.
 func downloadFileWithRetry(link, dstPath string, progress func(float64, int64)) error {
 	if err := cleanupDownloadArtifacts(dstPath); err != nil {
 		log.LogWrite(0, "[downloadImage] cleanup existing download target failed: path=%s err=%v", dstPath, err)
@@ -50,17 +57,66 @@ func downloadFileWithRetry(link, dstPath string, progress func(float64, int64)) 
 	return lastErr
 }
 
-// DownloadImage 婵炲濮撮柊锝夊储閵堝洨纾炬い鏃傚亾閻ｉ亶姊婚埀顒€顭ㄩ崘銊ュ濠电姍鍕缂佹鎳忓顏堟偩瀹€鍕帣缂傚倷鑳堕崰鏍汲閸涙潙纾介煫鍥ь儌閸?
+// ruleItemLinks returns the usable download links declared by a rule item.
+//
+// The data package already normalizes image rules during aggregation. This
+// helper keeps the install package defensive by trimming blanks and removing
+// duplicates again, so both URL and non-URL download branches can iterate the
+// same cleaned list without re-implementing the same checks.
+func ruleItemLinks(it data.RuleItem) []string {
+	out := make([]string, 0, len(it.Link.Links))
+	seen := make(map[string]struct{}, len(it.Link.Links))
+	for _, link := range it.Link.Links {
+		link = strings.TrimSpace(link)
+		if link == "" {
+			continue
+		}
+		if _, ok := seen[link]; ok {
+			continue
+		}
+		seen[link] = struct{}{}
+		out = append(out, link)
+	}
+	return out
+}
+
+// prepareImageDestination decides the final path for a rule/link pair and
+// reuses an existing verified file when possible.
+//
+// If a file with the expected name already exists, it is validated first.
+// Valid files are returned directly. Invalid files and stale side artifacts are
+// removed so the caller always receives a clean destination path for download.
+func prepareImageDestination(it data.RuleItem, dstDir, link string) (string, bool) {
+	dstPath := filepath.Join(dstDir, data.RuleItemFileName(it, link))
+	if st, err := os.Stat(dstPath); err == nil && !st.IsDir() && st.Size() > 0 {
+		if err := validateImageFile(it, dstPath); err != nil {
+			log.LogWrite(0, "[downloadImage] image verification failed, removing and retrying: %s err=%v", dstPath, err)
+			_ = cleanupDownloadArtifacts(dstPath)
+		} else {
+			return dstPath, true
+		}
+	}
+	_ = cleanupDownloadArtifacts(dstPath)
+	return dstPath, false
+}
+
+// DownloadImage resolves candidate install images for the requested system and
+// architecture, then downloads the first candidate that passes validation.
+//
+// Selection is intentionally stable:
+//  1. use the data package's aggregated and de-duplicated RuleItem list
+//  2. prefer the requested architecture, with 32-bit falling back to 64-bit
+//  3. try URL links before non-URL links and validate every completed image
 func DownloadImage(target, arch string) (string, error) {
-	ent, err := data.GetWinImgs(target)
+	ent, err := data.GetInstallImageItems(target)
 	if err != nil {
 		log.LogWrite(0, "[downloadImage] failed to load image list: %v", err)
 		return "", err
 	}
 
-	candidates := image.FilterWinImgsByArch(ent, arch)
+	candidates := image.FilterRuleItemsByArch(ent, arch)
 	if len(candidates) == 0 && arch == "32" {
-		candidates = image.FilterWinImgsByArch(ent, "64")
+		candidates = image.FilterRuleItemsByArch(ent, "64")
 	}
 	if len(candidates) == 0 {
 		candidates = ent
@@ -81,11 +137,11 @@ func DownloadImage(target, arch string) (string, error) {
 	var errs []string
 
 	for _, it := range candidates {
-		if !strings.EqualFold(strings.TrimSpace(it.Type), "url") {
+		if !strings.EqualFold(strings.TrimSpace(it.Link.Type), "url") {
 			continue
 		}
 
-		links := []string{strings.TrimSpace(it.Link), strings.TrimSpace(it.Link2)}
+		links := ruleItemLinks(it)
 		prevLink := ""
 		switchReason := ""
 
@@ -112,32 +168,21 @@ func DownloadImage(target, arch string) (string, error) {
 				switchReason = ""
 			}
 
-			name := data.ImgName(it, link)
-			if strings.TrimSpace(it.File) != "" {
-				name = strings.TrimSpace(it.File)
+			dstPath, reused := prepareImageDestination(it, dstDir, link)
+			if reused {
+				log.LogWrite(0, "[downloadImage] image already exists: %s", dstPath)
+				ui.UiSetProgress(60)
+				return dstPath, nil
 			}
-			dstPath := filepath.Join(dstDir, name)
-
-			if st, err := os.Stat(dstPath); err == nil && !st.IsDir() && st.Size() > 0 {
-				if err := validateImageFile(it, dstPath); err != nil {
-					log.LogWrite(0, "[downloadImage] image verification failed, removing and retrying: %s err=%v", dstPath, err)
-					_ = cleanupDownloadArtifacts(dstPath)
-				} else {
-					log.LogWrite(0, "[downloadImage] image already exists: %s", dstPath)
-					ui.UiSetProgress(60)
-					return dstPath, nil
-				}
-			}
-			_ = cleanupDownloadArtifacts(dstPath)
 			ui.UiSetProgress(0)
-			ui.UiSetStatus("濠殿喗绻愮徊钘夛耿椤忓懐鈻旈悗锝庡幗缁佷即姊婚埀顒€顭ㄩ崘銊ュ... 0.0% 闂備緡鍋嗛崰搴ｂ偓? 0.00 MB/s")
+			ui.UiSetStatus("Downloading install image... 0.0% Speed: 0.00 MB/s")
 			log.LogWrite(0, "[downloadImage] starting image download (URL): %s -> %s", link, dstPath)
 
 			pr := NewProgressReporter(
 				0, 60,
 				time.Second, time.Second,
-				"濠殿喗绻愮徊钘夛耿椤忓懐鈻旈悗锝庡幗缁佷即姊婚埀顒€顭ㄩ崘銊ュ... %.1f%% 闂備緡鍋嗛崰搴ｂ偓? %.2f MB/s",
-				"闂傚倵鍋撴繝濠傚暙閸撶厧鈽夐幘鎰佸創婵炴潙娲﹀璇测槈濡警鍞? %.1f%% 闂備緡鍋嗛崰搴ｂ偓? %.2f MB/s",
+				"Downloading install image... %.1f%% Speed: %.2f MB/s",
+				"Waiting for install image data... %.1f%% Speed: %.2f MB/s",
 				true,
 			)
 
@@ -173,55 +218,62 @@ func DownloadImage(target, arch string) (string, error) {
 	}
 
 	for _, it := range candidates {
-		if strings.EqualFold(strings.TrimSpace(it.Type), "url") {
+		if strings.EqualFold(strings.TrimSpace(it.Link.Type), "url") {
 			continue
 		}
 
-		link, lerr := data.ImgLink(it)
-		if lerr != nil {
-			errs = append(errs, fmt.Sprintf("failed to get BT link file=%s err=%v", it.File, lerr))
-			continue
-		}
-		link = strings.TrimSpace(link)
-		if link == "" || isFailedLink(link) {
+		links := ruleItemLinks(it)
+		if len(links) == 0 {
+			errs = append(errs, fmt.Sprintf("failed to get non-URL link file=%s err=no usable link", it.FileName))
 			continue
 		}
 
-		name := data.ImgName(it, link)
-		if strings.TrimSpace(it.File) != "" {
-			name = strings.TrimSpace(it.File)
-		}
-		dstPath := filepath.Join(dstDir, name)
+		prevLink := ""
+		switchReason := ""
+		for _, link := range links {
+			if isFailedLink(link) {
+				prevLink = link
+				switchReason = "link marked as failed"
+				continue
+			}
 
-		if st, err := os.Stat(dstPath); err == nil && !st.IsDir() && st.Size() > 0 {
-			if err := validateImageFile(it, dstPath); err != nil {
-				log.LogWrite(0, "[downloadImage] image verification failed, removing and retrying: %s err=%v", dstPath, err)
-				_ = cleanupDownloadArtifacts(dstPath)
-			} else {
+			if prevLink != "" && switchReason != "" {
+				logLinkSwitch("downloadImage", prevLink, link, switchReason)
+				switchReason = ""
+			}
+
+			dstPath, reused := prepareImageDestination(it, dstDir, link)
+			if reused {
 				log.LogWrite(0, "[downloadImage] image already exists: %s", dstPath)
 				ui.UiSetProgress(60)
 				return dstPath, nil
 			}
-		}
 
-		log.LogWrite(0, "[downloadImage] starting image download (BT): %s -> %s", link, dstDir)
-		lastLog := time.Time{}
-		lastUI := time.Time{}
+			log.LogWrite(0, "[downloadImage] starting image download (BT): %s -> %s", link, dstDir)
+			lastLog := time.Time{}
+			lastUI := time.Time{}
 
-		realPath, err := download.DownloadBT(link, dstDir, func(pct int, speed, done, total int64) {
-			now := time.Now()
-			if lastUI.IsZero() || now.Sub(lastUI) >= time.Second || pct >= 100 {
-				ui.UiSetStatus(fmt.Sprintf("濠殿喗绻愮徊钘夛耿椤忓懐鈻旈悗锝庡幗缁佷即姊婚埀顒€顭ㄩ崘銊ュ... %d%% 闂備緡鍋嗛崰搴ｂ偓? %.2f MB/s", pct, float64(speed)/1024/1024))
-				ui.UiSetProgress(MapPct(0, 60, float64(pct)))
-				lastUI = now
+			realPath, err := download.DownloadBT(link, dstDir, func(pct int, speed, done, total int64) {
+				now := time.Now()
+				if lastUI.IsZero() || now.Sub(lastUI) >= time.Second || pct >= 100 {
+					ui.UiSetStatus(fmt.Sprintf("Downloading install image... %d%% Speed: %.2f MB/s", pct, float64(speed)/1024/1024))
+					ui.UiSetProgress(MapPct(0, 60, float64(pct)))
+					lastUI = now
+				}
+				if lastLog.IsZero() || now.Sub(lastLog) >= time.Second || pct >= 100 {
+					log.LogWrite(0, "[downloadImage] BT download progress: %d%% speed: %.2f MB/s", pct, float64(speed)/1024/1024)
+					lastLog = now
+				}
+			})
+
+			if err != nil {
+				log.LogWrite(0, "[downloadImage] image download failed (BT): link=%s err=%v", link, err)
+				errs = append(errs, fmt.Sprintf("BT failed link=%s err=%v", link, err))
+				prevLink = link
+				switchReason = fmt.Sprintf("download error: %v", err)
+				continue
 			}
-			if lastLog.IsZero() || now.Sub(lastLog) >= time.Second || pct >= 100 {
-				log.LogWrite(0, "[downloadImage] BT download progress: %d%% speed: %.2f MB/s", pct, float64(speed)/1024/1024)
-				lastLog = now
-			}
-		})
 
-		if err == nil {
 			finalPath := realPath
 			if realPath != "" && !strings.EqualFold(realPath, dstPath) {
 				_ = cleanupDownloadArtifacts(dstPath)
@@ -241,6 +293,8 @@ func DownloadImage(target, arch string) (string, error) {
 				_ = cleanupDownloadArtifacts(finalPath)
 				log.LogWrite(0, "[downloadImage] image verification failed, removing and retrying: %s err=%v", finalPath, vErr)
 				errs = append(errs, fmt.Sprintf("BT verification failed link=%s err=%v", link, vErr))
+				prevLink = link
+				switchReason = fmt.Sprintf("download completed but verification failed: %v", vErr)
 				continue
 			}
 
@@ -248,9 +302,6 @@ func DownloadImage(target, arch string) (string, error) {
 			ui.UiSetProgress(60)
 			return finalPath, nil
 		}
-
-		log.LogWrite(0, "[downloadImage] image download failed (BT): link=%s err=%v", link, err)
-		errs = append(errs, fmt.Sprintf("BT failed link=%s err=%v", link, err))
 	}
 
 	if len(errs) > 0 {
@@ -259,7 +310,13 @@ func DownloadImage(target, arch string) (string, error) {
 	return "", fmt.Errorf("no usable image download link found")
 }
 
-// chooseDownloadRoot 闂備緡鍋勯ˇ鎵偓姘ュ姂濮婄懓顭ㄩ崘銊ュ婵炴垶鎸搁鍫澝归崶顒佸剭闁告洦鍘界粣妤呮煛瀹ュ懏鎼愰柛銊ラ叄瀹曠娀骞侀幒鍡椾壕?
+// chooseDownloadRoot picks the preferred root directory for storing downloads.
+//
+// The order intentionally favors non-system volumes with enough free space so
+// large ISO or WIM downloads do not fill the system drive unnecessarily. If no
+// such volume exists, the function falls back to the system drive, then to a
+// temporary volume provisioned by the disk package, and finally to any fixed
+// disk that is still available.
 func chooseDownloadRoot() string {
 	systemDrive := strings.ToUpper(os.Getenv("SystemDrive"))
 	parts := disk.Findpart()

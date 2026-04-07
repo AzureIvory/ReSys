@@ -347,14 +347,19 @@ func targetMatchesImage(imagePath, target string) bool {
 	}
 }
 
-// 按架构过滤镜像列表。
-func FilterWinImgsByArch(ent []data.WinImg, arch string) []data.WinImg {
+// FilterRuleItemsByArch returns only the rule items whose normalized
+// architecture exactly matches the requested architecture.
+//
+// The data package already normalizes common architecture aliases into
+// canonical values such as `32`, `64`, and `arm64`, so the filter can stay
+// simple and do an exact comparison here.
+func FilterRuleItemsByArch(items []data.RuleItem, arch string) []data.RuleItem {
 	arch = strings.TrimSpace(arch)
 	if arch == "" {
-		return ent
+		return items
 	}
-	var out []data.WinImg
-	for _, it := range ent {
+	out := make([]data.RuleItem, 0, len(items))
+	for _, it := range items {
 		if strings.TrimSpace(it.Arch) == arch {
 			out = append(out, it)
 		}

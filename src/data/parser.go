@@ -219,7 +219,7 @@ func applyRuleMeta(res *RuleParseResult) {
 	}
 }
 
-// ParseRuleItems 璇诲彇瑙勫垯鏂囦欢骞惰繑鍥炵粺涓€缁撴灉銆?
+// ParseRuleItems parses one rule file and returns its generic RuleItem entries.
 func ParseRuleItems(rulePath string) ([]RuleItem, error) {
 	res, err := ParseRuleFile(rulePath)
 	if err != nil {
@@ -228,37 +228,7 @@ func ParseRuleItems(rulePath string) ([]RuleItem, error) {
 	return res.Items, nil
 }
 
-// ParseRuleWinImgs 灏嗚鍒欑粨鏋滆浆鎹负 WinImg銆?
-func ParseRuleWinImgs(rulePath string) ([]WinImg, error) {
-	items, err := ParseRuleItems(rulePath)
-	if err != nil {
-		return nil, err
-	}
-
-	out := make([]WinImg, 0, len(items))
-	for _, it := range items {
-		var link1, link2 string
-		if len(it.Link.Links) > 0 {
-			link1 = it.Link.Links[0]
-		}
-		if len(it.Link.Links) > 1 {
-			link2 = it.Link.Links[1]
-		}
-		out = append(out, WinImg{
-			Arch:  it.Arch,
-			Type:  defaultLinkType(it.Link.Type),
-			SHA1:  it.Hash.Sha1,
-			Link:  link1,
-			Link2: link2,
-			Size:  it.Size,
-			Index: it.Index,
-			File:  it.FileName,
-		})
-	}
-	return out, nil
-}
-
-// ParseRuleWinPEs 灏嗚鍒欑粨鏋滆浆鎹负 WinPEImg銆?
+// ParseRuleWinPEs converts generic rule items into WinPE-specific entries.
 func ParseRuleWinPEs(rulePath string) ([]WinPEImg, error) {
 	items, err := ParseRuleItems(rulePath)
 	if err != nil {

@@ -17,9 +17,16 @@ import (
 	"strings"
 )
 
-// ===== 闀滃儚鑾峰彇 =====
+// Install-image acquisition helpers.
 
-// AcquireInstallImage 瀹氫綅鎴栦笅杞藉彲鐢ㄧ殑瀹夎闀滃儚銆?
+// AcquireInstallImage resolves a usable install image for the current plan.
+//
+// The flow is intentionally predictable:
+//  1. normalize the plan so downstream helpers receive stable target metadata
+//  2. prefer an existing local image and download only when necessary
+//  3. relocate the image when keeping it on the system volume would be risky
+//
+// The final path is persisted back into plan.ImagePath.
 func AcquireInstallImage(plan *InstallPlan) (string, error) {
 	if err := NormalizeInstallPlan(plan); err != nil {
 		return "", err
@@ -39,7 +46,11 @@ func AcquireInstallImage(plan *InstallPlan) (string, error) {
 	return imgPath, nil
 }
 
-// RecoverOrAcquireInstallImage 浼樺厛鎭㈠闀滃儚璺緞锛屽け璐ュ悗閲嶆柊鑾峰彇闀滃儚銆?
+// RecoverOrAcquireInstallImage restores a previously known image path when
+// possible and falls back to a fresh acquire flow otherwise.
+//
+// This is the preferred entry point for resumed installs because it avoids
+// repeating large downloads when the original image can still be located.
 func RecoverOrAcquireInstallImage(plan *InstallPlan) (string, error) {
 	if plan == nil {
 		return "", fmt.Errorf("install plan is nil")
@@ -52,7 +63,8 @@ func RecoverOrAcquireInstallImage(plan *InstallPlan) (string, error) {
 	return AcquireInstallImage(plan)
 }
 
-// findInstallImage 浼樺厛鏌ユ壘鏈湴闀滃儚锛屽啀鍥為€€鍒颁笅杞姐€?
+// findInstallImage searches for a local image first and downloads one only when
+// no suitable local candidate is available.
 func findInstallImage(plan *InstallPlan) (string, error) {
 	if local, err := image.FindLocalImage(plan.TargetOS, plan.ImageArch); err == nil && strings.TrimSpace(local) != "" {
 		return local, nil
@@ -61,7 +73,13 @@ func findInstallImage(plan *InstallPlan) (string, error) {
 	return DownloadImage(plan.TargetOS, plan.ImageArch)
 }
 
-// RecoverInstallImagePath 鏍规嵁鎸佷箙鍖栫嚎绱㈡仮澶嶉暅鍍忚矾寰勩€?
+// RecoverInstallImagePath rebuilds the image path from persisted install-plan
+// metadata.
+//
+// Recovery checks the stored absolute path first, then the persisted relative
+// path, then volume and disk identifiers, and finally the lightweight recovery
+// record written beside the image. This gives interrupted installs several
+// chances to reconnect to an existing image after drive letters change.
 func RecoverInstallImagePath(plan *InstallPlan) (string, error) {
 	if plan == nil {
 		return "", fmt.Errorf("install plan is nil")
@@ -205,9 +223,15 @@ func RecoverInstallImagePath(plan *InstallPlan) (string, error) {
 	return "", fmt.Errorf("未找到镜像文件")
 }
 
-func validateImageFile(it data.WinImg, imagePath string) error {
-	if strings.TrimSpace(it.SHA1) != "" {
-		ok, got, err := download.CheckFileSHA1(imagePath, it.SHA1)
+// validateImageFile verifies that an on-disk image is still safe to reuse.
+//
+// When a rule provides a SHA1 hash, the hash is treated as the strongest source
+// of truth and must match exactly. Otherwise the function falls back to a
+// lightweight structure probe for ISO/WIM/ESD files so corrupted or incomplete
+// downloads are rejected before later install stages depend on them.
+func validateImageFile(it data.RuleItem, imagePath string) error {
+	if strings.TrimSpace(it.Hash.Sha1) != "" {
+		ok, got, err := download.CheckFileSHA1(imagePath, it.Hash.Sha1)
 		if err != nil {
 			return fmt.Errorf("SHA1 verification failed: %w", err)
 		}
@@ -226,7 +250,12 @@ func validateImageFile(it data.WinImg, imagePath string) error {
 	return nil
 }
 
-// relocateInstallImage 鍦ㄩ暅鍍忚惤鍦ㄧ郴缁熺洏鏃跺皢鍏惰縼璧般€?
+// relocateInstallImage moves an image away from the system volume when doing so
+// reduces risk during later install steps.
+//
+// The function leaves the image untouched when it is already outside the system
+// volume. Otherwise it first tries to move the image onto another regular data
+// volume and falls back to a temporary volume only when needed.
 func relocateInstallImage(imgPath string) (string, error) {
 	systemRoot := windows.SystemDriveRoot()
 	if strings.TrimSpace(systemRoot) == "" || !sameVolumePath(imgPath, systemRoot) {
@@ -247,7 +276,11 @@ func relocateInstallImage(imgPath string) (string, error) {
 	return moveImageToTemp(imgPath, needBytes)
 }
 
-// EnsureInstallImageOutsideTarget 纭繚闀滃儚涓嶄笌鐩爣鍒嗗尯閲嶅彔銆?
+// EnsureInstallImageOutsideTarget makes sure the install image does not stay on
+// the same volume that is about to be repartitioned or reformatted.
+//
+// When the image currently resides on the target volume, the function moves it
+// to a safer location and updates the install plan in place.
 func EnsureInstallImageOutsideTarget(plan *InstallPlan) error {
 	if plan == nil || strings.TrimSpace(plan.ImagePath) == "" || strings.TrimSpace(plan.TargetRoot) == "" {
 		return nil
@@ -278,7 +311,10 @@ func EnsureInstallImageOutsideTarget(plan *InstallPlan) error {
 	return nil
 }
 
-// moveImageToDisk 浼樺厛鎶婇暅鍍忚縼绉诲埌鍏朵粬鍥哄畾鐩樸€?
+// moveImageToDisk tries to relocate the image onto another fixed data volume.
+//
+// The target volume must have enough free space for the image itself plus a
+// small workspace reserve so later driver-backup steps are not squeezed out.
 func moveImageToDisk(imgPath, systemRoot string, needBytes uint64) (string, bool, error) {
 	extraBytes := uint64(512*1024*1024) + driverBackupWorkspaceReserveBytes()
 
@@ -302,7 +338,7 @@ func moveImageToDisk(imgPath, systemRoot string, needBytes uint64) (string, bool
 		return "", false, nil
 	}
 
-	ui.UiSetStatus("闀滃儚浣嶄簬绯荤粺鐩橈紝姝ｅ湪杩佺Щ鍒板叾浠栧浐瀹氱洏...")
+	ui.UiSetStatus("Install image is on the system volume; moving it to another fixed disk...")
 	movedPath, err := moveImageFile(imgPath, bestRoot, "tempimg")
 	if err != nil {
 		return "", false, err
@@ -311,9 +347,10 @@ func moveImageToDisk(imgPath, systemRoot string, needBytes uint64) (string, bool
 	return movedPath, true, nil
 }
 
-// moveImageToTemp 鎶婇暅鍍忚縼绉诲埌涓存椂鍒嗗尯銆?
+// moveImageToTemp relocates the image onto a temporary volume prepared by the
+// disk package.
 func moveImageToTemp(imgPath string, needBytes uint64) (string, error) {
-	ui.UiSetStatus("闀滃儚浣嶄簬绯荤粺鐩橈紝姝ｅ湪鍒涘缓 TEMP 鍒嗗尯骞惰縼绉婚暅鍍?..")
+	ui.UiSetStatus("Install image is on the system volume; creating a TEMP volume and moving the image...")
 
 	tmpRoot, err := disk.EnsureTempVolumeForBytes(needBytes + driverBackupWorkspaceReserveBytes())
 	if err != nil {
@@ -329,7 +366,8 @@ func moveImageToTemp(imgPath string, needBytes uint64) (string, error) {
 	return movedPath, nil
 }
 
-// moveImageFile 灏嗛暅鍍忓鍒跺埌鐩爣鐩綍骞跺垏鎹㈣矾寰勩€?
+// moveImageFile copies the image into the destination directory and then
+// switches the returned path to the new location.
 func moveImageFile(srcPath, root, subDir string) (string, error) {
 	dstDir := filepath.Join(root, subDir)
 	if err := os.MkdirAll(dstDir, 0o755); err != nil {
@@ -353,9 +391,10 @@ func moveImageFile(srcPath, root, subDir string) (string, error) {
 	return dstPath, nil
 }
 
-// ===== 闀滃儚绱㈠紩閫夋嫨 =====
+// Install-image index selection.
 
-// ResolveInstallImageIndex 璇诲彇闀滃儚鍏冩暟鎹苟閫夋嫨瀹夎绱㈠紩銆?
+// ResolveInstallImageIndex inspects the image metadata and fills the install
+// plan with the selected image index and inferred target OS when needed.
 func ResolveInstallImageIndex(ctx *InstallContext) error {
 	if ctx == nil || ctx.Plan == nil {
 		return fmt.Errorf("install context is nil")
@@ -383,7 +422,8 @@ func ResolveInstallImageIndex(ctx *InstallContext) error {
 	return nil
 }
 
-// installImageInfosFromContext 璇诲彇涓婁笅鏂囩紦瀛樼殑闀滃儚鍏冩暟鎹€?
+// installImageInfosFromContext reads cached image metadata from the install
+// context state map.
 func installImageInfosFromContext(ctx *InstallContext) []dism.ImageMeta {
 	if ctx == nil || ctx.State == nil {
 		return nil
@@ -395,7 +435,8 @@ func installImageInfosFromContext(ctx *InstallContext) []dism.ImageMeta {
 	return infos
 }
 
-// SelectInstallIndex 鎸夐璁句紭鍏堢骇閫夋嫨闀滃儚绱㈠紩銆?
+// SelectInstallIndex delegates image-index selection to the image package so
+// install logic keeps one consistent selection policy.
 func SelectInstallIndex(infos []dism.ImageMeta) int {
 	return image.SelectInstallIndex(infos)
 }
