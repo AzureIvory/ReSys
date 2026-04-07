@@ -1,4 +1,7 @@
 {
+    "Source":"win10-zh-cn1",
+    "Rank":8,
+    "Enabled":true,
     "system":"10",
     "url":{
         "url1":"https://api.ttraw.com/Windows.json"

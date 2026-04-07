@@ -1,4 +1,7 @@
 {
+    "Source":"win11-ms",
+    "Rank":9,
+    "Enabled":true,
     "system":"11",
     "url":{
         "url1":"https://api.ttraw.com/api/win/win11",

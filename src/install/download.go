@@ -18,9 +18,9 @@ import (
 	"time"
 )
 
-// ===== 镜像下载 =====
+// ===== 闂傚倵鍋撴繝濠傚暙閸撶厧鈽夐幘鎰佸創婵?=====
 
-// downloadMSImage 下载并校验微软官方直链镜像。
+// downloadFileWithRetry 闁革负鍔岄ˇ鈺呮偠閸℃ɑ鎷遍柛锔惧閻ｎ偊鎮惧▎鎰€ù鐘烘硾閸熻法绮ｆ担瑙勵槯闁煎浜滄慨鈺併€掗崨顖涘€為柛姘叄閸ｅ摜鎷犻弴姘鳖伇婵炲枴鎵冲亾?
 func downloadFileWithRetry(link, dstPath string, progress func(float64, int64)) error {
 	if err := cleanupDownloadArtifacts(dstPath); err != nil {
 		log.LogWrite(0, "[downloadImage] cleanup existing download target failed: path=%s err=%v", dstPath, err)
@@ -50,121 +50,7 @@ func downloadFileWithRetry(link, dstPath string, progress func(float64, int64)) 
 	return lastErr
 }
 
-func downloadMSImage(target, imgArch string) (string, error) {
-	systemCode := ""
-	switch strings.ToLower(strings.TrimSpace(target)) {
-	case TargetWin10:
-		systemCode = "10"
-	case TargetWin11:
-		systemCode = "11"
-	default:
-		return "", fmt.Errorf("unsupported microsoft image target: %s", target)
-	}
-
-	urls, err := data.GetMSWinUrl(systemCode, "zh-cn", strings.TrimSpace(imgArch), "")
-	log.LogWrite(0, "[downloadMSImage] url=%v err=%v", urls, err)
-	if err != nil {
-		return "", err
-	}
-	if len(urls) == 0 {
-		return "", fmt.Errorf("未找到微软官方镜像直链")
-	}
-
-	root := chooseDownloadRoot()
-	log.LogWrite(0, "[downloadMSImage] chooseDownloadRoot=%s", root)
-	if strings.TrimSpace(root) == "" {
-		return "", fmt.Errorf("未找到可用下载分区")
-	}
-
-	dstDir := filepath.Join(root, "tempimg")
-	if err := os.MkdirAll(dstDir, 0o755); err != nil {
-		return "", err
-	}
-
-	var errs []string
-	prevLink := ""
-	switchReason := ""
-	for _, info := range urls {
-		link := strings.TrimSpace(info.URL)
-		if link == "" {
-			continue
-		}
-		if isFailedLink(link) {
-			prevLink = link
-			switchReason = "链接已被标记为失败"
-			continue
-		}
-		if !download.HttpStatus(link) {
-			markFailedLink(link)
-			errs = append(errs, fmt.Sprintf("Microsoft direct link unavailable: %s", link))
-			prevLink = link
-			switchReason = "链接预检查失败"
-			continue
-		}
-
-		if prevLink != "" && switchReason != "" {
-			logLinkSwitch("downloadMSImage", prevLink, link, switchReason)
-			switchReason = ""
-		}
-
-		name := strings.TrimSpace(info.FileName)
-		if name == "" {
-			name = filepath.Base(strings.Split(link, "?")[0])
-		}
-		if name == "" || name == "." || name == "/" {
-			name = fmt.Sprintf("windows_%s_%s.iso", systemCode, strings.TrimSpace(imgArch))
-		}
-
-		dstPath := filepath.Join(dstDir, name)
-		if st, err := os.Stat(dstPath); err == nil && !st.IsDir() && st.Size() > 0 {
-			if err := verifyMSImage(info, dstPath); err == nil {
-				return dstPath, nil
-			}
-			_ = cleanupDownloadArtifacts(dstPath)
-		}
-
-		ui.UiSetProgress(0)
-		ui.UiSetStatus("正在下载镜像... 0.0% 速度: 0.00 MB/s")
-
-		pr := NewProgressReporter(
-			0, 60,
-			time.Second, time.Second,
-			"正在下载镜像... %.1f%% 速度: %.2f MB/s",
-			"镜像下载进度: %.1f%% 速度: %.2f MB/s",
-			true,
-		)
-
-		err := downloadFileWithRetry(link, dstPath, func(pct float64, speed int64) {
-			pr.Update(pct, speed)
-		})
-		if err != nil {
-			_ = cleanupDownloadArtifacts(dstPath)
-			errs = append(errs, fmt.Sprintf("Microsoft direct download failed: %v", err))
-			prevLink = link
-			switchReason = fmt.Sprintf("download error: %v", err)
-			continue
-		}
-
-		if err := verifyMSImage(info, dstPath); err != nil {
-			markFailedLink(link)
-			_ = cleanupDownloadArtifacts(dstPath)
-			errs = append(errs, fmt.Sprintf("Microsoft image verification failed: %v", err))
-			prevLink = link
-			switchReason = fmt.Sprintf("download completed but verification failed: %v", err)
-			continue
-		}
-
-		ui.UiSetProgress(60)
-		return dstPath, nil
-	}
-
-	if len(errs) > 0 {
-		return "", fmt.Errorf("%s", strings.Join(errs, " | "))
-	}
-	return "", fmt.Errorf("Microsoft direct download failed")
-}
-
-// DownloadImage 从配置的镜像源下载系统镜像。
+// DownloadImage 婵炲濮撮柊锝夊储閵堝洨纾炬い鏃傚亾閻ｉ亶姊婚埀顒€顭ㄩ崘銊ュ濠电姍鍕缂佹鎳忓顏堟偩瀹€鍕帣缂傚倷鑳堕崰鏍汲閸涙潙纾介煫鍥ь儌閸?
 func DownloadImage(target, arch string) (string, error) {
 	ent, err := data.GetWinImgs(target)
 	if err != nil {
@@ -183,8 +69,8 @@ func DownloadImage(target, arch string) (string, error) {
 
 	root := chooseDownloadRoot()
 	if root == "" {
-		log.LogWrite(0, "[downloadImage] 未找到可用下载分区")
-		return "", fmt.Errorf("未找到可用下载分区")
+		log.LogWrite(0, "[downloadImage] no usable download volume found")
+		return "", fmt.Errorf("no usable download volume found")
 	}
 
 	dstDir := filepath.Join(root, "tempimg")
@@ -210,14 +96,14 @@ func DownloadImage(target, arch string) (string, error) {
 			}
 			if isFailedLink(link) {
 				prevLink = link
-				switchReason = "链接已被标记为失败"
+				switchReason = "link marked as failed"
 				continue
 			}
 			if !download.HttpStatus(link) {
 				log.LogWrite(0, "[downloadImage] URL link unavailable: %s", link)
 				markFailedLink(link)
 				prevLink = link
-				switchReason = "链接预检查失败"
+				switchReason = "link precheck failed"
 				continue
 			}
 
@@ -244,14 +130,14 @@ func DownloadImage(target, arch string) (string, error) {
 			}
 			_ = cleanupDownloadArtifacts(dstPath)
 			ui.UiSetProgress(0)
-			ui.UiSetStatus("正在下载镜像... 0.0% 速度: 0.00 MB/s")
+			ui.UiSetStatus("濠殿喗绻愮徊钘夛耿椤忓懐鈻旈悗锝庡幗缁佷即姊婚埀顒€顭ㄩ崘銊ュ... 0.0% 闂備緡鍋嗛崰搴ｂ偓? 0.00 MB/s")
 			log.LogWrite(0, "[downloadImage] starting image download (URL): %s -> %s", link, dstPath)
 
 			pr := NewProgressReporter(
 				0, 60,
 				time.Second, time.Second,
-				"正在下载镜像... %.1f%% 速度: %.2f MB/s",
-				"镜像下载进度: %.1f%% 速度: %.2f MB/s",
+				"濠殿喗绻愮徊钘夛耿椤忓懐鈻旈悗锝庡幗缁佷即姊婚埀顒€顭ㄩ崘銊ュ... %.1f%% 闂備緡鍋嗛崰搴ｂ偓? %.2f MB/s",
+				"闂傚倵鍋撴繝濠傚暙閸撶厧鈽夐幘鎰佸創婵炴潙娲﹀璇测槈濡警鍞? %.1f%% 闂備緡鍋嗛崰搴ｂ偓? %.2f MB/s",
 				true,
 			)
 
@@ -325,7 +211,7 @@ func DownloadImage(target, arch string) (string, error) {
 		realPath, err := download.DownloadBT(link, dstDir, func(pct int, speed, done, total int64) {
 			now := time.Now()
 			if lastUI.IsZero() || now.Sub(lastUI) >= time.Second || pct >= 100 {
-				ui.UiSetStatus(fmt.Sprintf("正在下载镜像... %d%% 速度: %.2f MB/s", pct, float64(speed)/1024/1024))
+				ui.UiSetStatus(fmt.Sprintf("濠殿喗绻愮徊钘夛耿椤忓懐鈻旈悗锝庡幗缁佷即姊婚埀顒€顭ㄩ崘銊ュ... %d%% 闂備緡鍋嗛崰搴ｂ偓? %.2f MB/s", pct, float64(speed)/1024/1024))
 				ui.UiSetProgress(MapPct(0, 60, float64(pct)))
 				lastUI = now
 			}
@@ -370,10 +256,10 @@ func DownloadImage(target, arch string) (string, error) {
 	if len(errs) > 0 {
 		return "", fmt.Errorf("all image download links failed: %s", strings.Join(errs, " | "))
 	}
-	return "", fmt.Errorf("未找到可用镜像下载链接")
+	return "", fmt.Errorf("no usable image download link found")
 }
 
-// chooseDownloadRoot 选择镜像下载的目标分区。
+// chooseDownloadRoot 闂備緡鍋勯ˇ鎵偓姘ュ姂濮婄懓顭ㄩ崘銊ュ婵炴垶鎸搁鍫澝归崶顒佸剭闁告洦鍘界粣妤呮煛瀹ュ懏鎼愰柛銊ラ叄瀹曠娀骞侀幒鍡椾壕?
 func chooseDownloadRoot() string {
 	systemDrive := strings.ToUpper(os.Getenv("SystemDrive"))
 	parts := disk.Findpart()

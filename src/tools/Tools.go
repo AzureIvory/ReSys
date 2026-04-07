@@ -359,7 +359,6 @@ func RunCmdContext(ctx context.Context, bin string, input []byte, onLine func(st
 }
 
 func prepareRunCmd(cmd *exec.Cmd, dir string) {
-	// 鐩綍锛氫紭鍏堢敤浼犲叆鐨?dir锛涗负绌哄垯鐢?绋嬪簭鐩綍\tools
 	toolDir := strings.TrimSpace(dir)
 	if toolDir == "" {
 		if exe, err := os.Executable(); err == nil {
@@ -367,7 +366,6 @@ func prepareRunCmd(cmd *exec.Cmd, dir string) {
 		}
 	}
 
-	// 璁剧疆宸ヤ綔鐩綍 + 鎶婅鐩綍鍔犲埌 PATH 鍓嶉潰
 	if toolDir == "" {
 		return
 	}

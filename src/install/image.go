@@ -17,9 +17,9 @@ import (
 	"strings"
 )
 
-// ===== 镜像获取 =====
+// ===== 闀滃儚鑾峰彇 =====
 
-// AcquireInstallImage 定位或下载可用的安装镜像。
+// AcquireInstallImage 瀹氫綅鎴栦笅杞藉彲鐢ㄧ殑瀹夎闀滃儚銆?
 func AcquireInstallImage(plan *InstallPlan) (string, error) {
 	if err := NormalizeInstallPlan(plan); err != nil {
 		return "", err
@@ -39,7 +39,7 @@ func AcquireInstallImage(plan *InstallPlan) (string, error) {
 	return imgPath, nil
 }
 
-// RecoverOrAcquireInstallImage 优先恢复镜像路径，失败后重新获取镜像。
+// RecoverOrAcquireInstallImage 浼樺厛鎭㈠闀滃儚璺緞锛屽け璐ュ悗閲嶆柊鑾峰彇闀滃儚銆?
 func RecoverOrAcquireInstallImage(plan *InstallPlan) (string, error) {
 	if plan == nil {
 		return "", fmt.Errorf("install plan is nil")
@@ -52,24 +52,16 @@ func RecoverOrAcquireInstallImage(plan *InstallPlan) (string, error) {
 	return AcquireInstallImage(plan)
 }
 
-// findInstallImage 优先查找本地镜像，再回退到下载。
+// findInstallImage 浼樺厛鏌ユ壘鏈湴闀滃儚锛屽啀鍥為€€鍒颁笅杞姐€?
 func findInstallImage(plan *InstallPlan) (string, error) {
 	if local, err := image.FindLocalImage(plan.TargetOS, plan.ImageArch); err == nil && strings.TrimSpace(local) != "" {
 		return local, nil
 	}
 
-	if plan.TargetOS == TargetWin10 || plan.TargetOS == TargetWin11 {
-		if imgPath, err := downloadMSImage(plan.TargetOS, plan.ImageArch); err == nil && strings.TrimSpace(imgPath) != "" {
-			return imgPath, nil
-		} else if err != nil {
-			log.LogWrite(0, "[AcquireInstallImage] Microsoft direct download failed: %v", err)
-		}
-	}
-
 	return DownloadImage(plan.TargetOS, plan.ImageArch)
 }
 
-// RecoverInstallImagePath 根据持久化线索恢复镜像路径。
+// RecoverInstallImagePath 鏍规嵁鎸佷箙鍖栫嚎绱㈡仮澶嶉暅鍍忚矾寰勩€?
 func RecoverInstallImagePath(plan *InstallPlan) (string, error) {
 	if plan == nil {
 		return "", fmt.Errorf("install plan is nil")
@@ -213,24 +205,6 @@ func RecoverInstallImagePath(plan *InstallPlan) (string, error) {
 	return "", fmt.Errorf("未找到镜像文件")
 }
 
-// verifyMSImage 校验微软直链镜像是否完整。
-func verifyMSImage(info data.MSWinURL, imagePath string) error {
-	if strings.TrimSpace(info.SHA1) != "" {
-		ok, got, err := download.CheckFileSHA1(imagePath, info.SHA1)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return fmt.Errorf("SHA1 mismatch: %s", got)
-		}
-		return nil
-	}
-
-	_, err := image.DetectImageInfos(imagePath)
-	return err
-}
-
-// validateImageFile 校验通用镜像文件是否可复用。
 func validateImageFile(it data.WinImg, imagePath string) error {
 	if strings.TrimSpace(it.SHA1) != "" {
 		ok, got, err := download.CheckFileSHA1(imagePath, it.SHA1)
@@ -252,7 +226,7 @@ func validateImageFile(it data.WinImg, imagePath string) error {
 	return nil
 }
 
-// relocateInstallImage 在镜像落在系统盘时将其迁走。
+// relocateInstallImage 鍦ㄩ暅鍍忚惤鍦ㄧ郴缁熺洏鏃跺皢鍏惰縼璧般€?
 func relocateInstallImage(imgPath string) (string, error) {
 	systemRoot := windows.SystemDriveRoot()
 	if strings.TrimSpace(systemRoot) == "" || !sameVolumePath(imgPath, systemRoot) {
@@ -273,7 +247,7 @@ func relocateInstallImage(imgPath string) (string, error) {
 	return moveImageToTemp(imgPath, needBytes)
 }
 
-// EnsureInstallImageOutsideTarget 确保镜像不与目标分区重叠。
+// EnsureInstallImageOutsideTarget 纭繚闀滃儚涓嶄笌鐩爣鍒嗗尯閲嶅彔銆?
 func EnsureInstallImageOutsideTarget(plan *InstallPlan) error {
 	if plan == nil || strings.TrimSpace(plan.ImagePath) == "" || strings.TrimSpace(plan.TargetRoot) == "" {
 		return nil
@@ -304,7 +278,7 @@ func EnsureInstallImageOutsideTarget(plan *InstallPlan) error {
 	return nil
 }
 
-// moveImageToDisk 优先把镜像迁移到其他固定盘。
+// moveImageToDisk 浼樺厛鎶婇暅鍍忚縼绉诲埌鍏朵粬鍥哄畾鐩樸€?
 func moveImageToDisk(imgPath, systemRoot string, needBytes uint64) (string, bool, error) {
 	extraBytes := uint64(512*1024*1024) + driverBackupWorkspaceReserveBytes()
 
@@ -328,7 +302,7 @@ func moveImageToDisk(imgPath, systemRoot string, needBytes uint64) (string, bool
 		return "", false, nil
 	}
 
-	ui.UiSetStatus("镜像位于系统盘，正在迁移到其他固定盘...")
+	ui.UiSetStatus("闀滃儚浣嶄簬绯荤粺鐩橈紝姝ｅ湪杩佺Щ鍒板叾浠栧浐瀹氱洏...")
 	movedPath, err := moveImageFile(imgPath, bestRoot, "tempimg")
 	if err != nil {
 		return "", false, err
@@ -337,9 +311,9 @@ func moveImageToDisk(imgPath, systemRoot string, needBytes uint64) (string, bool
 	return movedPath, true, nil
 }
 
-// moveImageToTemp 把镜像迁移到临时分区。
+// moveImageToTemp 鎶婇暅鍍忚縼绉诲埌涓存椂鍒嗗尯銆?
 func moveImageToTemp(imgPath string, needBytes uint64) (string, error) {
-	ui.UiSetStatus("镜像位于系统盘，正在创建 TEMP 分区并迁移镜像...")
+	ui.UiSetStatus("闀滃儚浣嶄簬绯荤粺鐩橈紝姝ｅ湪鍒涘缓 TEMP 鍒嗗尯骞惰縼绉婚暅鍍?..")
 
 	tmpRoot, err := disk.EnsureTempVolumeForBytes(needBytes + driverBackupWorkspaceReserveBytes())
 	if err != nil {
@@ -355,7 +329,7 @@ func moveImageToTemp(imgPath string, needBytes uint64) (string, error) {
 	return movedPath, nil
 }
 
-// moveImageFile 将镜像复制到目标目录并切换路径。
+// moveImageFile 灏嗛暅鍍忓鍒跺埌鐩爣鐩綍骞跺垏鎹㈣矾寰勩€?
 func moveImageFile(srcPath, root, subDir string) (string, error) {
 	dstDir := filepath.Join(root, subDir)
 	if err := os.MkdirAll(dstDir, 0o755); err != nil {
@@ -379,9 +353,9 @@ func moveImageFile(srcPath, root, subDir string) (string, error) {
 	return dstPath, nil
 }
 
-// ===== 镜像索引选择 =====
+// ===== 闀滃儚绱㈠紩閫夋嫨 =====
 
-// ResolveInstallImageIndex 读取镜像元数据并选择安装索引。
+// ResolveInstallImageIndex 璇诲彇闀滃儚鍏冩暟鎹苟閫夋嫨瀹夎绱㈠紩銆?
 func ResolveInstallImageIndex(ctx *InstallContext) error {
 	if ctx == nil || ctx.Plan == nil {
 		return fmt.Errorf("install context is nil")
@@ -409,7 +383,7 @@ func ResolveInstallImageIndex(ctx *InstallContext) error {
 	return nil
 }
 
-// installImageInfosFromContext 读取上下文缓存的镜像元数据。
+// installImageInfosFromContext 璇诲彇涓婁笅鏂囩紦瀛樼殑闀滃儚鍏冩暟鎹€?
 func installImageInfosFromContext(ctx *InstallContext) []dism.ImageMeta {
 	if ctx == nil || ctx.State == nil {
 		return nil
@@ -421,7 +395,7 @@ func installImageInfosFromContext(ctx *InstallContext) []dism.ImageMeta {
 	return infos
 }
 
-// SelectInstallIndex 按预设优先级选择镜像索引。
+// SelectInstallIndex 鎸夐璁句紭鍏堢骇閫夋嫨闀滃儚绱㈠紩銆?
 func SelectInstallIndex(infos []dism.ImageMeta) int {
 	return image.SelectInstallIndex(infos)
 }

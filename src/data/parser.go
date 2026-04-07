@@ -24,22 +24,24 @@ import (
 	"golang.org/x/text/transform"
 )
 
-// RuleHash 保存规则解析出的校验值。
+// RuleHash 淇濆瓨瑙勫垯瑙ｆ瀽鍑虹殑鏍￠獙鍊笺€?
 type RuleHash struct {
 	Sha1   string
 	Sha256 string
 	MD5    string
 }
 
-// RuleLink 保存规则解析出的下载链接。
+// RuleLink 淇濆瓨瑙勫垯瑙ｆ瀽鍑虹殑涓嬭浇閾炬帴銆?
 type RuleLink struct {
 	Type  string
 	Links []string
 }
 
-// RuleItem 是规则解析后的统一结果。
+// RuleItem 鏄鍒欒В鏋愬悗鐨勭粺涓€缁撴灉銆?
 type RuleItem struct {
 	ID          string
+	Source      string
+	Rank        int
 	System      string
 	Name        string
 	FileName    string
@@ -57,9 +59,12 @@ type RuleItem struct {
 	Offset      string
 }
 
-// RuleParseResult 描述一个规则文件的解析结果。
+// RuleParseResult 鎻忚堪涓€涓鍒欐枃浠剁殑瑙ｆ瀽缁撴灉銆?
 type RuleParseResult struct {
 	RulePath string
+	Source   string
+	Rank     int
+	Enabled  bool
 	Mode     string
 	System   string
 	SizeUnit string
@@ -67,6 +72,9 @@ type RuleParseResult struct {
 }
 
 type ruleFile struct {
+	Source   string                       `json:"Source"`
+	Rank     int                          `json:"Rank"`
+	Enabled  *bool                        `json:"Enabled"`
 	System   string                       `json:"system"`
 	Parser   string                       `json:"parser"`
 	URL      map[string]string            `json:"url"`
@@ -115,21 +123,21 @@ type pathToken struct {
 	index int
 }
 
-// ParseRuleFile 读取并解析一个规则文件。
+// ParseRuleFile 璇诲彇骞惰В鏋愪竴涓鍒欐枃浠躲€?
 func ParseRuleFile(rulePath string) (*RuleParseResult, error) {
 	rulePath = strings.TrimSpace(rulePath)
 	if rulePath == "" {
-		return nil, fmt.Errorf("规则文件路径不能为空")
+		return nil, fmt.Errorf("瑙勫垯鏂囦欢璺緞涓嶈兘涓虹┖")
 	}
 
 	b, err := os.ReadFile(rulePath)
 	if err != nil {
-		return nil, fmt.Errorf("读取规则文件失败: %w", err)
+		return nil, fmt.Errorf("璇诲彇瑙勫垯鏂囦欢澶辫触: %w", err)
 	}
 
 	var rf ruleFile
 	if err := json.Unmarshal(b, &rf); err != nil {
-		return nil, fmt.Errorf("解析规则文件失败: %w", err)
+		return nil, fmt.Errorf("瑙ｆ瀽瑙勫垯鏂囦欢澶辫触: %w", err)
 	}
 
 	rf.Method = strings.ToLower(strings.TrimSpace(rf.Method))
@@ -145,6 +153,9 @@ func ParseRuleFile(rulePath string) (*RuleParseResult, error) {
 
 	res := &RuleParseResult{
 		RulePath: rulePath,
+		Source:   defaultRuleSource(rulePath, rf.Source),
+		Rank:     rf.Rank,
+		Enabled:  ruleEnabled(rf.Enabled),
 		System:   strings.TrimSpace(rf.System),
 		SizeUnit: strings.TrimSpace(rf.SizeUnit),
 	}
@@ -156,7 +167,7 @@ func ParseRuleFile(rulePath string) (*RuleParseResult, error) {
 		case "section_kv_group_v1":
 			res.Items, err = parseSectionKVGroupRule(rf)
 		default:
-			err = fmt.Errorf("不支持的 parser: %s", rf.Parser)
+			err = fmt.Errorf("涓嶆敮鎸佺殑 parser: %s", rf.Parser)
 		}
 	case len(rf.Items) > 0:
 		res.Mode = "items"
@@ -165,17 +176,50 @@ func ParseRuleFile(rulePath string) (*RuleParseResult, error) {
 		res.Mode = "rules"
 		res.Items, err = parseRuleRules(rf)
 	default:
-		err = fmt.Errorf("规则文件中既没有 items 也没有 rules")
+		err = fmt.Errorf("瑙勫垯鏂囦欢涓棦娌℃湁 items 涔熸病鏈?rules")
 	}
 	if err != nil {
 		return nil, err
 	}
 
+	applyRuleMeta(res)
 	sortRuleItems(res.Items)
 	return res, nil
 }
 
-// ParseRuleItems 读取规则文件并返回统一结果。
+func defaultRuleSource(rulePath, source string) string {
+	source = strings.TrimSpace(source)
+	if source != "" {
+		return source
+	}
+	return strings.TrimSuffix(filepath.Base(rulePath), filepath.Ext(rulePath))
+}
+
+func ruleEnabled(enabled *bool) bool {
+	if enabled == nil {
+		return true
+	}
+	return *enabled
+}
+
+func applyRuleMeta(res *RuleParseResult) {
+	if res == nil {
+		return
+	}
+	res.Source = defaultRuleSource(res.RulePath, res.Source)
+	for i := range res.Items {
+		res.Items[i].Source = firstNonEmptyString(strings.TrimSpace(res.Items[i].Source), res.Source)
+		res.Items[i].Rank = res.Rank
+		if strings.TrimSpace(res.Items[i].System) == "" {
+			res.Items[i].System = res.System
+		}
+		if strings.TrimSpace(res.Items[i].SizeUnit) == "" {
+			res.Items[i].SizeUnit = res.SizeUnit
+		}
+	}
+}
+
+// ParseRuleItems 璇诲彇瑙勫垯鏂囦欢骞惰繑鍥炵粺涓€缁撴灉銆?
 func ParseRuleItems(rulePath string) ([]RuleItem, error) {
 	res, err := ParseRuleFile(rulePath)
 	if err != nil {
@@ -184,7 +228,7 @@ func ParseRuleItems(rulePath string) ([]RuleItem, error) {
 	return res.Items, nil
 }
 
-// ParseRuleWinImgs 将规则结果转换为 WinImg。
+// ParseRuleWinImgs 灏嗚鍒欑粨鏋滆浆鎹负 WinImg銆?
 func ParseRuleWinImgs(rulePath string) ([]WinImg, error) {
 	items, err := ParseRuleItems(rulePath)
 	if err != nil {
@@ -214,7 +258,7 @@ func ParseRuleWinImgs(rulePath string) ([]WinImg, error) {
 	return out, nil
 }
 
-// ParseRuleWinPEs 将规则结果转换为 WinPEImg。
+// ParseRuleWinPEs 灏嗚鍒欑粨鏋滆浆鎹负 WinPEImg銆?
 func ParseRuleWinPEs(rulePath string) ([]WinPEImg, error) {
 	items, err := ParseRuleItems(rulePath)
 	if err != nil {
@@ -224,7 +268,7 @@ func ParseRuleWinPEs(rulePath string) ([]WinPEImg, error) {
 	out := make([]WinPEImg, 0, len(items))
 	for _, it := range items {
 		var start, end int64
-		if s, e, ok, err := parseOffsetRange(it.Offset); err == nil && ok {
+		if s, e, ok, err := parseOffset(it.Offset); err == nil && ok {
 			start, end = s, e
 		}
 
@@ -249,7 +293,7 @@ func ParseRuleWinPEs(rulePath string) ([]WinPEImg, error) {
 	return out, nil
 }
 
-// parseRuleItems 解析直链模式。
+// parseRuleItems 瑙ｆ瀽鐩撮摼妯″紡銆?
 func parseRuleItems(rf ruleFile) ([]RuleItem, error) {
 	keys := sortedMapKeys(rf.Items)
 	out := make([]RuleItem, 0, len(keys))
@@ -257,7 +301,7 @@ func parseRuleItems(rf ruleFile) ([]RuleItem, error) {
 	for _, key := range keys {
 		rawMap, ok := rf.Items[key].(map[string]any)
 		if !ok {
-			return nil, fmt.Errorf("items.%s 不是对象", key)
+			return nil, fmt.Errorf("items.%s 涓嶆槸瀵硅薄", key)
 		}
 		it, err := buildRuleItemFromMap(key, rawMap, rf.System, rf.SizeUnit)
 		if err != nil {
@@ -269,11 +313,11 @@ func parseRuleItems(rf ruleFile) ([]RuleItem, error) {
 	return out, nil
 }
 
-// parseRuleRules 解析远程接口模式。
+// parseRuleRules 瑙ｆ瀽杩滅▼鎺ュ彛妯″紡銆?
 func parseRuleRules(rf ruleFile) ([]RuleItem, error) {
 	urls := sortedStringMapValues(rf.URL)
 	if len(urls) == 0 {
-		return nil, fmt.Errorf("rules 模式缺少 url")
+		return nil, fmt.Errorf("rules 妯″紡缂哄皯 url")
 	}
 
 	var out []RuleItem
@@ -307,16 +351,16 @@ func parseRuleRules(rf ruleFile) ([]RuleItem, error) {
 		return out, nil
 	}
 	if len(errs) == 0 {
-		return nil, fmt.Errorf("规则未解析出任何结果")
+		return nil, fmt.Errorf("瑙勫垯鏈В鏋愬嚭浠讳綍缁撴灉")
 	}
-	return nil, fmt.Errorf("规则解析失败: %s", strings.Join(errs, " | "))
+	return nil, fmt.Errorf("瑙勫垯瑙ｆ瀽澶辫触: %s", strings.Join(errs, " | "))
 }
 
-// parseSectionKVGroupRule 解析分段键值文本。
+// parseSectionKVGroupRule 瑙ｆ瀽鍒嗘閿€兼枃鏈€?
 func parseSectionKVGroupRule(rf ruleFile) ([]RuleItem, error) {
 	urls := sortedStringMapValues(rf.URL)
 	if len(urls) == 0 {
-		return nil, fmt.Errorf("section_kv_group_v1 模式缺少 url")
+		return nil, fmt.Errorf("section_kv_group_v1 妯″紡缂哄皯 url")
 	}
 
 	var out []RuleItem
@@ -350,12 +394,12 @@ func parseSectionKVGroupRule(rf ruleFile) ([]RuleItem, error) {
 		return out, nil
 	}
 	if len(errs) == 0 {
-		return nil, fmt.Errorf("规则未解析出任何结果")
+		return nil, fmt.Errorf("瑙勫垯鏈В鏋愬嚭浠讳綍缁撴灉")
 	}
-	return nil, fmt.Errorf("规则解析失败: %s", strings.Join(errs, " | "))
+	return nil, fmt.Errorf("瑙勫垯瑙ｆ瀽澶辫触: %s", strings.Join(errs, " | "))
 }
 
-// parseSectionKVGroupText 按规则拆解一段分段键值文本。
+// parseSectionKVGroupText 鎸夎鍒欐媶瑙ｄ竴娈靛垎娈甸敭鍊兼枃鏈€?
 func parseSectionKVGroupText(rf ruleFile, text string, sourceURL string) ([]RuleItem, error) {
 	blocks := parseSectionBlocks(text)
 	if len(blocks) == 0 {
@@ -405,16 +449,16 @@ func parseSectionKVGroupText(rf ruleFile, text string, sourceURL string) ([]Rule
 	}
 
 	if len(out) == 0 {
-		return nil, fmt.Errorf("未解析出任何分组结果")
+		return nil, fmt.Errorf("鏈В鏋愬嚭浠讳綍鍒嗙粍缁撴灉")
 	}
 	return out, nil
 }
 
-// fetchRuleBytes 按规则请求远程内容。
+// fetchRuleBytes 鎸夎鍒欒姹傝繙绋嬪唴瀹广€?
 func fetchRuleBytes(rf ruleFile, rawURL string) ([]byte, error) {
 	rawURL = strings.TrimSpace(rawURL)
 	if rawURL == "" {
-		return nil, fmt.Errorf("url 为空")
+		return nil, fmt.Errorf("url 涓虹┖")
 	}
 
 	b, err := doRuleRequest(rf, rawURL, "")
@@ -439,7 +483,7 @@ func fetchRuleBytes(rf ruleFile, rawURL string) ([]byte, error) {
 	return b, nil
 }
 
-// fetchRuleText 拉取远程文本内容。
+// fetchRuleText 鎷夊彇杩滅▼鏂囨湰鍐呭銆?
 func fetchRuleText(rf ruleFile, rawURL string) (string, error) {
 	b, err := fetchRuleBytes(rf, rawURL)
 	if err != nil {
@@ -448,7 +492,7 @@ func fetchRuleText(rf ruleFile, rawURL string) (string, error) {
 	return decodeRuleText(b), nil
 }
 
-// doRuleRequest 发起一次规则请求，可附加额外 Cookie。
+// doRuleRequest 鍙戣捣涓€娆¤鍒欒姹傦紝鍙檮鍔犻澶?Cookie銆?
 func doRuleRequest(rf ruleFile, rawURL string, extraCookie string) ([]byte, error) {
 	method := strings.ToUpper(strings.TrimSpace(rf.Method))
 	if method == "" {
@@ -462,14 +506,14 @@ func doRuleRequest(rf ruleFile, rawURL string, extraCookie string) ([]byte, erro
 		if method == http.MethodPost && len(rf.Data) > 0 {
 			b, err := json.Marshal(rf.Data)
 			if err != nil {
-				return nil, fmt.Errorf("序列化 post 数据失败: %w", err)
+				return nil, fmt.Errorf("搴忓垪鍖?post 鏁版嵁澶辫触: %w", err)
 			}
 			body = bytes.NewReader(b)
 		}
 
 		req, err := http.NewRequest(method, rawURL, body)
 		if err != nil {
-			return nil, fmt.Errorf("创建请求失败: %w", err)
+			return nil, fmt.Errorf("鍒涘缓璇锋眰澶辫触: %w", err)
 		}
 
 		for k, v := range rf.Headers {
@@ -510,12 +554,12 @@ func doRuleRequest(rf ruleFile, rawURL string, extraCookie string) ([]byte, erro
 		time.Sleep(300 * time.Millisecond)
 	}
 	if lastErr == nil {
-		lastErr = fmt.Errorf("请求失败")
+		lastErr = fmt.Errorf("璇锋眰澶辫触")
 	}
 	return nil, lastErr
 }
 
-// extractValidationCookie 提取页面中的 JS 校验 Cookie。
+// extractValidationCookie 鎻愬彇椤甸潰涓殑 JS 鏍￠獙 Cookie銆?
 func extractValidationCookie(body []byte) string {
 	rx := regexp.MustCompile(`document\.cookie\s*=\s*"([^"]+)"`)
 	matches := rx.FindSubmatch(body)
@@ -530,7 +574,7 @@ func extractValidationCookie(body []byte) string {
 	return strings.TrimSpace(parts[0])
 }
 
-// mergeCookieHeader 合并已有 Cookie 和额外 Cookie。
+// mergeCookieHeader 鍚堝苟宸叉湁 Cookie 鍜岄澶?Cookie銆?
 func mergeCookieHeader(existing string, extra string) string {
 	existing = strings.TrimSpace(existing)
 	extra = strings.TrimSpace(extra)
@@ -546,10 +590,10 @@ func mergeCookieHeader(existing string, extra string) string {
 	}
 }
 
-// fetchRuleBytesViaPowerShell 在 Windows 上回退到 PowerShell 请求。
+// fetchRuleBytesViaPowerShell 鍦?Windows 涓婂洖閫€鍒?PowerShell 璇锋眰銆?
 func fetchRuleBytesViaPowerShell(rf ruleFile, rawURL string, extraCookie string) ([]byte, error) {
 	if runtime.GOOS != "windows" {
-		return nil, fmt.Errorf("powershell 回退仅支持 windows")
+		return nil, fmt.Errorf("powershell 鍥為€€浠呮敮鎸?windows")
 	}
 
 	method := strings.ToUpper(strings.TrimSpace(rf.Method))
@@ -575,7 +619,7 @@ func fetchRuleBytesViaPowerShell(rf ruleFile, rawURL string, extraCookie string)
 	if method == http.MethodPost && len(rf.Data) > 0 {
 		b, err := json.Marshal(rf.Data)
 		if err != nil {
-			return nil, fmt.Errorf("序列化 post 数据失败: %w", err)
+			return nil, fmt.Errorf("搴忓垪鍖?post 鏁版嵁澶辫触: %w", err)
 		}
 		body = string(b)
 	}
@@ -593,12 +637,12 @@ func fetchRuleBytesViaPowerShell(rf ruleFile, rawURL string, extraCookie string)
 	}
 
 	if exitErr, ok := err.(*exec.ExitError); ok && len(exitErr.Stderr) > 0 {
-		return nil, fmt.Errorf("powershell 请求失败: %s", strings.TrimSpace(string(exitErr.Stderr)))
+		return nil, fmt.Errorf("powershell 璇锋眰澶辫触: %s", strings.TrimSpace(string(exitErr.Stderr)))
 	}
 	return nil, err
 }
 
-// buildPowerShellRequestScript 生成回退请求脚本。
+// buildPowerShellRequestScript 鐢熸垚鍥為€€璇锋眰鑴氭湰銆?
 func buildPowerShellRequestScript(rawURL string, method string, headers map[string]string, body string) string {
 	encode := func(v string) string {
 		return base64.StdEncoding.EncodeToString([]byte(v))
@@ -635,7 +679,7 @@ func buildPowerShellRequestScript(rawURL string, method string, headers map[stri
 	return sb.String()
 }
 
-// decodeRuleText 尝试把远程文本解码成 UTF-8。
+// decodeRuleText 灏濊瘯鎶婅繙绋嬫枃鏈В鐮佹垚 UTF-8銆?
 func decodeRuleText(body []byte) string {
 	if utf8.Valid(body) {
 		return string(body)
@@ -648,7 +692,7 @@ func decodeRuleText(body []byte) string {
 	return string(decoded)
 }
 
-// fetchRuleJSON 按规则请求远程 JSON。
+// fetchRuleJSON 鎸夎鍒欒姹傝繙绋?JSON銆?
 func fetchRuleJSON(rf ruleFile, rawURL string) (any, error) {
 	b, err := fetchRuleBytes(rf, rawURL)
 	if err != nil {
@@ -657,12 +701,12 @@ func fetchRuleJSON(rf ruleFile, rawURL string) (any, error) {
 
 	var root any
 	if err := json.Unmarshal(b, &root); err != nil {
-		return nil, fmt.Errorf("解析响应 JSON 失败: %w", err)
+		return nil, fmt.Errorf("瑙ｆ瀽鍝嶅簲 JSON 澶辫触: %w", err)
 	}
 	return root, nil
 }
 
-// parseRuleItemsFromRoot 从远程 JSON 中提取结果项。
+// parseRuleItemsFromRoot 浠庤繙绋?JSON 涓彁鍙栫粨鏋滈」銆?
 func parseRuleItemsFromRoot(rf ruleFile, root any) ([]RuleItem, error) {
 	containerPath := findRuleIterPath(rf.Rules)
 	ctxs, err := buildIterContexts(root, containerPath)
@@ -681,7 +725,7 @@ func parseRuleItemsFromRoot(rf ruleFile, root any) ([]RuleItem, error) {
 	return out, nil
 }
 
-// buildRuleItemFromRules 按一组 rules 提取一个结果项。
+// buildRuleItemFromRules 鎸変竴缁?rules 鎻愬彇涓€涓粨鏋滈」銆?
 func buildRuleItemFromRules(rf ruleFile, root any, ctx iterContext, idx int) (RuleItem, error) {
 	system := strings.TrimSpace(ruleValueString(rf.Rules["System"], root, ctx))
 	if system == "" {
@@ -724,7 +768,7 @@ func buildRuleItemFromRules(rf ruleFile, root any, ctx iterContext, idx int) (Ru
 	return item, nil
 }
 
-// buildRuleItemFromMap 将直链 items 中的一个对象转换为统一结果。
+// buildRuleItemFromMap 灏嗙洿閾?items 涓殑涓€涓璞¤浆鎹负缁熶竴缁撴灉銆?
 func buildRuleItemFromMap(id string, rawMap map[string]any, defaultSystem, sizeUnit string) (RuleItem, error) {
 	hashMap := mapValue(rawMap["hash"])
 	linkMap := mapValue(rawMap["link"])
@@ -762,7 +806,7 @@ func buildRuleItemFromMap(id string, rawMap map[string]any, defaultSystem, sizeU
 	return item, nil
 }
 
-// buildIterContexts 根据迭代路径构造上下文。
+// buildIterContexts 鏍规嵁杩唬璺緞鏋勯€犱笂涓嬫枃銆?
 func buildIterContexts(root any, containerPath string) ([]iterContext, error) {
 	containerPath = strings.TrimSpace(containerPath)
 	if containerPath == "" {
@@ -793,7 +837,7 @@ func buildIterContexts(root any, containerPath string) ([]iterContext, error) {
 	}
 }
 
-// findRuleIterPath 推断 rules 的迭代容器路径。
+// findRuleIterPath 鎺ㄦ柇 rules 鐨勮凯浠ｅ鍣ㄨ矾寰勩€?
 func findRuleIterPath(rules map[string]any) string {
 	candidates := []any{
 		rules["System"],
@@ -827,7 +871,7 @@ func findRuleIterPath(rules map[string]any) string {
 	return ""
 }
 
-// iterContainerPath 返回表达式中迭代容器的路径。
+// iterContainerPath 杩斿洖琛ㄨ揪寮忎腑杩唬瀹瑰櫒鐨勮矾寰勩€?
 func iterContainerPath(expr string) (string, bool) {
 	expr = strings.TrimSpace(expr)
 	if expr == "" || !strings.HasPrefix(expr, "$") {
@@ -847,7 +891,7 @@ func iterContainerPath(expr string) (string, bool) {
 	return "", false
 }
 
-// resolveStaticPath 只解析不带迭代占位符的路径。
+// resolveStaticPath 鍙В鏋愪笉甯﹁凯浠ｅ崰浣嶇鐨勮矾寰勩€?
 func resolveStaticPath(root any, expr string) (any, error) {
 	if strings.TrimSpace(expr) == "" || strings.TrimSpace(expr) == "$" {
 		return root, nil
@@ -864,44 +908,44 @@ func resolveStaticPath(root any, expr string) (any, error) {
 		case "field":
 			m, ok := cur.(map[string]any)
 			if !ok {
-				return nil, fmt.Errorf("路径 %s 不是对象", expr)
+				return nil, fmt.Errorf("璺緞 %s 涓嶆槸瀵硅薄", expr)
 			}
 			cur = m[tk.field]
 		case "index":
 			arr, ok := cur.([]any)
 			if !ok {
-				return nil, fmt.Errorf("路径 %s 不是数组", expr)
+				return nil, fmt.Errorf("璺緞 %s 涓嶆槸鏁扮粍", expr)
 			}
 			if tk.index < 0 || tk.index >= len(arr) {
-				return nil, fmt.Errorf("路径 %s 下标越界", expr)
+				return nil, fmt.Errorf("璺緞 %s 涓嬫爣瓒婄晫", expr)
 			}
 			cur = arr[tk.index]
 		default:
-			return nil, fmt.Errorf("路径 %s 包含动态占位符", expr)
+			return nil, fmt.Errorf("璺緞 %s 鍖呭惈鍔ㄦ€佸崰浣嶇", expr)
 		}
 	}
 	return cur, nil
 }
 
-// ruleValueString 解析规则字段，优先按 DSL 取值，否则当作常量。
+// ruleValueString 瑙ｆ瀽瑙勫垯瀛楁锛屼紭鍏堟寜 DSL 鍙栧€硷紝鍚﹀垯褰撲綔甯搁噺銆?
 func ruleValueString(def any, root any, ctx iterContext) string {
 	val := ruleValueAny(def, root, ctx)
 	return stringValue(val)
 }
 
-// ruleValueFloat 解析规则中的数字。
+// ruleValueFloat 瑙ｆ瀽瑙勫垯涓殑鏁板瓧銆?
 func ruleValueFloat(def any, root any, ctx iterContext) float64 {
 	val := ruleValueAny(def, root, ctx)
 	return floatValue(val)
 }
 
-// ruleValueInt 解析规则中的整数。
+// ruleValueInt 瑙ｆ瀽瑙勫垯涓殑鏁存暟銆?
 func ruleValueInt(def any, root any, ctx iterContext) int {
 	val := ruleValueAny(def, root, ctx)
 	return intValue(val)
 }
 
-// ruleValueAny 解析规则定义中的单个值。
+// ruleValueAny 瑙ｆ瀽瑙勫垯瀹氫箟涓殑鍗曚釜鍊笺€?
 func ruleValueAny(def any, root any, ctx iterContext) any {
 	switch vv := def.(type) {
 	case nil:
@@ -923,7 +967,7 @@ func ruleValueAny(def any, root any, ctx iterContext) any {
 	}
 }
 
-// resolveDynamicPath 解析带占位符的路径表达式。
+// resolveDynamicPath 瑙ｆ瀽甯﹀崰浣嶇鐨勮矾寰勮〃杈惧紡銆?
 func resolveDynamicPath(root any, expr string, ctx iterContext) (any, error) {
 	tokens, err := parsePath(expr)
 	if err != nil {
@@ -960,7 +1004,7 @@ func resolveDynamicPath(root any, expr string, ctx iterContext) (any, error) {
 	return cur, nil
 }
 
-// parsePath 将自定义 DSL 拆成 token。
+// parsePath 灏嗚嚜瀹氫箟 DSL 鎷嗘垚 token銆?
 func parsePath(expr string) ([]pathToken, error) {
 	expr = strings.TrimSpace(expr)
 	if expr == "" {
@@ -970,7 +1014,7 @@ func parsePath(expr string) ([]pathToken, error) {
 		return nil, nil
 	}
 	if !strings.HasPrefix(expr, "$") {
-		return nil, fmt.Errorf("非法路径: %s", expr)
+		return nil, fmt.Errorf("闈炴硶璺緞: %s", expr)
 	}
 
 	var tokens []pathToken
@@ -983,13 +1027,13 @@ func parsePath(expr string) ([]pathToken, error) {
 				i++
 			}
 			if start == i {
-				return nil, fmt.Errorf("非法路径: %s", expr)
+				return nil, fmt.Errorf("闈炴硶璺緞: %s", expr)
 			}
 			tokens = append(tokens, pathToken{kind: "field", field: expr[start:i]})
 		case '[':
 			end := strings.IndexByte(expr[i:], ']')
 			if end < 0 {
-				return nil, fmt.Errorf("非法路径: %s", expr)
+				return nil, fmt.Errorf("闈炴硶璺緞: %s", expr)
 			}
 			end += i
 			part := strings.TrimSpace(expr[i+1 : end])
@@ -1001,19 +1045,19 @@ func parsePath(expr string) ([]pathToken, error) {
 			default:
 				n, err := strconv.Atoi(part)
 				if err != nil {
-					return nil, fmt.Errorf("非法下标: %s", part)
+					return nil, fmt.Errorf("闈炴硶涓嬫爣: %s", part)
 				}
 				tokens = append(tokens, pathToken{kind: "index", index: n})
 			}
 			i = end + 1
 		default:
-			return nil, fmt.Errorf("非法路径: %s", expr)
+			return nil, fmt.Errorf("闈炴硶璺緞: %s", expr)
 		}
 	}
 	return tokens, nil
 }
 
-// tokensToPath 把 token 重新拼回静态路径。
+// tokensToPath 鎶?token 閲嶆柊鎷煎洖闈欐€佽矾寰勩€?
 func tokensToPath(tokens []pathToken) string {
 	if len(tokens) == 0 {
 		return "$"
@@ -1034,7 +1078,7 @@ func tokensToPath(tokens []pathToken) string {
 	return sb.String()
 }
 
-// collectLinkValues 提取 link1/link2...。
+// collectLinkValues 鎻愬彇 link1/link2...銆?
 func collectLinkValues(linkMap map[string]any, root any, ctx iterContext) []string {
 	keys := sortedLinkKeys(linkMap)
 	seen := map[string]struct{}{}
@@ -1053,7 +1097,7 @@ func collectLinkValues(linkMap map[string]any, root any, ctx iterContext) []stri
 	return out
 }
 
-// sortedLinkKeys 按 link 序号排序。
+// sortedLinkKeys 鎸?link 搴忓彿鎺掑簭銆?
 func sortedLinkKeys(m map[string]any) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
@@ -1067,7 +1111,7 @@ func sortedLinkKeys(m map[string]any) []string {
 	return keys
 }
 
-// sortedMapKeys 返回稳定排序后的键名。
+// sortedMapKeys 杩斿洖绋冲畾鎺掑簭鍚庣殑閿悕銆?
 func sortedMapKeys[T any](m map[string]T) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
@@ -1077,7 +1121,7 @@ func sortedMapKeys[T any](m map[string]T) []string {
 	return keys
 }
 
-// sortedStringMapValues 按键名顺序返回非空值。
+// sortedStringMapValues 鎸夐敭鍚嶉『搴忚繑鍥為潪绌哄€笺€?
 func sortedStringMapValues(m map[string]string) []string {
 	keys := sortedMapKeys(m)
 	out := make([]string, 0, len(keys))
@@ -1090,7 +1134,7 @@ func sortedStringMapValues(m map[string]string) []string {
 	return out
 }
 
-// sortRuleItems 统一排序，便于测试和打印。
+// sortRuleItems 缁熶竴鎺掑簭锛屼究浜庢祴璇曞拰鎵撳嵃銆?
 func sortRuleItems(items []RuleItem) {
 	sort.SliceStable(items, func(i, j int) bool {
 		if items[i].Index != items[j].Index {
@@ -1106,7 +1150,7 @@ func sortRuleItems(items []RuleItem) {
 	})
 }
 
-// buildRuleItemKey 生成去重键。
+// buildRuleItemKey 鐢熸垚鍘婚噸閿€?
 func buildRuleItemKey(it RuleItem) string {
 	return strings.Join([]string{
 		it.System,
@@ -1119,7 +1163,7 @@ func buildRuleItemKey(it RuleItem) string {
 	}, "|")
 }
 
-// parseSectionBlocks 按 [Section] 分段。
+// parseSectionBlocks 鎸?[Section] 鍒嗘銆?
 func parseSectionBlocks(text string) map[string]string {
 	rx := regexp.MustCompile(`\[(.*?)\]`)
 	matches := rx.FindAllStringSubmatchIndex(text, -1)
@@ -1144,7 +1188,7 @@ func parseSectionBlocks(text string) map[string]string {
 	return out
 }
 
-// parseLooseKVBlock 解析一段松散排列的 key=value 文本。
+// parseLooseKVBlock 瑙ｆ瀽涓€娈垫澗鏁ｆ帓鍒楃殑 key=value 鏂囨湰銆?
 func parseLooseKVBlock(block string) map[string]string {
 	rx := regexp.MustCompile(`(?:^|[\r\n\t ]+)([A-Za-z][A-Za-z0-9_]*)=`)
 	matches := rx.FindAllStringSubmatchIndex(block, -1)
@@ -1169,7 +1213,7 @@ func parseLooseKVBlock(block string) map[string]string {
 	return out
 }
 
-// compileGroupRegex 返回分组键的正则。
+// compileGroupRegex 杩斿洖鍒嗙粍閿殑姝ｅ垯銆?
 func compileGroupRegex(pattern string) (*regexp.Regexp, error) {
 	pattern = strings.TrimSpace(pattern)
 	if pattern == "" {
@@ -1177,12 +1221,12 @@ func compileGroupRegex(pattern string) (*regexp.Regexp, error) {
 	}
 	rx, err := regexp.Compile(pattern)
 	if err != nil {
-		return nil, fmt.Errorf("group.key_regex 无效: %w", err)
+		return nil, fmt.Errorf("group.key_regex 鏃犳晥: %w", err)
 	}
 	return rx, nil
 }
 
-// resolveSectionNames 返回需要处理的段名列表。
+// resolveSectionNames 杩斿洖闇€瑕佸鐞嗙殑娈靛悕鍒楄〃銆?
 func resolveSectionNames(configured map[string]map[string]string, blocks map[string]string) []string {
 	if len(configured) > 0 {
 		return sortedMapKeys(configured)
@@ -1190,7 +1234,7 @@ func resolveSectionNames(configured map[string]map[string]string, blocks map[str
 	return sortedMapKeys(blocks)
 }
 
-// defaultSectionFieldMap 规范化文本规则的字段映射。
+// defaultSectionFieldMap 瑙勮寖鍖栨枃鏈鍒欑殑瀛楁鏄犲皠銆?
 func defaultSectionFieldMap(fieldMap map[string]string) map[string]string {
 	out := map[string]string{
 		"Name":  "Name",
@@ -1208,7 +1252,7 @@ func defaultSectionFieldMap(fieldMap map[string]string) map[string]string {
 	return out
 }
 
-// groupSectionKV 按 PE 编号聚合字段。
+// groupSectionKV 鎸?PE 缂栧彿鑱氬悎瀛楁銆?
 func groupSectionKV(kvMap map[string]string, keyRx *regexp.Regexp, groupRule sectionGroupRule) map[string]map[string]string {
 	allowed := make(map[string]struct{}, len(groupRule.AllowedNumbers))
 	for _, num := range groupRule.AllowedNumbers {
@@ -1258,7 +1302,7 @@ func groupSectionKV(kvMap map[string]string, keyRx *regexp.Regexp, groupRule sec
 	return out
 }
 
-// matchGroupedField 从键名中提取编号和字段名。
+// matchGroupedField 浠庨敭鍚嶄腑鎻愬彇缂栧彿鍜屽瓧娈靛悕銆?
 func matchGroupedField(keyRx *regexp.Regexp, key string) (string, string, bool) {
 	matches := keyRx.FindStringSubmatch(strings.TrimSpace(key))
 	if len(matches) == 0 {
@@ -1287,7 +1331,7 @@ func matchGroupedField(keyRx *regexp.Regexp, key string) (string, string, bool) 
 	return num, field, true
 }
 
-// subexpIndex 返回命名捕获组的位置。
+// subexpIndex 杩斿洖鍛藉悕鎹曡幏缁勭殑浣嶇疆銆?
 func subexpIndex(rx *regexp.Regexp, name string) int {
 	for i, subName := range rx.SubexpNames() {
 		if subName == name {
@@ -1297,7 +1341,7 @@ func subexpIndex(rx *regexp.Regexp, name string) int {
 	return -1
 }
 
-// buildSectionRuleItem 将一个分组结果转换为统一结构。
+// buildSectionRuleItem 灏嗕竴涓垎缁勭粨鏋滆浆鎹负缁熶竴缁撴瀯銆?
 func buildSectionRuleItem(
 	rf ruleFile,
 	sourceURL string,
@@ -1339,7 +1383,7 @@ func buildSectionRuleItem(
 
 		value, err := captureByRegex(sourceValue, extractRule.Regex)
 		if err != nil {
-			return RuleItem{}, false, fmt.Errorf("%s.%s 提取失败: %w", sectionName, key, err)
+			return RuleItem{}, false, fmt.Errorf("%s.%s 鎻愬彇澶辫触: %w", sectionName, key, err)
 		}
 		if strings.TrimSpace(value) == "" {
 			continue
@@ -1405,7 +1449,7 @@ func buildSectionRuleItem(
 	return item, true, nil
 }
 
-// captureByRegex 从文本中提取目标值。
+// captureByRegex 浠庢枃鏈腑鎻愬彇鐩爣鍊笺€?
 func captureByRegex(source string, pattern string) (string, error) {
 	source = strings.TrimSpace(source)
 	pattern = strings.TrimSpace(pattern)
@@ -1430,7 +1474,7 @@ func captureByRegex(source string, pattern string) (string, error) {
 	return strings.TrimSpace(matches[0]), nil
 }
 
-// normalizeExtractValue 根据声明类型整理提取结果。
+// normalizeExtractValue 鏍规嵁澹版槑绫诲瀷鏁寸悊鎻愬彇缁撴灉銆?
 func normalizeExtractValue(value string, valueType string) string {
 	value = strings.TrimSpace(value)
 	switch strings.ToLower(strings.TrimSpace(valueType)) {
@@ -1443,7 +1487,7 @@ func normalizeExtractValue(value string, valueType string) string {
 	}
 }
 
-// canonicalRuleField 统一字段命名，避免规则大小写不一致。
+// canonicalRuleField 缁熶竴瀛楁鍛藉悕锛岄伩鍏嶈鍒欏ぇ灏忓啓涓嶄竴鑷淬€?
 func canonicalRuleField(name string) string {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "system":
@@ -1489,7 +1533,7 @@ func canonicalRuleField(name string) string {
 	}
 }
 
-// collectNamedLinks 按 link1/link2... 顺序提取链接。
+// collectNamedLinks 鎸?link1/link2... 椤哄簭鎻愬彇閾炬帴銆?
 func collectNamedLinks(named map[string]string) []string {
 	keys := make([]string, 0)
 	for key := range named {
@@ -1518,7 +1562,7 @@ func collectNamedLinks(named map[string]string) []string {
 	return out
 }
 
-// deriveSystemFromName 尝试从名称中推断系统代号。
+// deriveSystemFromName 灏濊瘯浠庡悕绉颁腑鎺ㄦ柇绯荤粺浠ｅ彿銆?
 func deriveSystemFromName(name string) string {
 	rx := regexp.MustCompile(`(?i)(?:windows|win)\s*(7|8|10|11)`)
 	matches := rx.FindStringSubmatch(strings.TrimSpace(name))
@@ -1528,7 +1572,7 @@ func deriveSystemFromName(name string) string {
 	return ""
 }
 
-// fileNameFromLink 从链接中推断文件名。
+// fileNameFromLink 浠庨摼鎺ヤ腑鎺ㄦ柇鏂囦欢鍚嶃€?
 func fileNameFromLink(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -1544,7 +1588,7 @@ func fileNameFromLink(raw string) string {
 	return path.Base(raw)
 }
 
-// mapValue 将任意值安全转换为 map。
+// mapValue 灏嗕换鎰忓€煎畨鍏ㄨ浆鎹负 map銆?
 func mapValue(v any) map[string]any {
 	if m, ok := v.(map[string]any); ok {
 		return m
@@ -1552,7 +1596,7 @@ func mapValue(v any) map[string]any {
 	return map[string]any{}
 }
 
-// stringValue 将任意值转成字符串。
+// stringValue 灏嗕换鎰忓€艰浆鎴愬瓧绗︿覆銆?
 func stringValue(v any) string {
 	switch vv := v.(type) {
 	case nil:
@@ -1584,7 +1628,7 @@ func stringValue(v any) string {
 	}
 }
 
-// floatValue 将任意值转成浮点数。
+// floatValue 灏嗕换鎰忓€艰浆鎴愭诞鐐规暟銆?
 func floatValue(v any) float64 {
 	switch vv := v.(type) {
 	case nil:
@@ -1608,7 +1652,7 @@ func floatValue(v any) float64 {
 	}
 }
 
-// intValue 将任意值转成整数。
+// intValue 灏嗕换鎰忓€艰浆鎴愭暣鏁般€?
 func intValue(v any) int {
 	switch vv := v.(type) {
 	case nil:
@@ -1632,7 +1676,7 @@ func intValue(v any) int {
 	}
 }
 
-// defaultLinkType 返回标准化后的 link.type。
+// defaultLinkType 杩斿洖鏍囧噯鍖栧悗鐨?link.type銆?
 func defaultLinkType(tp string) string {
 	tp = strings.ToLower(strings.TrimSpace(tp))
 	if tp == "" {
@@ -1641,7 +1685,7 @@ func defaultLinkType(tp string) string {
 	return tp
 }
 
-// numericSuffix 解析 link1/link2 这类字段的后缀数字。
+// numericSuffix 瑙ｆ瀽 link1/link2 杩欑被瀛楁鐨勫悗缂€鏁板瓧銆?
 func numericSuffix(s string) int {
 	s = strings.ToLower(strings.TrimSpace(s))
 	for i := len(s) - 1; i >= 0; i-- {
@@ -1663,7 +1707,7 @@ func numericSuffix(s string) int {
 	return n
 }
 
-// firstNonEmptyString 返回第一个非空字符串。
+// firstNonEmptyString 杩斿洖绗竴涓潪绌哄瓧绗︿覆銆?
 func firstNonEmptyString(vs ...string) string {
 	for _, v := range vs {
 		v = strings.TrimSpace(v)

@@ -1,4 +1,7 @@
 {
+    "Source":"win10-ms",
+    "Rank":9,
+    "Enabled":true,
     "system":"10",
     "url":{
         "url1":"https://api.ttraw.com/api/win/win10",

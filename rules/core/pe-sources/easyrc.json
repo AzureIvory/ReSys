@@ -1,42 +1,45 @@
 {
-  "parser": "section_kv_group_v1",
-  "url": {
-    "url1": "https://www.51cxsoft.com/EasyRC/PEDownload.html"
-  },
-  "method": "get",
-  "headers": {},
-  "data": {},
-  "SizeUnit": "MB",
-  "timeout": 15000,
-  "sections": {
-    "PEX64": {
-      "Arch": "64"
-    },
-    "PEX86": {
-      "Arch": "32"
-    },
-    "XPPE": {
-      "Arch": "32"
-    }
-  },
-  "group": {
-    "key_regex": "^PE(?P<num>[0-9]+)(?P<field>Name|Url|Url2|MS)$",
-    "allowed_numbers": ["1", "2"],
-    "required_fields": ["Name", "Url", "MS"]
-  },
-  "extract": {
-    "Description": {
-      "from": "Meta",
-      "regex": "^(.*?)\\\\N发布日期:"
-    },
-    "PublishDate": {
-      "from": "Meta",
-      "regex": "发布日期:(\\d{4}-\\d{2}-\\d{2})"
-    },
-    "Size": {
-      "from": "Meta",
-      "regex": "大小:(\\d+(?:\\.\\d+)?)MB",
-      "type": "float"
-    }
-  }
+	"Source":"easyrc-PE",
+	"Rank":9,
+	"Enabled":true,
+	"parser":"section_kv_group_v1",
+	"url":{
+		"url1":"https://www.51cxsoft.com/EasyRC/PEDownload.html"
+	},
+	"method":"get",
+	"headers":{},
+	"data":{},
+	"SizeUnit":"MB",
+	"timeout":15000,
+	"sections":{
+		"PEX64":{
+			"Arch":"64"
+		},
+		"PEX86":{
+			"Arch":"32"
+		},
+		"XPPE":{
+			"Arch":"32"
+		}
+	},
+	"group":{
+		"key_regex":"^PE(?P<num>[0-9]+)(?P<field>Name|Url|Url2|MS)$",
+		"allowed_numbers":["1","2"],
+		"required_fields":["Name","Url","MS"]
+	},
+	"extract":{
+		"Description":{
+			"from":"Meta",
+			"regex":"^(.*?)\\N\u53d1\u5e03\u65e5\u671f:"
+		},
+		"PublishDate":{
+			"from":"Meta",
+			"regex":"\u53d1\u5e03\u65e5\u671f:(\\d{4}-\\d{2}-\\d{2})"
+		},
+		"Size":{
+			"from":"Meta",
+			"regex":"\u5927\u5c0f:(\\d+(?:\\.\\d+)?)MB",
+			"type":"float"
+		}
+	}
 }
