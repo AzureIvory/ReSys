@@ -17,16 +17,11 @@ import (
 	"strings"
 )
 
-// Install-image acquisition helpers.
+// 安装镜像获取相关辅助函数。
 
-// AcquireInstallImage resolves a usable install image for the current plan.
+// AcquireInstallImage 为当前安装计划准备可用的安装镜像。
 //
-// The flow is intentionally predictable:
-//  1. normalize the plan so downstream helpers receive stable target metadata
-//  2. prefer an existing local image and download only when necessary
-//  3. relocate the image when keeping it on the system volume would be risky
-//
-// The final path is persisted back into plan.ImagePath.
+// 它会规范化计划、查找或下载镜像，并在必要时迁移镜像位置。
 func AcquireInstallImage(plan *InstallPlan) (string, error) {
 	if err := NormalizeInstallPlan(plan); err != nil {
 		return "", err
@@ -46,14 +41,10 @@ func AcquireInstallImage(plan *InstallPlan) (string, error) {
 	return imgPath, nil
 }
 
-// RecoverOrAcquireInstallImage restores a previously known image path when
-// possible and falls back to a fresh acquire flow otherwise.
-//
-// This is the preferred entry point for resumed installs because it avoids
-// repeating large downloads when the original image can still be located.
+// RecoverOrAcquireInstallImage 优先恢复历史镜像路径，失败时再走完整获取流程。
 func RecoverOrAcquireInstallImage(plan *InstallPlan) (string, error) {
 	if plan == nil {
-		return "", fmt.Errorf("install plan is nil")
+		return "", fmt.Errorf("安装计划为空")
 	}
 
 	if recovered, err := RecoverInstallImagePath(plan); err == nil && strings.TrimSpace(recovered) != "" {
@@ -63,8 +54,7 @@ func RecoverOrAcquireInstallImage(plan *InstallPlan) (string, error) {
 	return AcquireInstallImage(plan)
 }
 
-// findInstallImage searches for a local image first and downloads one only when
-// no suitable local candidate is available.
+// findInstallImage 先尝试本地镜像，找不到时再触发下载。
 func findInstallImage(plan *InstallPlan) (string, error) {
 	if local, err := image.FindLocalImage(plan.TargetOS, plan.ImageArch); err == nil && strings.TrimSpace(local) != "" {
 		return local, nil
@@ -73,16 +63,12 @@ func findInstallImage(plan *InstallPlan) (string, error) {
 	return DownloadImage(plan.TargetOS, plan.ImageArch)
 }
 
-// RecoverInstallImagePath rebuilds the image path from persisted install-plan
-// metadata.
+// RecoverInstallImagePath 根据安装计划中持久化的信息恢复镜像路径。
 //
-// Recovery checks the stored absolute path first, then the persisted relative
-// path, then volume and disk identifiers, and finally the lightweight recovery
-// record written beside the image. This gives interrupted installs several
-// chances to reconnect to an existing image after drive letters change.
+// 它会依次尝试绝对路径、相对路径、卷 GUID、磁盘标识和恢复记录。
 func RecoverInstallImagePath(plan *InstallPlan) (string, error) {
 	if plan == nil {
-		return "", fmt.Errorf("install plan is nil")
+		return "", fmt.Errorf("安装计划为空")
 	}
 
 	if path := strings.TrimSpace(plan.ImagePath); path != "" {
@@ -223,20 +209,17 @@ func RecoverInstallImagePath(plan *InstallPlan) (string, error) {
 	return "", fmt.Errorf("未找到镜像文件")
 }
 
-// validateImageFile verifies that an on-disk image is still safe to reuse.
+// validateImageFile 校验本地镜像文件是否仍然可用。
 //
-// When a rule provides a SHA1 hash, the hash is treated as the strongest source
-// of truth and must match exactly. Otherwise the function falls back to a
-// lightweight structure probe for ISO/WIM/ESD files so corrupted or incomplete
-// downloads are rejected before later install stages depend on them.
+// 规则里提供了 SHA1 时优先做哈希校验，否则退化为镜像结构探测。
 func validateImageFile(it data.RuleItem, imagePath string) error {
 	if strings.TrimSpace(it.Hash.Sha1) != "" {
 		ok, got, err := download.CheckFileSHA1(imagePath, it.Hash.Sha1)
 		if err != nil {
-			return fmt.Errorf("SHA1 verification failed: %w", err)
+			return fmt.Errorf("SHA1 校验失败: %w", err)
 		}
 		if !ok {
-			return fmt.Errorf("SHA1 mismatch: %s", got)
+			return fmt.Errorf("SHA1 不匹配: %s", got)
 		}
 		return nil
 	}
@@ -244,18 +227,13 @@ func validateImageFile(it data.RuleItem, imagePath string) error {
 	switch strings.ToLower(filepath.Ext(imagePath)) {
 	case ".iso", ".wim", ".esd":
 		if _, err := image.DetectImageInfos(imagePath); err != nil {
-			return fmt.Errorf("image is corrupted: %w", err)
+			return fmt.Errorf("镜像文件已损坏: %w", err)
 		}
 	}
 	return nil
 }
 
-// relocateInstallImage moves an image away from the system volume when doing so
-// reduces risk during later install steps.
-//
-// The function leaves the image untouched when it is already outside the system
-// volume. Otherwise it first tries to move the image onto another regular data
-// volume and falls back to a temporary volume only when needed.
+// relocateInstallImage 在镜像位于系统盘时，把它迁移到更安全的位置。
 func relocateInstallImage(imgPath string) (string, error) {
 	systemRoot := windows.SystemDriveRoot()
 	if strings.TrimSpace(systemRoot) == "" || !sameVolumePath(imgPath, systemRoot) {
@@ -276,11 +254,7 @@ func relocateInstallImage(imgPath string) (string, error) {
 	return moveImageToTemp(imgPath, needBytes)
 }
 
-// EnsureInstallImageOutsideTarget makes sure the install image does not stay on
-// the same volume that is about to be repartitioned or reformatted.
-//
-// When the image currently resides on the target volume, the function moves it
-// to a safer location and updates the install plan in place.
+// EnsureInstallImageOutsideTarget 确保安装镜像不留在即将被重分区或格式化的目标卷上。
 func EnsureInstallImageOutsideTarget(plan *InstallPlan) error {
 	if plan == nil || strings.TrimSpace(plan.ImagePath) == "" || strings.TrimSpace(plan.TargetRoot) == "" {
 		return nil
@@ -311,10 +285,7 @@ func EnsureInstallImageOutsideTarget(plan *InstallPlan) error {
 	return nil
 }
 
-// moveImageToDisk tries to relocate the image onto another fixed data volume.
-//
-// The target volume must have enough free space for the image itself plus a
-// small workspace reserve so later driver-backup steps are not squeezed out.
+// moveImageToDisk 尝试把镜像迁移到其他固定数据盘。
 func moveImageToDisk(imgPath, systemRoot string, needBytes uint64) (string, bool, error) {
 	extraBytes := uint64(512*1024*1024) + driverBackupWorkspaceReserveBytes()
 
@@ -347,8 +318,7 @@ func moveImageToDisk(imgPath, systemRoot string, needBytes uint64) (string, bool
 	return movedPath, true, nil
 }
 
-// moveImageToTemp relocates the image onto a temporary volume prepared by the
-// disk package.
+// moveImageToTemp 把镜像迁移到临时卷。
 func moveImageToTemp(imgPath string, needBytes uint64) (string, error) {
 	ui.UiSetStatus("Install image is on the system volume; creating a TEMP volume and moving the image...")
 
@@ -366,8 +336,7 @@ func moveImageToTemp(imgPath string, needBytes uint64) (string, error) {
 	return movedPath, nil
 }
 
-// moveImageFile copies the image into the destination directory and then
-// switches the returned path to the new location.
+// moveImageFile 把镜像复制到目标目录，并在成功后切换到新路径。
 func moveImageFile(srcPath, root, subDir string) (string, error) {
 	dstDir := filepath.Join(root, subDir)
 	if err := os.MkdirAll(dstDir, 0o755); err != nil {
@@ -391,13 +360,12 @@ func moveImageFile(srcPath, root, subDir string) (string, error) {
 	return dstPath, nil
 }
 
-// Install-image index selection.
+// 安装镜像索引选择相关辅助函数。
 
-// ResolveInstallImageIndex inspects the image metadata and fills the install
-// plan with the selected image index and inferred target OS when needed.
+// ResolveInstallImageIndex 读取镜像元数据，并回填安装索引和目标系统信息。
 func ResolveInstallImageIndex(ctx *InstallContext) error {
 	if ctx == nil || ctx.Plan == nil {
-		return fmt.Errorf("install context is nil")
+		return fmt.Errorf("安装上下文为空")
 	}
 
 	infos, err := image.DetectImageInfos(ctx.Plan.ImagePath)
@@ -422,8 +390,7 @@ func ResolveInstallImageIndex(ctx *InstallContext) error {
 	return nil
 }
 
-// installImageInfosFromContext reads cached image metadata from the install
-// context state map.
+// installImageInfosFromContext 从安装上下文状态中读取缓存的镜像元数据。
 func installImageInfosFromContext(ctx *InstallContext) []dism.ImageMeta {
 	if ctx == nil || ctx.State == nil {
 		return nil
@@ -435,8 +402,7 @@ func installImageInfosFromContext(ctx *InstallContext) []dism.ImageMeta {
 	return infos
 }
 
-// SelectInstallIndex delegates image-index selection to the image package so
-// install logic keeps one consistent selection policy.
+// SelectInstallIndex 委托 image 包执行镜像索引选择，保持统一策略。
 func SelectInstallIndex(infos []dism.ImageMeta) int {
 	return image.SelectInstallIndex(infos)
 }

@@ -18,16 +18,7 @@ import (
 	"time"
 )
 
-// Image download and selection helpers.
-
-// downloadFileWithRetry downloads one HTTP/HTTPS link and retries once after
-// cleaning stale local artifacts when the downloader reports a local conflict.
-//
-// Large image downloads are often interrupted and leave behind partial files,
-// `.aria2` sidecars, or other temporary artifacts. Those leftovers make the
-// next attempt fail immediately on the destination path. This helper performs
-// a pre-cleanup before the first attempt and one more cleanup before the retry
-// so callers can treat local-conflict recovery as part of the normal flow.
+// downloadFileWithRetry 下载单个 HTTP/HTTPS 链接，并在检测到本地冲突时清理后重试一次。
 func downloadFileWithRetry(link, dstPath string, progress func(float64, int64)) error {
 	if err := cleanupDownloadArtifacts(dstPath); err != nil {
 		log.LogWrite(0, "[downloadImage] cleanup existing download target failed: path=%s err=%v", dstPath, err)
@@ -57,12 +48,7 @@ func downloadFileWithRetry(link, dstPath string, progress func(float64, int64)) 
 	return lastErr
 }
 
-// ruleItemLinks returns the usable download links declared by a rule item.
-//
-// The data package already normalizes image rules during aggregation. This
-// helper keeps the install package defensive by trimming blanks and removing
-// duplicates again, so both URL and non-URL download branches can iterate the
-// same cleaned list without re-implementing the same checks.
+// ruleItemLinks 返回规则项里的有效下载链接，并去掉空值和重复值。
 func ruleItemLinks(it data.RuleItem) []string {
 	out := make([]string, 0, len(it.Link.Links))
 	seen := make(map[string]struct{}, len(it.Link.Links))
@@ -80,12 +66,7 @@ func ruleItemLinks(it data.RuleItem) []string {
 	return out
 }
 
-// prepareImageDestination decides the final path for a rule/link pair and
-// reuses an existing verified file when possible.
-//
-// If a file with the expected name already exists, it is validated first.
-// Valid files are returned directly. Invalid files and stale side artifacts are
-// removed so the caller always receives a clean destination path for download.
+// prepareImageDestination 计算规则项对应的目标文件路径，并尽量复用已校验通过的本地文件。
 func prepareImageDestination(it data.RuleItem, dstDir, link string) (string, bool) {
 	dstPath := filepath.Join(dstDir, data.RuleItemFileName(it, link))
 	if st, err := os.Stat(dstPath); err == nil && !st.IsDir() && st.Size() > 0 {
@@ -100,13 +81,10 @@ func prepareImageDestination(it data.RuleItem, dstDir, link string) (string, boo
 	return dstPath, false
 }
 
-// DownloadImage resolves candidate install images for the requested system and
-// architecture, then downloads the first candidate that passes validation.
+// DownloadImage 根据目标系统和架构解析候选镜像，并下载第一个通过校验的镜像文件。
 //
-// Selection is intentionally stable:
-//  1. use the data package's aggregated and de-duplicated RuleItem list
-//  2. prefer the requested architecture, with 32-bit falling back to 64-bit
-//  3. try URL links before non-URL links and validate every completed image
+// 选择顺序固定为：先用聚合后的规则列表，再按架构筛选，最后区分 URL 与非 URL。
+// 每个下载完成的镜像都会再做一次校验。
 func DownloadImage(target, arch string) (string, error) {
 	ent, err := data.GetInstallImageItems(target)
 	if err != nil {
@@ -126,7 +104,7 @@ func DownloadImage(target, arch string) (string, error) {
 	root := chooseDownloadRoot()
 	if root == "" {
 		log.LogWrite(0, "[downloadImage] no usable download volume found")
-		return "", fmt.Errorf("no usable download volume found")
+		return "", fmt.Errorf("未找到可用的下载磁盘")
 	}
 
 	dstDir := filepath.Join(root, "tempimg")
@@ -305,18 +283,14 @@ func DownloadImage(target, arch string) (string, error) {
 	}
 
 	if len(errs) > 0 {
-		return "", fmt.Errorf("all image download links failed: %s", strings.Join(errs, " | "))
+		return "", fmt.Errorf("所有镜像下载链接都失败了: %s", strings.Join(errs, " | "))
 	}
-	return "", fmt.Errorf("no usable image download link found")
+	return "", fmt.Errorf("未找到可用的镜像下载链接")
 }
 
-// chooseDownloadRoot picks the preferred root directory for storing downloads.
+// chooseDownloadRoot 选择存放下载文件的目标盘符。
 //
-// The order intentionally favors non-system volumes with enough free space so
-// large ISO or WIM downloads do not fill the system drive unnecessarily. If no
-// such volume exists, the function falls back to the system drive, then to a
-// temporary volume provisioned by the disk package, and finally to any fixed
-// disk that is still available.
+// 优先使用非系统盘且空间足够的卷，不满足时再回退到系统盘或临时卷。
 func chooseDownloadRoot() string {
 	systemDrive := strings.ToUpper(os.Getenv("SystemDrive"))
 	parts := disk.Findpart()
