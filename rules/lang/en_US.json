@@ -1,0 +1,225 @@
+{
+  "window": {
+    "title": "ReSys - One-Click Reinstall"
+  },
+  "common": {
+    "browse": "Browse",
+    "yes": "Yes",
+    "no": "No"
+  },
+  "dialog": {
+    "error": "Error",
+    "prompt": "Prompt",
+    "installConfirm": "Reinstalling Windows will erase data on drive C:. Continue?",
+    "manualInstallConfirm": "Manual reinstall will overwrite the target partition using the current options. Continue?"
+  },
+  "select": {
+    "title": "Select The Operating System To Install",
+    "win7": "Reinstall Win7",
+    "win10": "Reinstall Win10",
+    "win11": "Reinstall Win11",
+    "advanced": "Advanced Mode"
+  },
+  "progress": {
+    "preparing": "Preparing...",
+    "preparingInstall": "Preparing installation..."
+  },
+  "manual": {
+    "back": "Back",
+    "title": "Manual Reinstall",
+    "image": {
+      "label": "Image",
+      "dialogTitle": "Select Installation Image",
+      "placeholder": "Select a local ISO / WIM / ESD image",
+      "indexLabel": "Index",
+      "indexPlaceholder": "Select an image first",
+      "selectIndex": "Select installation index",
+      "noIndex": "No installable index was found in the image",
+      "parseFailed": "Failed to parse image: %v",
+      "parseFailedShort": "Image parse failed"
+    },
+    "target": {
+      "label": "Target Partition",
+      "unknown": "Unknown OS"
+    },
+    "detail": {
+      "label": "Partition Details",
+      "default": "Select a partition to view details.",
+      "loading": "Scanning partition information in the background. Please wait.",
+      "imageLine": "\nImage: %s  Index: %d  Arch: %s"
+    },
+    "loading": {
+      "disks": "Scanning disks..."
+    },
+    "boot": {
+      "label": "Boot Repair",
+      "mode": {
+        "auto": "Auto",
+        "uefi": "UEFI",
+        "bios": "BIOS",
+        "skip": "Skip"
+      },
+      "placeholder": {
+        "auto": "Boot partition will update automatically with the target partition",
+        "selectTarget": "Select the target partition first",
+        "disabled": "Boot repair is disabled",
+        "autoBIOS": "Automatic repair will choose a BIOS boot partition",
+        "autoUEFI": "Automatic repair will choose an EFI system partition",
+        "selectBIOS": "Select a BIOS boot partition",
+        "selectUEFI": "Select an EFI system partition",
+        "noUEFI": "No usable EFI partition found",
+        "noBIOS": "No usable BIOS boot partition found"
+      },
+      "summary": {
+        "disabled": "Boot repair: Disabled",
+        "uefi": "Boot repair: UEFI",
+        "uefiTarget": "Boot repair: UEFI -> %s",
+        "bios": "Boot repair: BIOS",
+        "biosTarget": "Boot repair: BIOS -> %s",
+        "auto": "Boot repair: Auto",
+        "autoType": "Boot repair: Auto (%s)"
+      },
+      "targetFormat": "%s [Disk %d Partition %d]"
+    },
+    "option": {
+      "autoPE": "Handle PE Automatically",
+      "formatTarget": "Format Target Partition",
+      "backupDrivers": "Backup Drivers",
+      "autoDeploy": "Unattended Setup",
+      "autoReboot": "Auto Reboot",
+      "short": {
+        "format": "Format",
+        "backupDrivers": "Driver Backup",
+        "autoDeploy": "Unattended",
+        "autoReboot": "Auto Reboot"
+      }
+    },
+    "pe": {
+      "placeholder": "When automatic PE handling is off, specify a PE WIM manually",
+      "dialogTitle": "Select PE WIM"
+    },
+    "start": "Start Reinstall",
+    "summary": {
+      "default": "Select a local installation image and a target partition.",
+      "noImage": "No installation image selected",
+      "waitingIndex": "Image selected, waiting for index",
+      "image": "Image: %s / Index %d / %s",
+      "target": "Target: %s",
+      "currentAutoPE": "Current system partition detected, PE will be handled automatically",
+      "currentManualPE": "Current system partition detected, PE will be specified manually",
+      "offlineInstall": "Non-system partition selected, offline install will be used",
+      "viewOnly": "Current selection %s is view-only",
+      "noTarget": "No target partition selected",
+      "optionsPrefix": "Options: ",
+      "notReadyPrefix": "Not ready: "
+    },
+    "validation": {
+      "loading": "Scanning disk information",
+      "selectImage": "Select an installation image",
+      "selectIndex": "Select an image index",
+      "selectTarget": "Select a target partition",
+      "targetNotSelectable": "The current partition cannot be used as an installation target",
+      "peRequired": "The current system partition requires a PE WIM when automatic PE handling is off",
+      "selectBoot": "Select a boot partition"
+    },
+    "partitions": {
+      "readFailed": "Failed to read partition information. Check the disk enumeration interface.",
+      "none": "No usable partition was found.",
+      "noneFound": "No usable partition was found"
+    },
+    "partition": {
+      "unknown": "Unknown",
+      "notMounted": "Not mounted",
+      "diskPartition": "Disk %d Partition %d",
+      "diskPartitionCompact": "Disk%dPart%d",
+      "detail": {
+        "selectable": "Can be used as install target",
+        "viewOnly": "View only, cannot be used as install target",
+        "template": "Drive: %s    Label: %s\nCapacity: %s    File system: %s\nDisk %d Partition %d    Type: %s / %s\nDisk type: %s    BitLocker: %s\nCurrent system: %s    %s"
+      },
+      "bitlocker": {
+        "unknown": "Unknown",
+        "notEncrypted": "Not encrypted",
+        "unlocked": "Unlocked",
+        "locked": "Locked",
+        "encrypting": "Encrypting",
+        "decrypting": "Decrypting"
+      }
+    },
+    "arch": {
+      "x86": "32-bit",
+      "x64": "64-bit",
+      "unknown": "Unknown architecture"
+    },
+    "size": {
+      "total": "Total %s",
+      "totalFree": "Total %s / Free %s"
+    }
+  },
+  "prompt": {
+    "title": "BitLocker Unlock",
+    "inputPlaceholder": "Enter the password or 48-digit recovery key",
+    "password": "Unlock With Password",
+    "recovery": "Use Recovery Key",
+    "cancel": "Cancel",
+    "error": {
+      "emptyCredential": "Enter a password or recovery key."
+    }
+  },
+  "install": {
+    "auto": {
+      "prepareDone": "Preparation complete. The system will enter PE after reboot.",
+      "readInstallInfo": "Reading reinstall information...",
+      "completed": "Installation complete. Rebooting...",
+      "checkEnvironment": "Checking installation environment...",
+      "findImage": "Searching for installation image...",
+      "handleBitLocker": "Handling BitLocker...",
+      "writeInstallInfo": "Writing reinstall information...",
+      "preparePE": "Preparing PE environment...",
+      "resolveTarget": "Resolving target partition...",
+      "formatTarget": "Formatting target partition...",
+      "parseImage": "Parsing installation image...",
+      "applyImagePhase": "Applying image... %s %.1f%%",
+      "repairBoot": "Repairing boot..."
+    },
+    "manual": {
+      "rebootToPE": "Rebooting into PE...",
+      "prepareDone": "Preparation complete. Reboot manually to enter PE.",
+      "checkArgs": "Checking installation parameters...",
+      "writePlan": "Writing installation plan...",
+      "setNextBootPE": "Configuring next boot into PE...",
+      "backupDrivers": "Backing up current drivers...",
+      "applyImagePct": "Applying image... %.1f%%",
+      "finishHooks": "Finishing post-install steps...",
+      "readPlan": "Reading installation plan...",
+      "completedReboot": "Installation complete. Rebooting...",
+      "completed": "Installation complete."
+    },
+    "bitlocker": {
+      "checkPartitions": "Checking BitLocker partitions...",
+      "deleteProtectors": "Removing BitLocker protectors for %s...",
+      "unlockVolume": "Unlocking BitLocker volume %s...",
+      "autoUnlockFailed": "Automatic unlock failed",
+      "unlockFailed": "Unlock failed",
+      "promptText": "A BitLocker-locked volume %s was detected.\nVolume label: %s\nThe volume must be unlocked and the BitLocker lock must be removed before entering PE.\nIf you entered a password, click \"Unlock With Password\". If you entered a 48-digit recovery key, click \"Use Recovery Key\".\nClick the input box before typing.",
+      "promptLastError": "Previous failure: %s"
+    },
+    "download": {
+      "start": "Downloading installation image... 0.0% Speed: 0.00 MB/s",
+      "progress": "Downloading installation image... %.1f%% Speed: %.2f MB/s",
+      "progressInt": "Downloading installation image... %d%% Speed: %.2f MB/s"
+    },
+    "driver": {
+      "backupOEM": "Backing up OEM drivers...",
+      "restore": "Restoring backed up drivers..."
+    },
+    "image": {
+      "moveToOtherDisk": "The install image is on the system volume. Moving it to another fixed disk...",
+      "moveToTempVolume": "The install image is on the system volume. Creating a temporary volume and moving the image..."
+    },
+    "pe": {
+      "writeSelf": "Writing the current program into PE...",
+      "setNextBoot": "Configuring next boot into PE..."
+    }
+  }
+}

@@ -1,0 +1,225 @@
+{
+  "window": {
+    "title": "ReSys-一键重装"
+  },
+  "common": {
+    "browse": "浏览",
+    "yes": "是",
+    "no": "否"
+  },
+  "dialog": {
+    "error": "错误",
+    "prompt": "提示",
+    "installConfirm": "重装系统将会清除 C 盘数据，是否继续？",
+    "manualInstallConfirm": "手动重装将按当前选项覆盖目标分区，是否继续？"
+  },
+  "select": {
+    "title": "请选择要安装的操作系统",
+    "win7": "重装 Win7",
+    "win10": "重装 Win10",
+    "win11": "重装 Win11",
+    "advanced": "高级模式"
+  },
+  "progress": {
+    "preparing": "正在准备...",
+    "preparingInstall": "正在准备安装..."
+  },
+  "manual": {
+    "back": "返回",
+    "title": "手动重装",
+    "image": {
+      "label": "镜像",
+      "dialogTitle": "选择安装镜像",
+      "placeholder": "选择本地 ISO / WIM / ESD 镜像",
+      "indexLabel": "索引",
+      "indexPlaceholder": "先选择镜像",
+      "selectIndex": "选择安装索引",
+      "noIndex": "镜像中没有可用索引",
+      "parseFailed": "镜像解析失败: %v",
+      "parseFailedShort": "镜像解析失败"
+    },
+    "target": {
+      "label": "安装分区",
+      "unknown": "未知系统"
+    },
+    "detail": {
+      "label": "分区详情",
+      "default": "请选择一个分区查看详情。",
+      "loading": "正在后台检测分区信息，请稍候。",
+      "imageLine": "\n镜像: %s  索引: %d  架构: %s"
+    },
+    "loading": {
+      "disks": "正在检测磁盘中..."
+    },
+    "boot": {
+      "label": "修复引导",
+      "mode": {
+        "auto": "自动",
+        "uefi": "UEFI",
+        "bios": "BIOS",
+        "skip": "不修复"
+      },
+      "placeholder": {
+        "auto": "引导分区将随目标分区自动更新",
+        "selectTarget": "先选择目标分区",
+        "disabled": "已关闭引导修复",
+        "autoBIOS": "自动修复将自动选择 BIOS 引导分区",
+        "autoUEFI": "自动修复将自动选择 EFI 引导分区",
+        "selectBIOS": "选择 BIOS 引导分区",
+        "selectUEFI": "选择 EFI 引导分区",
+        "noUEFI": "未找到可用 EFI 分区",
+        "noBIOS": "未找到可用 BIOS 引导分区"
+      },
+      "summary": {
+        "disabled": "引导修复: 已关闭",
+        "uefi": "引导修复: UEFI",
+        "uefiTarget": "引导修复: UEFI -> %s",
+        "bios": "引导修复: BIOS",
+        "biosTarget": "引导修复: BIOS -> %s",
+        "auto": "引导修复: 自动",
+        "autoType": "引导修复: 自动 (%s)"
+      },
+      "targetFormat": "%s [磁盘%d分区%d]"
+    },
+    "option": {
+      "autoPE": "自动处理 PE",
+      "formatTarget": "格式化目标分区",
+      "backupDrivers": "备份驱动",
+      "autoDeploy": "无人值守",
+      "autoReboot": "自动重启",
+      "short": {
+        "format": "格式化",
+        "backupDrivers": "备份驱动",
+        "autoDeploy": "无人值守",
+        "autoReboot": "自动重启"
+      }
+    },
+    "pe": {
+      "placeholder": "自动处理 PE 关闭后，可手动指定 PE WIM",
+      "dialogTitle": "选择 PE WIM"
+    },
+    "start": "开始重装",
+    "summary": {
+      "default": "请选择本地安装镜像和目标分区。",
+      "noImage": "未选择安装镜像",
+      "waitingIndex": "镜像已选择，等待索引",
+      "image": "镜像: %s / 索引 %d / %s",
+      "target": "目标: %s",
+      "currentAutoPE": "当前系统分区，将自动处理 PE",
+      "currentManualPE": "当前系统分区，将手动指定 PE",
+      "offlineInstall": "非当前系统分区，将直接离线安装",
+      "viewOnly": "当前选中 %s，仅供查看",
+      "noTarget": "未选择目标分区",
+      "optionsPrefix": "选项: ",
+      "notReadyPrefix": "未就绪: "
+    },
+    "validation": {
+      "loading": "正在检测磁盘信息",
+      "selectImage": "请选择安装镜像",
+      "selectIndex": "请选择镜像索引",
+      "selectTarget": "请选择目标分区",
+      "targetNotSelectable": "当前分区不能作为安装目标",
+      "peRequired": "当前系统分区需要手动指定 PE WIM",
+      "selectBoot": "请选择引导分区"
+    },
+    "partitions": {
+      "readFailed": "未能读取分区信息，请检查磁盘枚举接口。",
+      "none": "未发现可用分区。",
+      "noneFound": "未发现任何可用分区"
+    },
+    "partition": {
+      "unknown": "未知",
+      "notMounted": "未挂载",
+      "diskPartition": "磁盘%d 分区%d",
+      "diskPartitionCompact": "磁盘%d分区%d",
+      "detail": {
+        "selectable": "可作为安装目标",
+        "viewOnly": "仅供查看，不可作为安装目标",
+        "template": "盘符: %s    卷标: %s\n容量: %s    文件系统: %s\n磁盘%d 分区%d    类型: %s / %s\n磁盘类型: %s    BitLocker: %s\n当前系统: %s    %s"
+      },
+      "bitlocker": {
+        "unknown": "未知",
+        "notEncrypted": "未加密",
+        "unlocked": "已解锁",
+        "locked": "已锁定",
+        "encrypting": "加密中",
+        "decrypting": "解密中"
+      }
+    },
+    "arch": {
+      "x86": "32 位",
+      "x64": "64 位",
+      "unknown": "未知架构"
+    },
+    "size": {
+      "total": "总计 %s",
+      "totalFree": "总计 %s / 可用 %s"
+    }
+  },
+  "prompt": {
+    "title": "BitLocker 解锁",
+    "inputPlaceholder": "请输入密码或 48 位恢复密钥",
+    "password": "用密码解锁",
+    "recovery": "用恢复密钥",
+    "cancel": "取消",
+    "error": {
+      "emptyCredential": "请输入密码或恢复密钥。"
+    }
+  },
+  "install": {
+    "auto": {
+      "prepareDone": "准备完成，重启后将进入PE...",
+      "readInstallInfo": "正在读取重装信息...",
+      "completed": "安装完成，正在重启...",
+      "checkEnvironment": "正在检查安装环境...",
+      "findImage": "正在寻找镜像...",
+      "handleBitLocker": "正在处理 BitLocker...",
+      "writeInstallInfo": "正在写入重装信息...",
+      "preparePE": "正在准备PE环境...",
+      "resolveTarget": "正在解析目标分区...",
+      "formatTarget": "正在格式化分区...",
+      "parseImage": "正在解析镜像...",
+      "applyImagePhase": "正在应用镜像... %s %.1f%%",
+      "repairBoot": "正在修复引导..."
+    },
+    "manual": {
+      "rebootToPE": "正在重启进入PE...",
+      "prepareDone": "准备完成，请手动重启进入PE。",
+      "checkArgs": "正在检查安装参数...",
+      "writePlan": "正在写入安装计划...",
+      "setNextBootPE": "正在设置下次启动进入PE...",
+      "backupDrivers": "正在备份当前驱动...",
+      "applyImagePct": "正在应用镜像... %.1f%%",
+      "finishHooks": "正在完成安装后步骤...",
+      "readPlan": "正在读取安装计划...",
+      "completedReboot": "安装完成，正在重启...",
+      "completed": "安装完成。"
+    },
+    "bitlocker": {
+      "checkPartitions": "正在检查 BitLocker 分区...",
+      "deleteProtectors": "正在删除 BitLocker 保护器 %s...",
+      "unlockVolume": "正在解锁 BitLocker 分区 %s...",
+      "autoUnlockFailed": "自动解锁失败",
+      "unlockFailed": "解锁失败",
+      "promptText": "检测到 BitLocker 锁定分区 %s\n卷标: %s\n进入 PE 前必须先完成解锁，并在解锁后取消 BitLocker 锁。\n如果输入的是密码，请点击“用密码解锁”；如果输入的是 48 位恢复密钥，请点击“用恢复密钥”。\n请先点击输入框再输入。",
+      "promptLastError": "上次失败: %s"
+    },
+    "download": {
+      "start": "正在下载安装镜像... 0.0% 速度: 0.00 MB/s",
+      "progress": "正在下载安装镜像... %.1f%% 速度: %.2f MB/s",
+      "progressInt": "正在下载安装镜像... %d%% 速度: %.2f MB/s"
+    },
+    "driver": {
+      "backupOEM": "正在备份 OEM 驱动...",
+      "restore": "正在恢复已备份的驱动..."
+    },
+    "image": {
+      "moveToOtherDisk": "安装镜像位于系统盘，正在移动到其他固定磁盘...",
+      "moveToTempVolume": "安装镜像位于系统盘，正在创建临时分区并移动镜像..."
+    },
+    "pe": {
+      "writeSelf": "正在写入自身到PE...",
+      "setNextBoot": "正在设置下次启动进入PE..."
+    }
+  }
+}

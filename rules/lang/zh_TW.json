@@ -1,0 +1,225 @@
+{
+  "window": {
+    "title": "ReSys-一鍵重裝"
+  },
+  "common": {
+    "browse": "瀏覽",
+    "yes": "是",
+    "no": "否"
+  },
+  "dialog": {
+    "error": "錯誤",
+    "prompt": "提示",
+    "installConfirm": "重裝系統將會清除 C 槽資料，是否繼續？",
+    "manualInstallConfirm": "手動重裝將依照目前選項覆蓋目標分割區，是否繼續？"
+  },
+  "select": {
+    "title": "請選擇要安裝的作業系統",
+    "win7": "重裝 Win7",
+    "win10": "重裝 Win10",
+    "win11": "重裝 Win11",
+    "advanced": "進階模式"
+  },
+  "progress": {
+    "preparing": "正在準備...",
+    "preparingInstall": "正在準備安裝..."
+  },
+  "manual": {
+    "back": "返回",
+    "title": "手動重裝",
+    "image": {
+      "label": "映像",
+      "dialogTitle": "選擇安裝映像",
+      "placeholder": "選擇本機 ISO / WIM / ESD 映像",
+      "indexLabel": "索引",
+      "indexPlaceholder": "先選擇映像",
+      "selectIndex": "選擇安裝索引",
+      "noIndex": "映像中沒有可用索引",
+      "parseFailed": "映像解析失敗: %v",
+      "parseFailedShort": "映像解析失敗"
+    },
+    "target": {
+      "label": "安裝分割區",
+      "unknown": "未知系統"
+    },
+    "detail": {
+      "label": "分割區詳情",
+      "default": "請選擇一個分割區查看詳情。",
+      "loading": "正在背景偵測分割區資訊，請稍候。",
+      "imageLine": "\n映像: %s  索引: %d  架構: %s"
+    },
+    "loading": {
+      "disks": "正在偵測磁碟中..."
+    },
+    "boot": {
+      "label": "修復引導",
+      "mode": {
+        "auto": "自動",
+        "uefi": "UEFI",
+        "bios": "BIOS",
+        "skip": "不修復"
+      },
+      "placeholder": {
+        "auto": "引導分割區會隨目標分割區自動更新",
+        "selectTarget": "先選擇目標分割區",
+        "disabled": "已關閉引導修復",
+        "autoBIOS": "自動修復將自動選擇 BIOS 引導分割區",
+        "autoUEFI": "自動修復將自動選擇 EFI 引導分割區",
+        "selectBIOS": "選擇 BIOS 引導分割區",
+        "selectUEFI": "選擇 EFI 引導分割區",
+        "noUEFI": "找不到可用的 EFI 分割區",
+        "noBIOS": "找不到可用的 BIOS 引導分割區"
+      },
+      "summary": {
+        "disabled": "引導修復: 已關閉",
+        "uefi": "引導修復: UEFI",
+        "uefiTarget": "引導修復: UEFI -> %s",
+        "bios": "引導修復: BIOS",
+        "biosTarget": "引導修復: BIOS -> %s",
+        "auto": "引導修復: 自動",
+        "autoType": "引導修復: 自動 (%s)"
+      },
+      "targetFormat": "%s [磁碟%d分割區%d]"
+    },
+    "option": {
+      "autoPE": "自動處理 PE",
+      "formatTarget": "格式化目標分割區",
+      "backupDrivers": "備份驅動",
+      "autoDeploy": "無人值守",
+      "autoReboot": "自動重新啟動",
+      "short": {
+        "format": "格式化",
+        "backupDrivers": "備份驅動",
+        "autoDeploy": "無人值守",
+        "autoReboot": "自動重啟"
+      }
+    },
+    "pe": {
+      "placeholder": "自動處理 PE 關閉後，可手動指定 PE WIM",
+      "dialogTitle": "選擇 PE WIM"
+    },
+    "start": "開始重裝",
+    "summary": {
+      "default": "請選擇本機安裝映像與目標分割區。",
+      "noImage": "未選擇安裝映像",
+      "waitingIndex": "映像已選擇，等待索引",
+      "image": "映像: %s / 索引 %d / %s",
+      "target": "目標: %s",
+      "currentAutoPE": "目前系統分割區，將自動處理 PE",
+      "currentManualPE": "目前系統分割區，將手動指定 PE",
+      "offlineInstall": "非目前系統分割區，將直接離線安裝",
+      "viewOnly": "目前選中 %s，僅供檢視",
+      "noTarget": "未選擇目標分割區",
+      "optionsPrefix": "選項: ",
+      "notReadyPrefix": "未就緒: "
+    },
+    "validation": {
+      "loading": "正在偵測磁碟資訊",
+      "selectImage": "請選擇安裝映像",
+      "selectIndex": "請選擇映像索引",
+      "selectTarget": "請選擇目標分割區",
+      "targetNotSelectable": "目前分割區不能作為安裝目標",
+      "peRequired": "目前系統分割區需要手動指定 PE WIM",
+      "selectBoot": "請選擇引導分割區"
+    },
+    "partitions": {
+      "readFailed": "無法讀取分割區資訊，請檢查磁碟枚舉介面。",
+      "none": "未發現可用分割區。",
+      "noneFound": "未發現任何可用分割區"
+    },
+    "partition": {
+      "unknown": "未知",
+      "notMounted": "未掛載",
+      "diskPartition": "磁碟%d 分割區%d",
+      "diskPartitionCompact": "磁碟%d分割區%d",
+      "detail": {
+        "selectable": "可作為安裝目標",
+        "viewOnly": "僅供檢視，不能作為安裝目標",
+        "template": "磁碟代號: %s    卷標: %s\n容量: %s    檔案系統: %s\n磁碟%d 分割區%d    類型: %s / %s\n磁碟類型: %s    BitLocker: %s\n目前系統: %s    %s"
+      },
+      "bitlocker": {
+        "unknown": "未知",
+        "notEncrypted": "未加密",
+        "unlocked": "已解鎖",
+        "locked": "已鎖定",
+        "encrypting": "加密中",
+        "decrypting": "解密中"
+      }
+    },
+    "arch": {
+      "x86": "32 位",
+      "x64": "64 位",
+      "unknown": "未知架構"
+    },
+    "size": {
+      "total": "總計 %s",
+      "totalFree": "總計 %s / 可用 %s"
+    }
+  },
+  "prompt": {
+    "title": "BitLocker 解鎖",
+    "inputPlaceholder": "請輸入密碼或 48 位恢復金鑰",
+    "password": "用密碼解鎖",
+    "recovery": "用恢復金鑰",
+    "cancel": "取消",
+    "error": {
+      "emptyCredential": "請輸入密碼或恢復金鑰。"
+    }
+  },
+  "install": {
+    "auto": {
+      "prepareDone": "準備完成，重新啟動後將進入 PE...",
+      "readInstallInfo": "正在讀取重裝資訊...",
+      "completed": "安裝完成，正在重新啟動...",
+      "checkEnvironment": "正在檢查安裝環境...",
+      "findImage": "正在尋找映像...",
+      "handleBitLocker": "正在處理 BitLocker...",
+      "writeInstallInfo": "正在寫入重裝資訊...",
+      "preparePE": "正在準備 PE 環境...",
+      "resolveTarget": "正在解析目標分割區...",
+      "formatTarget": "正在格式化分割區...",
+      "parseImage": "正在解析映像...",
+      "applyImagePhase": "正在套用映像... %s %.1f%%",
+      "repairBoot": "正在修復引導..."
+    },
+    "manual": {
+      "rebootToPE": "正在重新啟動進入 PE...",
+      "prepareDone": "準備完成，請手動重新啟動進入 PE。",
+      "checkArgs": "正在檢查安裝參數...",
+      "writePlan": "正在寫入安裝計畫...",
+      "setNextBootPE": "正在設定下次啟動進入 PE...",
+      "backupDrivers": "正在備份目前驅動...",
+      "applyImagePct": "正在套用映像... %.1f%%",
+      "finishHooks": "正在完成安裝後步驟...",
+      "readPlan": "正在讀取安裝計畫...",
+      "completedReboot": "安裝完成，正在重新啟動...",
+      "completed": "安裝完成。"
+    },
+    "bitlocker": {
+      "checkPartitions": "正在檢查 BitLocker 分割區...",
+      "deleteProtectors": "正在刪除 BitLocker 保護器 %s...",
+      "unlockVolume": "正在解鎖 BitLocker 分割區 %s...",
+      "autoUnlockFailed": "自動解鎖失敗",
+      "unlockFailed": "解鎖失敗",
+      "promptText": "偵測到 BitLocker 鎖定分割區 %s\n卷標: %s\n進入 PE 前必須先完成解鎖，並在解鎖後取消 BitLocker 鎖。\n如果輸入的是密碼，請點選「用密碼解鎖」；如果輸入的是 48 位恢復金鑰，請點選「用恢復金鑰」。\n請先點選輸入框再輸入。",
+      "promptLastError": "上次失敗: %s"
+    },
+    "download": {
+      "start": "正在下載安裝映像... 0.0% 速度: 0.00 MB/s",
+      "progress": "正在下載安裝映像... %.1f%% 速度: %.2f MB/s",
+      "progressInt": "正在下載安裝映像... %d%% 速度: %.2f MB/s"
+    },
+    "driver": {
+      "backupOEM": "正在備份 OEM 驅動...",
+      "restore": "正在還原已備份的驅動..."
+    },
+    "image": {
+      "moveToOtherDisk": "安裝映像位於系統磁碟，正在移動到其他固定磁碟...",
+      "moveToTempVolume": "安裝映像位於系統磁碟，正在建立臨時分割區並移動映像..."
+    },
+    "pe": {
+      "writeSelf": "正在寫入自身到 PE...",
+      "setNextBoot": "正在設定下次啟動進入 PE..."
+    }
+  }
+}
