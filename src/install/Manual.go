@@ -25,7 +25,7 @@ func init() {
 func StartManualInstall(cfg ui.ManualInstallConfig) {
 	plan, err := buildManualInstallPlan(cfg)
 	if err != nil {
-		ui.UiShowError("错误", err.Error())
+		ui.UiShowError("", err.Error())
 		ui.UiShowManualMode()
 		return
 	}
@@ -38,18 +38,18 @@ func StartManualInstall(cfg ui.ManualInstallConfig) {
 			return runManualPrepareFlow(ctx)
 		}); err != nil {
 			log.LogWrite(-2, "[StartManualInstall] prepare failed: %v", err)
-			ui.UiShowError("错误", err.Error())
+			ui.UiShowError("", err.Error())
 			ui.UiShowManualMode()
 			return
 		}
 		ui.UiSetProgress(100)
 		if plan.AutoReboot {
-			ui.UiSetStatus("正在重启进入PE...")
+			ui.UiSetStatus(ui.Tr("install.manual.rebootToPE"))
 			time.Sleep(500 * time.Millisecond)
 			tools.Shutdown(true)
 			return
 		}
-		ui.UiSetStatus("准备完成，请手动重启进入PE。")
+		ui.UiSetStatus(ui.Tr("install.manual.prepareDone"))
 		return
 	}
 
@@ -57,7 +57,7 @@ func StartManualInstall(cfg ui.ManualInstallConfig) {
 		return runManualDirectFlow(ctx)
 	}); err != nil {
 		log.LogWrite(-2, "[StartManualInstall] direct install failed: %v", err)
-		ui.UiShowError("错误", err.Error())
+		ui.UiShowError("", err.Error())
 		ui.UiShowManualMode()
 		return
 	}
@@ -97,15 +97,15 @@ func buildManualInstallPlan(cfg ui.ManualInstallConfig) (*InstallPlan, error) {
 		plan.TargetRoot = root
 	}
 	if strings.TrimSpace(plan.ImagePath) == "" {
-		return nil, fmt.Errorf("请选择安装镜像")
+		return nil, fmt.Errorf("%s", ui.Tr("manual.validation.selectImage"))
 	}
 	if strings.TrimSpace(plan.TargetRoot) == "" {
-		return nil, fmt.Errorf("请选择安装分区")
+		return nil, fmt.Errorf("%s", ui.Tr("manual.validation.selectTarget"))
 	}
 
 	infos, err := imgsvc.DetectImageInfos(plan.ImagePath)
 	if err != nil {
-		return nil, fmt.Errorf("解析镜像失败: %w", err)
+		return nil, fmt.Errorf(ui.Tr("manual.image.parseFailed"), err)
 	}
 	if plan.ImageIndex <= 0 {
 		plan.ImageIndex = SelectInstallIndex(infos)
@@ -125,7 +125,7 @@ func buildManualInstallPlan(cfg ui.ManualInstallConfig) (*InstallPlan, error) {
 		plan.ImageArch = windows.DesiredArch()
 	}
 	if manualTargetNeedsPE(plan) && !plan.AutoPE && strings.TrimSpace(plan.ManualPEWIM) == "" {
-		return nil, fmt.Errorf("当前系统分区安装必须指定 PE WIM，或启用自动处理PE")
+		return nil, fmt.Errorf("%s", ui.Tr("manual.validation.peRequired"))
 	}
 	return plan, nil
 }
@@ -136,7 +136,7 @@ func runManualPrepareFlow(ctx *InstallContext) error {
 			Name: "预检查",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(0)
-				ui.UiSetStatus("正在检查安装参数...")
+				ui.UiSetStatus(ui.Tr("install.manual.checkArgs"))
 				if err := NormalizeInstallPlan(ctx.Plan); err != nil {
 					return err
 				}
@@ -147,7 +147,7 @@ func runManualPrepareFlow(ctx *InstallContext) error {
 			Name: "BitLocker 预处理",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(20)
-				ui.UiSetStatus("正在处理 BitLocker...")
+				ui.UiSetStatus(ui.Tr("install.auto.handleBitLocker"))
 				return handleBitLockerBeforeEnterPE(ctx)
 			},
 		},
@@ -155,7 +155,7 @@ func runManualPrepareFlow(ctx *InstallContext) error {
 			Name: "保存安装计划",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(35)
-				ui.UiSetStatus("正在写入安装计划...")
+				ui.UiSetStatus(ui.Tr("install.manual.writePlan"))
 				return SaveInstallPlan(ctx.Plan)
 			},
 		},
@@ -169,7 +169,7 @@ func runManualPrepareFlow(ctx *InstallContext) error {
 			Name: "准备PE",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(65)
-				ui.UiSetStatus("正在准备PE环境...")
+				ui.UiSetStatus(ui.Tr("install.manual.preparePE"))
 				return prepareSelectedPEEnvironment(ctx)
 			},
 		},
@@ -177,7 +177,7 @@ func runManualPrepareFlow(ctx *InstallContext) error {
 			Name: "设置下次启动进入PE",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(85)
-				ui.UiSetStatus("正在设置下次启动进入PE...")
+				ui.UiSetStatus(ui.Tr("install.manual.setNextBootPE"))
 				return SetNextBootToPE(ctx)
 			},
 		},
@@ -191,7 +191,7 @@ func runManualDirectFlow(ctx *InstallContext) error {
 			Name: "预检查",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(0)
-				ui.UiSetStatus("正在检查安装参数...")
+				ui.UiSetStatus(ui.Tr("install.manual.checkArgs"))
 				if err := NormalizeInstallPlan(ctx.Plan); err != nil {
 					return err
 				}
@@ -205,7 +205,7 @@ func runManualDirectFlow(ctx *InstallContext) error {
 					return nil
 				}
 				ui.UiSetProgress(8)
-				ui.UiSetStatus("正在备份当前驱动...")
+				ui.UiSetStatus(ui.Tr("install.manual.backupDrivers"))
 				return ctx.RunHooks(HookBeforeEnterPE)
 			},
 		},
@@ -216,7 +216,7 @@ func runManualDirectFlow(ctx *InstallContext) error {
 					return nil
 				}
 				ui.UiSetProgress(15)
-				ui.UiSetStatus("正在格式化分区...")
+				ui.UiSetStatus(ui.Tr("install.auto.formatTarget"))
 				return FormatTargetPartition(ctx.Plan)
 			},
 		},
@@ -224,7 +224,7 @@ func runManualDirectFlow(ctx *InstallContext) error {
 			Name: "解析镜像索引",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(22)
-				ui.UiSetStatus("正在解析镜像...")
+				ui.UiSetStatus(ui.Tr("install.auto.parseImage"))
 				return ResolveInstallImageIndex(ctx)
 			},
 		},
@@ -240,7 +240,7 @@ func runManualDirectFlow(ctx *InstallContext) error {
 				progressCb := func(phase string, pct float64, raw string) {
 					_ = phase
 					_ = raw
-					ui.UiSetStatus(fmt.Sprintf("正在应用镜像... %.1f%%", pct))
+					ui.UiSetStatus(ui.Trf("install.manual.applyImagePct", pct))
 					ui.UiSetProgress(MapPct(22, 40, pct))
 				}
 				return ApplyInstallImage(ctx.Plan, progressCb)
@@ -256,7 +256,7 @@ func runManualDirectFlow(ctx *InstallContext) error {
 			Name: "修复引导",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(70)
-				ui.UiSetStatus("正在修复引导...")
+				ui.UiSetStatus(ui.Tr("install.auto.repairBoot"))
 				return RepairInstallBoot(ctx.Plan)
 			},
 		},
@@ -270,7 +270,7 @@ func runManualDirectFlow(ctx *InstallContext) error {
 			Name: "HookAfterInstall",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(90)
-				ui.UiSetStatus("正在完成安装后步骤...")
+				ui.UiSetStatus(ui.Tr("install.manual.finishHooks"))
 				return ctx.RunHooks(HookAfterInstall)
 			},
 		},
@@ -284,7 +284,7 @@ func runManualPEFlow(ctx *InstallContext) error {
 			Name: "读取安装计划",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(0)
-				ui.UiSetStatus("正在读取安装计划...")
+				ui.UiSetStatus(ui.Tr("install.manual.readPlan"))
 				plan, err := LoadInstallPlan()
 				if err != nil {
 					return err
@@ -308,7 +308,7 @@ func runManualPEFlow(ctx *InstallContext) error {
 		{
 			Name: "解析目标分区",
 			Run: func(ctx *InstallContext) error {
-				ui.UiSetStatus("正在解析目标分区...")
+				ui.UiSetStatus(ui.Tr("install.auto.resolveTarget"))
 				return ResolveInstallTarget(ctx.Plan)
 			},
 		},
@@ -319,7 +319,7 @@ func runManualPEFlow(ctx *InstallContext) error {
 					return nil
 				}
 				ui.UiSetProgress(12)
-				ui.UiSetStatus("正在格式化分区...")
+				ui.UiSetStatus(ui.Tr("install.auto.formatTarget"))
 				return FormatTargetPartition(ctx.Plan)
 			},
 		},
@@ -327,7 +327,7 @@ func runManualPEFlow(ctx *InstallContext) error {
 			Name: "解析镜像索引",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(20)
-				ui.UiSetStatus("正在解析镜像...")
+				ui.UiSetStatus(ui.Tr("install.auto.parseImage"))
 				return ResolveInstallImageIndex(ctx)
 			},
 		},
@@ -343,7 +343,7 @@ func runManualPEFlow(ctx *InstallContext) error {
 				progressCb := func(phase string, pct float64, raw string) {
 					_ = phase
 					_ = raw
-					ui.UiSetStatus(fmt.Sprintf("正在应用镜像... %.1f%%", pct))
+					ui.UiSetStatus(ui.Trf("install.manual.applyImagePct", pct))
 					ui.UiSetProgress(MapPct(20, 45, pct))
 				}
 				return ApplyInstallImage(ctx.Plan, progressCb)
@@ -359,7 +359,7 @@ func runManualPEFlow(ctx *InstallContext) error {
 			Name: "修复引导",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(75)
-				ui.UiSetStatus("正在修复引导...")
+				ui.UiSetStatus(ui.Tr("install.auto.repairBoot"))
 				return RepairInstallBoot(ctx.Plan)
 			},
 		},
@@ -373,7 +373,7 @@ func runManualPEFlow(ctx *InstallContext) error {
 			Name: "HookAfterInstall",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(92)
-				ui.UiSetStatus("正在完成安装后步骤...")
+				ui.UiSetStatus(ui.Tr("install.manual.finishHooks"))
 				return ctx.RunHooks(HookAfterInstall)
 			},
 		},
@@ -409,12 +409,12 @@ func prepareSelectedPEEnvironment(ctx *InstallContext) error {
 func finishManualInstall(plan *InstallPlan) {
 	ui.UiSetProgress(100)
 	if plan != nil && plan.AutoReboot {
-		ui.UiSetStatus("安装完成，正在重启...")
+		ui.UiSetStatus(ui.Tr("install.manual.completedReboot"))
 		time.Sleep(500 * time.Millisecond)
 		tools.Shutdown(true)
 		return
 	}
-	ui.UiSetStatus("安装完成。")
+	ui.UiSetStatus(ui.Tr("install.manual.completed"))
 }
 
 func manualTargetNeedsPE(plan *InstallPlan) bool {

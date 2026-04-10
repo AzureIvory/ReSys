@@ -38,20 +38,20 @@ func StartInstall(target string) {
 		return runAutoPrepareFlow(ctx)
 	}); err != nil {
 		log.LogWrite(-2, "[StartInstall] failed: %v", err)
-		ui.UiShowError("错误", err.Error())
+		ui.UiShowError("", err.Error())
 		os.Exit(-1)
 		return
 	}
 
 	ui.UiSetProgress(100)
-	ui.UiSetStatus("准备完成，重启后将进入PE...")
+	ui.UiSetStatus(ui.Tr("install.auto.prepareDone"))
 	log.LogWrite(0, "[StartInstall] prepare finished")
 }
 
 // RunPEInstall 执行 PE 内的自动安装流程。
 func RunPEInstall() error {
 	ui.UiSetProgress(0)
-	ui.UiSetStatus("正在读取重装信息...")
+	ui.UiSetStatus(ui.Tr("install.auto.readInstallInfo"))
 	log.LogWrite(0, "[RunPEInstall] enter PE install flow")
 
 	ctx := NewInstallContext(nil)
@@ -70,7 +70,7 @@ func RunPEInstall() error {
 		return err
 	}
 
-	ui.UiSetStatus("安装完成，正在重启...")
+	ui.UiSetStatus(ui.Tr("install.auto.completed"))
 	ui.UiSetProgress(100)
 	log.LogWrite(0, "[RunPEInstall] completed")
 	return nil
@@ -83,7 +83,7 @@ func runAutoPrepareFlow(ctx *InstallContext) error {
 			Name: "预检查",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(0)
-				ui.UiSetStatus("正在检查安装环境...")
+				ui.UiSetStatus(ui.Tr("install.auto.checkEnvironment"))
 				return NormalizeInstallPlan(ctx.Plan)
 			},
 		},
@@ -92,7 +92,7 @@ func runAutoPrepareFlow(ctx *InstallContext) error {
 			Retryable: true,
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(0)
-				ui.UiSetStatus("正在寻找镜像...")
+				ui.UiSetStatus(ui.Tr("install.auto.findImage"))
 				_, err := AcquireInstallImage(ctx.Plan)
 				return err
 			},
@@ -102,7 +102,7 @@ func runAutoPrepareFlow(ctx *InstallContext) error {
 			Retryable: false,
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(50)
-				ui.UiSetStatus("正在处理 BitLocker...")
+				ui.UiSetStatus(ui.Tr("install.auto.handleBitLocker"))
 				return handleBitLockerBeforeEnterPE(ctx)
 			},
 		},
@@ -111,7 +111,7 @@ func runAutoPrepareFlow(ctx *InstallContext) error {
 			Retryable: true,
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(60)
-				ui.UiSetStatus("正在写入重装信息...")
+				ui.UiSetStatus(ui.Tr("install.auto.writeInstallInfo"))
 				return SaveInstallPlan(ctx.Plan)
 			},
 		},
@@ -126,7 +126,7 @@ func runAutoPrepareFlow(ctx *InstallContext) error {
 			Retryable: true,
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(70)
-				ui.UiSetStatus("正在准备PE环境...")
+				ui.UiSetStatus(ui.Tr("install.auto.preparePE"))
 				return PreparePEEnvironment(ctx)
 			},
 		},
@@ -149,7 +149,7 @@ func runAutoPEFlow(ctx *InstallContext) error {
 			Name: "读取安装计划",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(0)
-				ui.UiSetStatus("正在读取重装信息...")
+				ui.UiSetStatus(ui.Tr("install.auto.readInstallInfo"))
 				plan, err := LoadInstallPlan()
 				if err != nil {
 					return err
@@ -182,7 +182,7 @@ func runAutoPEFlow(ctx *InstallContext) error {
 			Name:      "解析目标分区",
 			Retryable: true,
 			Run: func(ctx *InstallContext) error {
-				ui.UiSetStatus("正在解析目标分区...")
+				ui.UiSetStatus(ui.Tr("install.auto.resolveTarget"))
 				return ResolveInstallTarget(ctx.Plan)
 			},
 		},
@@ -197,7 +197,7 @@ func runAutoPEFlow(ctx *InstallContext) error {
 			Retryable: true,
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(10)
-				ui.UiSetStatus("正在格式化分区...")
+				ui.UiSetStatus(ui.Tr("install.auto.formatTarget"))
 				return FormatTargetPartition(ctx.Plan)
 			},
 		},
@@ -206,7 +206,7 @@ func runAutoPEFlow(ctx *InstallContext) error {
 			Retryable: true,
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(20)
-				ui.UiSetStatus("正在解析镜像...")
+				ui.UiSetStatus(ui.Tr("install.auto.parseImage"))
 				if err := ResolveInstallImageIndex(ctx); err != nil {
 					return err
 				}
@@ -227,7 +227,7 @@ func runAutoPEFlow(ctx *InstallContext) error {
 			Run: func(ctx *InstallContext) error {
 				progressCb := func(phase string, pct float64, raw string) {
 					_ = raw
-					ui.UiSetStatus(fmt.Sprintf("正在应用镜像... %s %.1f%%", phase, pct))
+					ui.UiSetStatus(ui.Trf("install.auto.applyImagePhase", phase, pct))
 					ui.UiSetProgress(MapPct(20, 50, pct))
 				}
 				return ApplyInstallImage(ctx.Plan, progressCb)
@@ -243,7 +243,7 @@ func runAutoPEFlow(ctx *InstallContext) error {
 			Name: "修复引导",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(75)
-				ui.UiSetStatus("正在修复引导...")
+				ui.UiSetStatus(ui.Tr("install.auto.repairBoot"))
 				return RepairInstallBoot(ctx.Plan)
 			},
 		},

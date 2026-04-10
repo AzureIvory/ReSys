@@ -1,0 +1,630 @@
+{
+  "wins": [
+    {
+      "id": "main",
+      "title": { "bind": "window.title", "default": "ReSys-一键重装" },
+      "icon": "icon.ico",
+      "iconSizeDP": 48,
+      "w": 760,
+      "h": 460,
+      "root": {
+        "type": "panel",
+        "id": "root",
+        "layout": "abs",
+        "children": [
+          {
+            "type": "panel",
+            "id": "page-select",
+            "visible": { "bind": "pages.selectVisible", "default": true },
+            "frame": { "x": 0, "y": 0, "r": 0, "b": 0 },
+            "children": [
+              {
+                "type": "label",
+                "id": "select-title",
+                "text": { "bind": "i18n.select.title", "default": "请选择要安装的操作系统" },
+                "style": {
+                  "font": "Microsoft YaHei UI",
+                  "size": 20,
+                  "weight": 700,
+                  "fg": "#0f172a",
+                  "align": "center"
+                },
+                "frame": { "x": 0, "y": "50%-120", "w": "winW", "h": 40 }
+              },
+              {
+                "type": "button",
+                "id": "btn-win7",
+                "text": { "bind": "i18n.select.win7", "default": "重装 Win7" },
+                "icon": "win7.ico",
+                "iconSizeDP": 48,
+                "iconPos": "top",
+                "style": {
+                  "pressedBg": "#43cd80"
+                },
+                "onClick": "install-win7",
+                "frame": { "x": "(winW-(120*3+48*2))/2", "y": "50%-40", "w": 120, "h": 120 }
+              },
+              {
+                "type": "button",
+                "id": "btn-win10",
+                "text": { "bind": "i18n.select.win10", "default": "重装 Win10" },
+                "icon": "win10.ico",
+                "iconSizeDP": 48,
+                "iconPos": "top",
+                "onClick": "install-win10",
+                "frame": { "x": "(winW-(120*3+48*2))/2+120+48", "y": "50%-40", "w": 120, "h": 120 }
+              },
+              {
+                "type": "button",
+                "id": "btn-win11",
+                "text": { "bind": "i18n.select.win11", "default": "重装 Win11" },
+                "icon": "win11.ico",
+                "iconSizeDP": 48,
+                "iconPos": "top",
+                "style": {
+                  "pressedBg": "#00bfff"
+                },
+                "onClick": "install-win11",
+                "frame": { "x": "(winW-(120*3+48*2))/2+(120+48)*2", "y": "50%-40", "w": 120, "h": 120 }
+              },
+              {
+                "type": "button",
+                "id": "btn-advanced",
+                "text": { "bind": "i18n.select.advanced", "default": "高级模式" },
+                "style": {
+                  "font": "Microsoft YaHei",
+                  "size": 14,
+                  "weight": 400,
+                  "fg": "#475569",
+                  "downFg": "#ffffff",
+                  "bg": "#ffffff",
+                  "hoverBg": "#f8fafc",
+                  "pressedBg": "#0f172a",
+                  "disabledBg": "#f1f5f9",
+                  "border": "#e2e8f0",
+                  "radius": 10,
+                  "pad": 12
+                },
+                "onClick": "open-manual",
+                "frame": { "x": "winW-116", "y": 20, "w": 96, "h": 36 }
+              }
+            ]
+          },
+          {
+            "type": "panel",
+            "id": "page-progress",
+            "visible": { "bind": "pages.progressVisible", "default": false },
+            "frame": { "x": 0, "y": 0, "r": 0, "b": 0 },
+            "children": [
+              {
+                "type": "animimg",
+                "id": "progress-spinner",
+                "src": "wait.gif",
+                "fit": "contain",
+                "autoplay": { "bind": "progress.spinnerPlaying", "default": false },
+                "frame": { "x": "50%-44", "y": "50%-84", "w": 88, "h": 88 }
+              },
+              {
+                "type": "label",
+                "id": "progress-status",
+                "text": { "bind": "progress.status", "default": "正在准备..." },
+                "style": {
+                  "font": "Microsoft YaHei UI",
+                  "size": 18,
+                  "weight": 700,
+                  "fg": "#0f172a",
+                  "align": "center"
+                },
+                "frame": { "x": 20, "y": "50%+24", "r": 20, "h": 30 }
+              },
+              {
+                "type": "progress",
+                "id": "progress-bar",
+                "value": { "bind": "progress.value", "default": 0 },
+                "style": {
+                  "font": "Microsoft YaHei UI",
+                  "size": 14,
+                  "weight": 700,
+                  "fg": "#ffffff",
+                  "track": "#f3f4f6",
+                  "fill": "#22c55e",
+                  "bubble": "#16a34a",
+                  "radius": 12,
+                  "showPct": true
+                },
+                "frame": { "x": "15%", "y": "50%+102", "w": "70%", "h": 12 }
+              }
+            ]
+          },
+          {
+            "type": "panel",
+            "id": "page-manual",
+            "visible": { "bind": "pages.manualVisible", "default": false },
+            "frame": { "x": 0, "y": 0, "r": 0, "b": 0 },
+            "children": [
+              {
+                "type": "button",
+                "id": "manual-back",
+                "text": { "bind": "i18n.manual.back", "default": "返回" },
+                "style": {
+                  "font": "Microsoft YaHei",
+                  "size": 14,
+                  "weight": 400,
+                  "fg": "#475569",
+                  "downFg": "#ffffff",
+                  "bg": "#ffffff",
+                  "hoverBg": "#f8fafc",
+                  "pressedBg": "#0f172a",
+                  "disabledBg": "#f1f5f9",
+                  "border": "#e2e8f0",
+                  "radius": 10,
+                  "pad": 12
+                },
+                "onClick": "manual-back",
+                "frame": { "x": 14, "y": 14, "w": 70, "h": 30 }
+              },
+              {
+                "type": "label",
+                "id": "manual-title",
+                "text": { "bind": "i18n.manual.title", "default": "手动重装" },
+                "style": {
+                  "font": "Microsoft YaHei UI",
+                  "size": 18,
+                  "weight": 700,
+                  "fg": "#0f172a",
+                  "align": "start"
+                },
+                "frame": { "x": 96, "y": 14, "r": 14, "h": 30 }
+              },
+              {
+                "type": "label",
+                "id": "manual-image-label",
+                "text": { "bind": "i18n.manual.image.label", "default": "镜像" },
+                "style": {
+                  "font": "Microsoft YaHei UI",
+                  "size": 13,
+                  "weight": 700,
+                  "fg": "#334155",
+                  "align": "start"
+                },
+                "frame": { "x": 14, "y": 52, "w": 42, "h": 28 }
+              },
+              {
+                "type": "file",
+                "id": "manual-image-picker",
+                "value": { "bind": "manual.image.path", "default": "" },
+                "placeholder": { "bind": "manual.image.placeholder", "default": "选择本地 ISO / WIM / ESD 镜像" },
+                "buttonText": { "bind": "i18n.common.browse", "default": "浏览" },
+                "dialogTitle": { "bind": "i18n.manual.image.dialogTitle", "default": "选择安装镜像" },
+                "accept": ["*.iso", "*.wim", "*.esd"],
+                "style": {
+                  "btn": {
+                    "font": "Microsoft YaHei",
+                    "size": 14,
+                    "weight": 400,
+                    "fg": "#475569",
+                    "downFg": "#ffffff",
+                    "bg": "#ffffff",
+                    "hoverBg": "#f8fafc",
+                    "pressedBg": "#0f172a",
+                    "disabledBg": "#f1f5f9",
+                    "border": "#e2e8f0",
+                    "radius": 10,
+                    "pad": 12
+                  }
+                },
+                "onChange": "manual-image-change",
+                "frame": { "x": 62, "y": 52, "r": 14, "h": 28 }
+              },
+              {
+                "type": "label",
+                "id": "manual-index-label",
+                "text": { "bind": "i18n.manual.image.indexLabel", "default": "索引" },
+                "style": {
+                  "font": "Microsoft YaHei UI",
+                  "size": 13,
+                  "weight": 700,
+                  "fg": "#334155",
+                  "align": "start"
+                },
+                "frame": { "x": 14, "y": 86, "w": 42, "h": 28 }
+              },
+              {
+                "type": "select",
+                "id": "manual-index-select",
+                "items": { "bind": "manual.image.items", "default": [] },
+                "sel": { "bind": "manual.image.selected", "default": "" },
+                "placeholder": { "bind": "manual.image.indexPlaceholder", "default": "先选择镜像" },
+                "onChange": "manual-index-change",
+                "frame": { "x": 62, "y": 86, "w": 250, "h": 28 }
+              },
+              {
+                "type": "label",
+                "id": "manual-summary",
+                "text": { "bind": "manual.summary", "default": "请选择本地安装镜像和目标分区。" },
+                "style": {
+                  "font": "Microsoft YaHei UI",
+                  "size": 12,
+                  "fg": "#475569",
+                  "align": "start"
+                },
+                "frame": { "x": 322, "y": 86, "r": 14, "h": 28 }
+              },
+              {
+                "type": "label",
+                "id": "manual-target-label",
+                "text": { "bind": "i18n.manual.target.label", "default": "安装分区" },
+                "style": {
+                  "font": "Microsoft YaHei UI",
+                  "size": 13,
+                  "weight": 700,
+                  "fg": "#334155",
+                  "align": "start"
+                },
+                "frame": { "x": 14, "y": 120, "w": 274, "h": 20 }
+              },
+              {
+                "type": "label",
+                "id": "manual-detail-label",
+                "text": { "bind": "i18n.manual.detail.label", "default": "分区详情" },
+                "style": {
+                  "font": "Microsoft YaHei UI",
+                  "size": 13,
+                  "weight": 700,
+                  "fg": "#334155",
+                  "align": "start"
+                },
+                "frame": { "x": 300, "y": 120, "r": 14, "h": 20 }
+              },
+              {
+                "type": "listbox",
+                "id": "manual-partition-list",
+                "items": { "bind": "manual.partitions.items", "default": [] },
+                "sel": { "bind": "manual.partitions.selected", "default": "" },
+                "enabled": { "bind": "manual.partitions.listEnabled", "default": true },
+                "onChange": "manual-partition-change",
+                "frame": { "x": 14, "y": 142, "w": 274, "h": "winH-194" }
+              },
+              {
+                "type": "panel",
+                "id": "manual-loading-panel",
+                "visible": { "bind": "manual.partitions.loading", "default": false },
+                "style": {
+                  "bg": "#ffffff",
+                  "border": "#cbd5e1",
+                  "borderW": 1,
+                  "radius": 12
+                },
+                "frame": { "x": 14, "y": 142, "w": 274, "h": "winH-194" },
+                "children": [
+                  {
+                    "type": "animimg",
+                    "id": "manual-loading-spinner",
+                    "src": "wait.gif",
+                    "fit": "contain",
+                    "visible": { "bind": "manual.partitions.loading", "default": false },
+                    "autoplay": { "bind": "manual.partitions.loading", "default": false },
+                    "frame": { "x": "(parentW-68)/2", "y": "(parentH-68)/2-18", "w": 68, "h": 68 }
+                  },
+                  {
+                    "type": "label",
+                    "id": "manual-loading-text",
+                    "text": { "bind": "manual.partitions.loadingText", "default": "正在检测硬盘中..." },
+                    "visible": { "bind": "manual.partitions.loading", "default": false },
+                    "style": {
+                      "font": "Microsoft YaHei UI",
+                      "size": 12,
+                      "weight": 700,
+                      "fg": "#475569",
+                      "align": "center"
+                    },
+                    "frame": { "x": 12, "y": "parentH/2+20", "r": 12, "h": 28 }
+                  }
+                ]
+              },
+              {
+                "type": "panel",
+                "id": "manual-detail-panel",
+                "style": {
+                  "bg": "#ffffff",
+                  "border": "#cbd5e1",
+                  "borderW": 1,
+                  "radius": 12
+                },
+                "frame": { "x": 300, "y": 142, "r": 14, "h": 104 },
+                "children": [
+                  {
+                    "type": "label",
+                    "id": "manual-detail-text",
+                    "text": { "bind": "manual.partitions.detail", "default": "请选择一个分区查看详情。" },
+                    "multiline": true,
+                    "wordWrap": true,
+                    "style": {
+                      "font": "Microsoft YaHei UI",
+                      "size": 12,
+                      "fg": "#1e293b",
+                      "align": "start"
+                    },
+                    "frame": { "x": 10, "y": 10, "r": 10, "b": 10 }
+                  }
+                ]
+              },
+              {
+                "type": "checkbox",
+                "id": "manual-auto-pe",
+                "text": { "bind": "i18n.manual.option.autoPE", "default": "自动处理 PE" },
+                "checked": { "bind": "manual.options.autoPE", "default": true },
+                "enabled": { "bind": "manual.options.autoPEEnabled", "default": false },
+                "onChange": "manual-auto-pe-change",
+                "frame": { "x": 300, "y": 252, "r": 14, "h": 28 }
+              },
+              {
+                "type": "file",
+                "id": "manual-pe-picker",
+                "value": { "bind": "manual.options.pePath", "default": "" },
+                "placeholder": { "bind": "i18n.manual.pe.placeholder", "default": "自动处理 PE 关闭后，可手动指定 PE WIM" },
+                "buttonText": { "bind": "i18n.common.browse", "default": "浏览" },
+                "dialogTitle": { "bind": "i18n.manual.pe.dialogTitle", "default": "选择 PE WIM" },
+                "accept": ["*.wim"],
+                "enabled": { "bind": "manual.options.peEnabled", "default": false },
+                "style": {
+                  "btn": {
+                    "font": "Microsoft YaHei",
+                    "size": 14,
+                    "weight": 400,
+                    "fg": "#475569",
+                    "downFg": "#ffffff",
+                    "bg": "#ffffff",
+                    "hoverBg": "#f8fafc",
+                    "pressedBg": "#0f172a",
+                    "disabledBg": "#f1f5f9",
+                    "border": "#e2e8f0",
+                    "radius": 10,
+                    "pad": 12
+                  }
+                },
+                "onChange": "manual-pe-change",
+                "frame": { "x": 300, "y": 284, "r": 14, "h": 28 }
+              },
+              {
+                "type": "label",
+                "id": "manual-boot-label",
+                "text": { "bind": "i18n.manual.boot.label", "default": "修复引导" },
+                "style": {
+                  "font": "Microsoft YaHei UI",
+                  "size": 13,
+                  "weight": 700,
+                  "fg": "#334155",
+                  "align": "start"
+                },
+                "frame": { "x": 300, "y": 318, "w": 64, "h": 28 }
+              },
+              {
+                "type": "select",
+                "id": "manual-boot-mode",
+                "items": { "bind": "manual.boot.modeItems", "default": [] },
+                "sel": { "bind": "manual.boot.mode", "default": "auto" },
+                "onChange": "manual-boot-mode-change",
+                "frame": { "x": 370, "y": 318, "w": 132, "h": 28 }
+              },
+              {
+                "type": "select",
+                "id": "manual-boot-target",
+                "items": { "bind": "manual.boot.targets", "default": [] },
+                "sel": { "bind": "manual.boot.target", "default": "" },
+                "placeholder": { "bind": "manual.boot.placeholder", "default": "引导分区将随目标分区自动更新" },
+                "enabled": { "bind": "manual.boot.targetEnabled", "default": false },
+                "onChange": "manual-boot-target-change",
+                "frame": { "x": 508, "y": 318, "r": 14, "h": 28 }
+              },
+              {
+                "type": "checkbox",
+                "id": "manual-format-target",
+                "text": { "bind": "i18n.manual.option.formatTarget", "default": "格式化目标分区" },
+                "checked": { "bind": "manual.options.formatTarget", "default": true },
+                "onChange": "manual-format-change",
+                "frame": { "x": 14, "y": "winH-42", "w": "(winW-172)/4", "h": 28 }
+              },
+              {
+                "type": "checkbox",
+                "id": "manual-backup-drivers",
+                "text": { "bind": "i18n.manual.option.backupDrivers", "default": "备份驱动" },
+                "checked": { "bind": "manual.options.backupDrivers", "default": false },
+                "onChange": "manual-backup-change",
+                "frame": { "x": "22+((winW-172)/4)", "y": "winH-42", "w": "(winW-172)/4", "h": 28 }
+              },
+              {
+                "type": "checkbox",
+                "id": "manual-auto-deploy",
+                "text": { "bind": "i18n.manual.option.autoDeploy", "default": "无人值守" },
+                "checked": { "bind": "manual.options.autoDeploy", "default": true },
+                "onChange": "manual-deploy-change",
+                "frame": { "x": "30+(((winW-172)/4)*2)", "y": "winH-42", "w": "(winW-172)/4", "h": 28 }
+              },
+              {
+                "type": "checkbox",
+                "id": "manual-auto-reboot",
+                "text": { "bind": "i18n.manual.option.autoReboot", "default": "自动重启" },
+                "checked": { "bind": "manual.options.autoReboot", "default": true },
+                "onChange": "manual-reboot-change",
+                "frame": { "x": "38+(((winW-172)/4)*3)", "y": "winH-42", "w": "(winW-172)/4", "h": 28 }
+              },
+              {
+                "type": "button",
+                "id": "manual-start",
+                "text": { "bind": "i18n.manual.start", "default": "开始重装" },
+                "enabled": { "bind": "manual.options.startEnabled", "default": false },
+                "style": {
+                  "font": "Microsoft YaHei UI",
+                  "size": 14,
+                  "weight": 700,
+                  "fg": "#ffffff",
+                  "downFg": "#ffffff",
+                  "disabledFg": "#bfdbfe",
+                  "bg": "#2563eb",
+                  "hoverBg": "#1d4ed8",
+                  "pressedBg": "#1e40af",
+                  "disabledBg": "#60a5fa",
+                  "radius": 10,
+                  "pad": 12
+                },
+                "onClick": "manual-start",
+                "frame": { "x": "winW-122", "y": "winH-44", "w": 108, "h": 32 }
+              }
+            ]
+          },
+          {
+            "type": "modal",
+            "id": "prompt-bitlocker",
+            "visible": { "bind": "prompt.visible", "default": false },
+            "onDismiss": "prompt-cancel",
+            "backdrop": {
+              "color": "#0f172a",
+              "opacity": 112,
+              "blur": 0,
+              "dismissOnClick": false
+            },
+            "children": [
+              {
+                "type": "panel",
+                "id": "prompt-card",
+                "style": {
+                  "bg": "#ffffff",
+                  "border": "#cbd5e1",
+                  "borderW": 1,
+                  "radius": 14
+                },
+                "frame": { "x": "50%-280", "y": "50%-150", "w": 560, "h": 300 },
+                "children": [
+                  {
+                    "type": "label",
+                    "id": "prompt-title",
+                    "text": { "bind": "prompt.title", "default": "BitLocker 解锁" },
+                    "style": {
+                      "font": "Microsoft YaHei UI",
+                      "size": 20,
+                      "weight": 700,
+                      "fg": "#0f172a",
+                      "align": "start"
+                    },
+                    "frame": { "x": 24, "y": 24, "r": 24, "h": 30 }
+                  },
+                  {
+                    "type": "label",
+                    "id": "prompt-text",
+                    "text": { "bind": "prompt.text", "default": "" },
+                    "multiline": true,
+                    "wordWrap": true,
+                    "style": {
+                      "font": "Microsoft YaHei UI",
+                      "size": 14,
+                      "fg": "#334155",
+                      "align": "start"
+                    },
+                    "frame": { "x": 24, "y": 64, "r": 24, "h": 106 }
+                  },
+                  {
+                    "type": "input",
+                    "id": "prompt-input",
+                    "value": { "bind": "prompt.credential", "default": "" },
+                    "placeholder": { "bind": "i18n.prompt.inputPlaceholder", "default": "请输入密码或 48 位恢复密钥" },
+                    "onChange": "prompt-input-change",
+                    "onSubmit": "prompt-submit-password",
+                    "style": {
+                      "font": "Microsoft YaHei UI",
+                      "size": 14,
+                      "fg": "#1e293b",
+                      "ph": "#94a3b8",
+                      "bg": "#ffffff",
+                      "border": "#cbd5e1",
+                      "hoverBorder": "#3b82f6",
+                      "focusBorder": "#2563eb",
+                      "pad": 8,
+                      "radius": 10
+                    },
+                    "frame": { "x": 24, "y": 178, "r": 24, "h": 40 }
+                  },
+                  {
+                    "type": "label",
+                    "id": "prompt-error",
+                    "text": { "bind": "prompt.error", "default": "" },
+                    "style": {
+                      "font": "Microsoft YaHei UI",
+                      "size": 14,
+                      "fg": "#dc2626",
+                      "align": "start"
+                    },
+                    "frame": { "x": 24, "y": 226, "r": 24, "h": 24 }
+                  },
+                  {
+                    "type": "button",
+                    "id": "prompt-password",
+                    "text": { "bind": "i18n.prompt.password", "default": "用密码解锁" },
+                    "style": {
+                      "font": "Microsoft YaHei UI",
+                      "size": 14,
+                      "weight": 700,
+                      "fg": "#ffffff",
+                      "downFg": "#ffffff",
+                      "disabledFg": "#bfdbfe",
+                      "bg": "#2563eb",
+                      "hoverBg": "#1d4ed8",
+                      "pressedBg": "#1e40af",
+                      "disabledBg": "#60a5fa",
+                      "radius": 10,
+                      "pad": 12
+                    },
+                    "onClick": "prompt-submit-password",
+                    "frame": { "x": 24, "y": 258, "w": 148, "h": 36 }
+                  },
+                  {
+                    "type": "button",
+                    "id": "prompt-recovery",
+                    "text": { "bind": "i18n.prompt.recovery", "default": "用恢复密钥" },
+                    "style": {
+                      "font": "Microsoft YaHei UI",
+                      "size": 14,
+                      "weight": 700,
+                      "fg": "#ffffff",
+                      "downFg": "#ffffff",
+                      "disabledFg": "#bfdbfe",
+                      "bg": "#2563eb",
+                      "hoverBg": "#1d4ed8",
+                      "pressedBg": "#1e40af",
+                      "disabledBg": "#60a5fa",
+                      "radius": 10,
+                      "pad": 12
+                    },
+                    "onClick": "prompt-submit-recovery",
+                    "frame": { "x": 184, "y": 258, "w": 148, "h": 36 }
+                  },
+                  {
+                    "type": "button",
+                    "id": "prompt-cancel",
+                    "text": { "bind": "i18n.prompt.cancel", "default": "取消" },
+                    "style": {
+                      "font": "Microsoft YaHei",
+                      "size": 14,
+                      "weight": 400,
+                      "fg": "#475569",
+                      "downFg": "#ffffff",
+                      "bg": "#ffffff",
+                      "hoverBg": "#f8fafc",
+                      "pressedBg": "#0f172a",
+                      "disabledBg": "#f1f5f9",
+                      "border": "#e2e8f0",
+                      "radius": 10,
+                      "pad": 12
+                    },
+                    "onClick": "prompt-cancel",
+                    "frame": { "x": 436, "y": 258, "w": 100, "h": 36 }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

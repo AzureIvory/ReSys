@@ -309,7 +309,7 @@ func moveImageToDisk(imgPath, systemRoot string, needBytes uint64) (string, bool
 		return "", false, nil
 	}
 
-	ui.UiSetStatus("Install image is on the system volume; moving it to another fixed disk...")
+	ui.UiSetStatus(ui.Tr("install.image.moveToOtherDisk"))
 	movedPath, err := moveImageFile(imgPath, bestRoot, "tempimg")
 	if err != nil {
 		return "", false, err
@@ -320,7 +320,7 @@ func moveImageToDisk(imgPath, systemRoot string, needBytes uint64) (string, bool
 
 // moveImageToTemp 把镜像迁移到临时卷。
 func moveImageToTemp(imgPath string, needBytes uint64) (string, error) {
-	ui.UiSetStatus("Install image is on the system volume; creating a TEMP volume and moving the image...")
+	ui.UiSetStatus(ui.Tr("install.image.moveToTempVolume"))
 
 	tmpRoot, err := disk.EnsureTempVolumeForBytes(needBytes + driverBackupWorkspaceReserveBytes())
 	if err != nil {

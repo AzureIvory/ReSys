@@ -153,13 +153,13 @@ func DownloadImage(target, arch string) (string, error) {
 				return dstPath, nil
 			}
 			ui.UiSetProgress(0)
-			ui.UiSetStatus("Downloading install image... 0.0% Speed: 0.00 MB/s")
+			ui.UiSetStatus(ui.Tr("install.download.start"))
 			log.LogWrite(0, "[downloadImage] starting image download (URL): %s -> %s", link, dstPath)
 
 			pr := NewProgressReporter(
 				0, 60,
 				time.Second, time.Second,
-				"Downloading install image... %.1f%% Speed: %.2f MB/s",
+				ui.Tr("install.download.progress"),
 				"Waiting for install image data... %.1f%% Speed: %.2f MB/s",
 				true,
 			)
@@ -234,7 +234,7 @@ func DownloadImage(target, arch string) (string, error) {
 			realPath, err := download.DownloadBT(link, dstDir, func(pct int, speed, done, total int64) {
 				now := time.Now()
 				if lastUI.IsZero() || now.Sub(lastUI) >= time.Second || pct >= 100 {
-					ui.UiSetStatus(fmt.Sprintf("Downloading install image... %d%% Speed: %.2f MB/s", pct, float64(speed)/1024/1024))
+					ui.UiSetStatus(ui.Trf("install.download.progressInt", pct, float64(speed)/1024/1024))
 					ui.UiSetProgress(MapPct(0, 60, float64(pct)))
 					lastUI = now
 				}

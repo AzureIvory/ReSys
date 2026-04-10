@@ -29,7 +29,7 @@ func handleBitLockerBeforeEnterPE(ctx *InstallContext) error {
 	}
 
 	log.LogWrite(0, "[handleBitLockerBeforeEnterPE] encrypted volumes=%s", formatBitLockerVolumes(vols))
-	ui.UiSetStatus("正在检查 BitLocker 分区...")
+	ui.UiSetStatus(ui.Tr("install.bitlocker.checkPartitions"))
 
 	if err := prepareBitLockerVolumesForPE(manager, vols); err != nil {
 		return err
@@ -68,7 +68,7 @@ func prepareBitLockerVolumeForPE(manager *bl.BitLockerManager, vol bl.BitLockerV
 		return fmt.Errorf("%s has unknown BitLocker status, cannot continue to PE", drive)
 	}
 
-	ui.UiSetStatus(fmt.Sprintf("正在删除 BitLocker 保护器 %s...", drive))
+	ui.UiSetStatus(ui.Trf("install.bitlocker.deleteProtectors", drive))
 	log.LogWrite(0, "[prepareBitLockerVolumeForPE] deleting BitLocker protectors: drive=%s", drive)
 
 	res := manager.DeleteAllProtectors(drive)
@@ -98,7 +98,7 @@ func unlockBitLockerVolume(manager *bl.BitLockerManager, vol bl.BitLockerVolumeI
 		return fmt.Errorf("bitlocker volume letter is empty")
 	}
 
-	ui.UiSetStatus(fmt.Sprintf("正在解锁 BitLocker 分区 %s...", drive))
+	ui.UiSetStatus(ui.Trf("install.bitlocker.unlockVolume", drive))
 	log.LogWrite(0, "[unlockBitLockerVolume] start unlock: drive=%s label=%s method=%s", drive, vol.Label, vol.ProtectionMethod)
 
 	lastErr := ""
@@ -109,14 +109,14 @@ func unlockBitLockerVolume(manager *bl.BitLockerManager, vol bl.BitLockerVolumeI
 			log.LogWrite(0, "[unlockBitLockerVolume] automatic recovery key unlock succeeded: drive=%s", drive)
 			return nil
 		}
-		lastErr = fallbackBitLockerMessage(res.Message, "自动解锁失败")
+		lastErr = fallbackBitLockerMessage(res.Message, ui.Tr("install.bitlocker.autoUnlockFailed"))
 		log.LogWrite(0, "[unlockBitLockerVolume] automatic recovery key unlock failed: drive=%s msg=%s", drive, lastErr)
 	} else if err != nil {
 		log.LogWrite(0, "[unlockBitLockerVolume] recovery key unavailable: drive=%s err=%v", drive, err)
 	}
 
 	for {
-		credential, useRecoveryKey, canceled, err := ui.UiPromptBitLockerUnlock("BitLocker 解锁", buildBitLockerPromptText(vol, lastErr))
+		credential, useRecoveryKey, canceled, err := ui.UiPromptBitLockerUnlock(ui.Tr("prompt.title"), buildBitLockerPromptText(vol, lastErr))
 		if err != nil {
 			return err
 		}
@@ -135,7 +135,7 @@ func unlockBitLockerVolume(manager *bl.BitLockerManager, vol bl.BitLockerVolumeI
 			return nil
 		}
 
-		lastErr = fallbackBitLockerMessage(res.Message, "解锁失败")
+		lastErr = fallbackBitLockerMessage(res.Message, ui.Tr("install.bitlocker.unlockFailed"))
 		log.LogWrite(0, "[unlockBitLockerVolume] manual unlock failed: drive=%s recovery=%t msg=%s", drive, useRecoveryKey, lastErr)
 	}
 }
@@ -146,13 +146,9 @@ func buildBitLockerPromptText(vol bl.BitLockerVolumeInfo, lastErr string) string
 		label = "-"
 	}
 
-	msg := fmt.Sprintf(
-		"检测到 BitLocker 锁定分区 %s\n卷标: %s\n进入 PE 前必须先完成解锁，并在解锁后取消 BitLocker 锁。\n如果输入的是密码，请点击“用密码解锁”；如果输入的是 48 位恢复密钥，请点击“用恢复密钥”。\n请先点击输入框再输入。",
-		vol.Letter,
-		label,
-	)
+	msg := ui.Trf("install.bitlocker.promptText", vol.Letter, label)
 	if strings.TrimSpace(lastErr) != "" {
-		msg += "\n上次失败: " + strings.TrimSpace(lastErr)
+		msg += "\n" + ui.Trf("install.bitlocker.promptLastError", strings.TrimSpace(lastErr))
 	}
 	return msg
 }

@@ -104,7 +104,7 @@ func backupDriversBeforeEnterPE(ctx *InstallContext) error {
 	}
 
 	oemDir := filepath.Join(backupRoot, driverBackupOEMDir)
-	ui.UiSetStatus("Backing up OEM drivers...")
+	ui.UiSetStatus(ui.Tr("install.driver.backupOEM"))
 	log.LogWrite(0, "[backupDriversBeforeEnterPE] OEM-only backup root=%s image=%s dir=%s", backupRoot, ctx.Plan.ImagePath, oemDir)
 
 	dismSvc := dism.NewDism()
@@ -149,7 +149,7 @@ func restoreBackedUpDrivers(ctx *InstallContext) error {
 		return nil
 	}
 
-	ui.UiSetStatus("Restoring backed up drivers...")
+	ui.UiSetStatus(ui.Tr("install.driver.restore"))
 	log.LogWrite(0, "[restoreBackedUpDrivers] restore start: offlineRoot=%s backupRoot=%s infCount=%d", ctx.Plan.TargetRoot, backupRoot, infCount)
 
 	success, fail, err := driversvc.ImportDriversOffline(ctx.Plan.TargetRoot, backupRoot)

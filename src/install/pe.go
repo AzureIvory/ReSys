@@ -103,7 +103,7 @@ func PreparePEEnvironment(ctx *InstallContext) error {
 
 // patchPreparedPE 将当前程序写入准备好的 PE 镜像。
 func patchPreparedPE(ctx *InstallContext, prepared preparedPE) error {
-	ui.UiSetStatus("正在写入自身到PE...")
+	ui.UiSetStatus(ui.Tr("install.pe.writeSelf"))
 	if err := pe.Patwim(prepared.WIMPath); err != nil {
 		log.LogWrite(0, "[PreparePEEnvironment] Patwim failed: %v", err)
 		cleanupFailedPE(ctx, prepared)
@@ -133,7 +133,7 @@ func SetNextBootToPE(ctx *InstallContext) error {
 		prepared, _ = preparedPEFromContext(ctx)
 	}
 
-	ui.UiSetStatus("正在设置下次启动进入PE...")
+	ui.UiSetStatus(ui.Tr("install.pe.setNextBoot"))
 
 	var err error
 	if strings.TrimSpace(prepared.SDIPath) == "" {
