@@ -2,6 +2,7 @@
   "wins": [
     {
       "id": "main",
+      "_comment_zh": "主窗口：包含选择页、进度页、手动模式页和 BitLocker 解锁弹层。",
       "title": { "bind": "window.title", "default": "ReSys-一键重装" },
       "icon": "icon.ico",
       "iconSizeDP": 48,
@@ -15,6 +16,7 @@
           {
             "type": "panel",
             "id": "page-select",
+            "_comment_zh": "页面：主页面（系统版本选择）。",
             "visible": { "bind": "pages.selectVisible", "default": true },
             "frame": { "x": 0, "y": 0, "r": 0, "b": 0 },
             "children": [
@@ -93,6 +95,7 @@
           {
             "type": "panel",
             "id": "page-progress",
+            "_comment_zh": "页面：安装进度页面。",
             "visible": { "bind": "pages.progressVisible", "default": false },
             "frame": { "x": 0, "y": 0, "r": 0, "b": 0 },
             "children": [
@@ -139,6 +142,7 @@
           {
             "type": "panel",
             "id": "page-manual",
+            "_comment_zh": "页面：高级/手动模式页面。",
             "visible": { "bind": "pages.manualVisible", "default": false },
             "frame": { "x": 0, "y": 0, "r": 0, "b": 0 },
             "children": [
@@ -476,6 +480,7 @@
           {
             "type": "modal",
             "id": "prompt-bitlocker",
+            "_comment_zh": "页面：BitLocker 解锁弹层。",
             "visible": { "bind": "prompt.visible", "default": false },
             "onDismiss": "prompt-cancel",
             "backdrop": {

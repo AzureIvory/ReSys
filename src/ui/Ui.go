@@ -3,7 +3,7 @@
 // Package ui 负责 ReSys 的图形界面宿主逻辑（Windows）。
 //
 // 本项目的 UI 采用 winui 的 JSONUI（声明式 UI）实现：
-// - UI 结构/布局/样式在 `rules/ui/layout.ui.json` 中声明。
+// - UI 结构/布局/样式在json ui中声明。
 // - Go 侧只负责：窗口生命周期、状态存储（jsonui.Store）、动作回调（ActionHandlers）以及少量必须在宿主完成的桥接（例如 BitLocker 解锁弹窗需要阻塞等待用户输入）。
 // 运行时由 core.App 驱动，widgets.Scene 承载渲染；UI 分为三个主要页面：
 // - 选择页（modeSelect）：Win7/Win10/Win11 卡片 + “高级模式”

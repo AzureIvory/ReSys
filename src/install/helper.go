@@ -1,21 +1,17 @@
 package install
 
 import (
-	"ReSys/src/disk"
 	"ReSys/src/dism"
 	"ReSys/src/file"
 	"ReSys/src/log"
 	"ReSys/src/ui"
-	"ReSys/src/utils"
 	"fmt"
 	"os"
 	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
-	"unsafe"
 )
 
 const (
@@ -42,130 +38,10 @@ const (
 var (
 	failedLinksMu sync.Mutex
 	failedLinks   = map[string]struct{}{}
-
-	installKernel32                 = syscall.NewLazyDLL("kernel32.dll")
-	procGetVolumePathNameW          = installKernel32.NewProc("GetVolumePathNameW")
-	procGetVolumeNameForMountPointW = installKernel32.NewProc("GetVolumeNameForVolumeMountPointW")
 )
 
 func driverBackupWorkspaceReserveBytes() uint64 {
 	return driverBackupReserveBytes
-}
-
-// sameVolumePath compares real volume identities so mounted partitions under the
-// same drive letter are not mistaken for the system partition.
-func sameVolumePath(pathA, pathB string) bool {
-	idA := volumeIdentityForPath(pathA)
-	idB := volumeIdentityForPath(pathB)
-	if idA != "" && idB != "" {
-		return strings.EqualFold(idA, idB)
-	}
-
-	rootA := normalizedVolumeRoot(pathA)
-	rootB := normalizedVolumeRoot(pathB)
-	return rootA != "" && rootB != "" && strings.EqualFold(rootA, rootB)
-}
-
-func volumeIdentityForPath(path string) string {
-	raw := strings.TrimSpace(strings.ReplaceAll(path, "/", `\`))
-	if raw == "" {
-		return ""
-	}
-
-	lower := strings.ToLower(raw)
-	if strings.HasPrefix(lower, `\\?\volume{`) {
-		return strings.TrimRight(lower, `\`)
-	}
-
-	if mountPoint, err := getVolumeMountPoint(raw); err == nil && mountPoint != "" {
-		if guid, err := getVolumeGUIDForMountPoint(mountPoint); err == nil && guid != "" {
-			return strings.ToLower(strings.TrimRight(guid, `\`))
-		}
-		return strings.ToLower(strings.TrimRight(mountPoint, `\`))
-	}
-
-	root := normalizedVolumeRoot(raw)
-	if root == "" {
-		return ""
-	}
-
-	if vols, err := disk.ListVolumes(); err == nil {
-		for _, vol := range vols {
-			volRoot, _ := utils.NormalizeDrive(vol.RootPath, 0)
-			if volRoot == "" || !strings.EqualFold(volRoot, root) {
-				continue
-			}
-			if guid := strings.TrimSpace(vol.VolumeGuidPath); guid != "" {
-				return strings.ToLower(strings.TrimRight(guid, `\`))
-			}
-			if guid := strings.TrimSpace(vol.PartitionGuid); guid != "" {
-				return "partition:" + strings.ToLower(guid)
-			}
-			return fmt.Sprintf("disk:%d@%d", vol.DiskNumber, vol.OffsetBytes)
-		}
-	}
-
-	return strings.ToUpper(root)
-}
-
-func normalizedVolumeRoot(path string) string {
-	if root, err := utils.NormalizeDrive(path, 2); err == nil && root != "" {
-		return root
-	}
-	root, _ := utils.NormalizeDrive(path, 0)
-	return root
-}
-
-func getVolumeMountPoint(path string) (string, error) {
-	pPath, err := syscall.UTF16PtrFromString(path)
-	if err != nil {
-		return "", err
-	}
-
-	buf := make([]uint16, 1024)
-	r1, _, e1 := procGetVolumePathNameW.Call(
-		uintptr(unsafe.Pointer(pPath)),
-		uintptr(unsafe.Pointer(&buf[0])),
-		uintptr(len(buf)),
-	)
-	if r1 == 0 {
-		if e1 != nil && e1 != syscall.Errno(0) {
-			return "", fmt.Errorf("GetVolumePathNameW: %w", e1)
-		}
-		return "", fmt.Errorf("GetVolumePathNameW failed")
-	}
-
-	return syscall.UTF16ToString(buf), nil
-}
-
-func getVolumeGUIDForMountPoint(mountPoint string) (string, error) {
-	mp := strings.TrimSpace(strings.ReplaceAll(mountPoint, "/", `\`))
-	if mp == "" {
-		return "", fmt.Errorf("empty mount point")
-	}
-	if !strings.HasSuffix(mp, `\`) {
-		mp += `\`
-	}
-
-	pMount, err := syscall.UTF16PtrFromString(mp)
-	if err != nil {
-		return "", err
-	}
-
-	buf := make([]uint16, 1024)
-	r1, _, e1 := procGetVolumeNameForMountPointW.Call(
-		uintptr(unsafe.Pointer(pMount)),
-		uintptr(unsafe.Pointer(&buf[0])),
-		uintptr(len(buf)),
-	)
-	if r1 == 0 {
-		if e1 != nil && e1 != syscall.Errno(0) {
-			return "", fmt.Errorf("GetVolumeNameForVolumeMountPointW: %w", e1)
-		}
-		return "", fmt.Errorf("GetVolumeNameForVolumeMountPointW failed")
-	}
-
-	return syscall.UTF16ToString(buf), nil
 }
 
 type ProgressReporter struct {

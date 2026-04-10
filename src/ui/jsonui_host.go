@@ -2,7 +2,7 @@
 
 // JSONUI 宿主加载与运行时桥接。
 //
-// 目标：让 UI 的“结构/布局/样式”全部在 `rules/ui/layout.ui.json` 中声明，
+// 目标：让 UI 的“结构/布局/样式”全部在 json ui中声明，
 // Go 侧只负责三件事：
 // 1) 初始化 Store（UI 状态容器），并提供默认状态（defaultUIState）。
 // 2) 把 JSON 中声明的 action 名称映射到 Go 回调（uiActionHandlers）。
@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"ReSys/res"
+	"ReSys/src/utils"
 
 	"github.com/AzureIvory/winui/widgets"
 	"github.com/AzureIvory/winui/widgets/jsonui"
@@ -31,9 +32,9 @@ var (
 	uiAssetsErr  error
 )
 
-// uiLayoutRelativePath 是 JSONUI 布局文件相对工程根目录的路径。
+// jsonUI 是 JSONUI 布局文件相对工程根目录的路径。
 // 运行时会从工作目录/可执行文件目录向上回溯查找（见 uiLayoutPath）。
-const uiLayoutRelativePath = "rules/ui/layout.ui.json"
+const jsonUI = "rules/ui/default/default.json"
 
 // newUIStore 创建一个新的 Store，并填充默认 UI 状态。
 // Store 是 JSONUI 的“数据源”，UI 只声明 data 绑定路径，不直接访问业务层对象。
@@ -75,7 +76,7 @@ func loadUIDocument(store *jsonui.Store) (*jsonui.Document, error) {
 	})
 }
 
-// uiLayoutPath 在运行时定位 `rules/ui/layout.ui.json`。
+// uiLayoutPath 在运行时定位 `rules/ui/default/default.json`。
 //
 // 兼容两种常见启动方式：
 // - 开发期：从当前工作目录开始向上查找。
@@ -83,22 +84,7 @@ func loadUIDocument(store *jsonui.Store) (*jsonui.Document, error) {
 //
 // 为了避免扫描整个磁盘，这里最多向上回溯 5 层目录。
 func uiLayoutPath() (string, error) {
-	return projectFilePath(uiLayoutRelativePath)
-}
-
-// appendSearchRoots 将 root 自身及其最多 5 层父目录与 suffix 拼接为候选路径。
-// 这能兼容 “执行目录不在工程根” 的情况，而无需硬编码绝对路径。
-func appendSearchRoots(candidates []string, root, suffix string) []string {
-	root = filepath.Clean(root)
-	for range 5 {
-		candidates = append(candidates, filepath.Join(root, suffix))
-		parent := filepath.Dir(root)
-		if parent == root {
-			break
-		}
-		root = parent
-	}
-	return candidates
+	return utils.ProjectFile(jsonUI)
 }
 
 // defaultUIState 定义 UI 初始状态。
@@ -106,7 +92,7 @@ func appendSearchRoots(candidates []string, root, suffix string) []string {
 // 说明：
 // - JSONUI 的 Patch/Set 支持使用 `a.b.c` 的路径写入嵌套对象。
 // - 列表型字段使用空切片而不是 nil，避免渲染层把 nil 视作 “没有数据结构”。
-// - 这里的 key 路径应与 `rules/ui/layout.ui.json` 中的 data 绑定一致。
+// - 这里的 key 路径应与 `rules/ui/default/default.json` 中的 data 绑定一致。
 func defaultUIState() map[string]any {
 	return map[string]any{
 		"i18n": i18nSnapshot(),

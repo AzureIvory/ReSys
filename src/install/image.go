@@ -236,7 +236,7 @@ func validateImageFile(it data.RuleItem, imagePath string) error {
 // relocateInstallImage 在镜像位于系统盘时，把它迁移到更安全的位置。
 func relocateInstallImage(imgPath string) (string, error) {
 	systemRoot := windows.SystemDriveRoot()
-	if strings.TrimSpace(systemRoot) == "" || !sameVolumePath(imgPath, systemRoot) {
+	if strings.TrimSpace(systemRoot) == "" || !utils.SameVolume(imgPath, systemRoot) {
 		return imgPath, nil
 	}
 
@@ -261,7 +261,7 @@ func EnsureInstallImageOutsideTarget(plan *InstallPlan) error {
 	}
 
 	targetRoot, _ := utils.NormalizeDrive(plan.TargetRoot, 0)
-	if targetRoot == "" || !sameVolumePath(plan.ImagePath, targetRoot) {
+	if targetRoot == "" || !utils.SameVolume(plan.ImagePath, targetRoot) {
 		return nil
 	}
 

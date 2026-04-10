@@ -20,6 +20,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"ReSys/src/utils"
+
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"golang.org/x/text/transform"
 )
@@ -211,7 +213,7 @@ func applyRuleMeta(res *RuleParseResult) {
 	}
 	res.Source = defaultRuleSource(res.RulePath, res.Source)
 	for i := range res.Items {
-		res.Items[i].Source = firstNonEmptyString(strings.TrimSpace(res.Items[i].Source), res.Source)
+		res.Items[i].Source = utils.FirstNonEmpty(strings.TrimSpace(res.Items[i].Source), res.Source)
 		res.Items[i].Rank = res.Rank
 		if strings.TrimSpace(res.Items[i].System) == "" {
 			res.Items[i].System = res.System
@@ -712,8 +714,8 @@ func buildRuleItemFromRules(rf ruleFile, root any, ctx iterContext, idx int) (Ru
 
 	hashMap := mapValue(rf.Rules["hash"])
 	item.Hash = RuleHash{
-		Sha1:   firstNonEmptyString(ruleValueString(hashMap["Sha1"], root, ctx), ruleValueString(hashMap["SHA1"], root, ctx)),
-		Sha256: firstNonEmptyString(ruleValueString(hashMap["Sha256"], root, ctx), ruleValueString(hashMap["SHA256"], root, ctx)),
+		Sha1:   utils.FirstNonEmpty(ruleValueString(hashMap["Sha1"], root, ctx), ruleValueString(hashMap["SHA1"], root, ctx)),
+		Sha256: utils.FirstNonEmpty(ruleValueString(hashMap["Sha256"], root, ctx), ruleValueString(hashMap["SHA256"], root, ctx)),
 		MD5:    ruleValueString(hashMap["MD5"], root, ctx),
 	}
 
@@ -732,22 +734,22 @@ func buildRuleItemFromMap(id string, rawMap map[string]any, defaultSystem, sizeU
 
 	item := RuleItem{
 		ID:          strings.TrimSpace(id),
-		System:      firstNonEmptyString(stringValue(rawMap["System"]), strings.TrimSpace(defaultSystem)),
+		System:      utils.FirstNonEmpty(stringValue(rawMap["System"]), strings.TrimSpace(defaultSystem)),
 		Name:        strings.TrimSpace(stringValue(rawMap["Name"])),
 		FileName:    strings.TrimSpace(stringValue(rawMap["FileName"])),
-		Description: strings.TrimSpace(firstNonEmptyString(stringValue(rawMap["Description"]), stringValue(rawMap["Desc"]))),
-		PublishDate: strings.TrimSpace(firstNonEmptyString(stringValue(rawMap["PublishDate"]), stringValue(rawMap["Date"]))),
+		Description: strings.TrimSpace(utils.FirstNonEmpty(stringValue(rawMap["Description"]), stringValue(rawMap["Desc"]))),
+		PublishDate: strings.TrimSpace(utils.FirstNonEmpty(stringValue(rawMap["PublishDate"]), stringValue(rawMap["Date"]))),
 		Language:    strings.TrimSpace(stringValue(rawMap["Language"])),
 		Arch:        strings.TrimSpace(stringValue(rawMap["Arch"])),
 		Size:        floatValue(rawMap["Size"]),
 		SizeUnit:    strings.TrimSpace(sizeUnit),
 		Edition:     strings.TrimSpace(stringValue(rawMap["Edition"])),
-		Ver:         strings.TrimSpace(firstNonEmptyString(stringValue(rawMap["ver"]), stringValue(rawMap["Ver"]))),
+		Ver:         strings.TrimSpace(utils.FirstNonEmpty(stringValue(rawMap["ver"]), stringValue(rawMap["Ver"]))),
 		Index:       intValue(rawMap["index"]),
 		Offset:      strings.TrimSpace(stringValue(rawMap["offset"])),
 		Hash: RuleHash{
-			Sha1:   firstNonEmptyString(stringValue(hashMap["Sha1"]), stringValue(hashMap["SHA1"])),
-			Sha256: firstNonEmptyString(stringValue(hashMap["Sha256"]), stringValue(hashMap["SHA256"])),
+			Sha1:   utils.FirstNonEmpty(stringValue(hashMap["Sha1"]), stringValue(hashMap["SHA1"])),
+			Sha256: utils.FirstNonEmpty(stringValue(hashMap["Sha256"]), stringValue(hashMap["SHA256"])),
 			MD5:    stringValue(hashMap["MD5"]),
 		},
 		Link: RuleLink{
@@ -1339,7 +1341,7 @@ func buildSectionRuleItem(
 		return RuleItem{}, false, nil
 	}
 
-	system := firstNonEmptyString(
+	system := utils.FirstNonEmpty(
 		strings.TrimSpace(named["System"]),
 		strings.TrimSpace(rf.System),
 		deriveSystemFromName(name),
@@ -1366,7 +1368,7 @@ func buildSectionRuleItem(
 			MD5:    strings.TrimSpace(named["MD5"]),
 		},
 		Link: RuleLink{
-			Type:  defaultLinkType(firstNonEmptyString(named["LinkType"], named["Type"])),
+			Type:  defaultLinkType(utils.FirstNonEmpty(named["LinkType"], named["Type"])),
 			Links: links,
 		},
 	}
@@ -1624,14 +1626,4 @@ func numericSuffix(s string) int {
 		return 1
 	}
 	return n
-}
-
-func firstNonEmptyString(vs ...string) string {
-	for _, v := range vs {
-		v = strings.TrimSpace(v)
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }

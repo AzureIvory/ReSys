@@ -3,7 +3,7 @@
 // 手动模式（高级模式）的运行时逻辑。
 //
 // 这个文件负责“事件处理 + 异步加载 + Store 更新”，不负责实际的安装动作。
-// UI 的结构/布局在 JSON 中声明（rules/ui/layout.ui.json），Go 侧通过修改 Store 来驱动 UI：
+// UI 的结构/布局在 JSON 中声明（json ui），Go 侧通过修改 Store 来驱动 UI：
 // - 镜像选择/索引：`manual.image.*`
 // - 分区列表/详情：`manual.partitions.*`
 // - 引导修复：`manual.boot.*`
@@ -96,11 +96,11 @@ type manualBootTargetOption struct {
 
 const (
 	// manualBootRepairAuto: 自动判断 BIOS/UEFI，并选择合适的引导分区。
-	manualBootRepairAuto       = "auto"
+	manualBootRepairAuto = "auto"
 	// manualBootRepairSkip: 不做引导修复。
-	manualBootRepairSkip       = "skip"
+	manualBootRepairSkip = "skip"
 	// manualBootRepairLegacy: 根据目标磁盘分区表（GPT/MBR）选择 BIOS/UEFI，但允许手动指定。
-	manualBootRepairLegacy     = "manual"
+	manualBootRepairLegacy = "manual"
 	// manualBootRepairManualUEFI: 强制 UEFI，并要求用户手动选择 EFI 分区。
 	manualBootRepairManualUEFI = "manual_uefi"
 	// manualBootRepairManualBIOS: 强制 BIOS，并要求用户手动选择 BIOS 引导分区。

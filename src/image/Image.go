@@ -14,6 +14,7 @@ import (
 	"ReSys/src/dism"
 	"ReSys/src/file"
 	"ReSys/src/log"
+	"ReSys/src/utils"
 
 	"github.com/kdomanski/iso9660"
 )
@@ -274,28 +275,11 @@ func DetectTargetFromInfos(infos []dism.ImageMeta) string {
 	if len(infos) == 0 {
 		return ""
 	}
-	var b strings.Builder
+	values := make([]string, 0, len(infos)*4)
 	for _, info := range infos {
-		b.WriteString(info.Name)
-		b.WriteString(" ")
-		b.WriteString(info.Description)
-		b.WriteString(" ")
-		b.WriteString(info.Edition)
-		b.WriteString(" ")
-		b.WriteString(info.Flags)
-		b.WriteString(" ")
+		values = append(values, info.Name, info.Description, info.Edition, info.Flags)
 	}
-	s := strings.ToLower(b.String())
-	switch {
-	case strings.Contains(s, "windows 7") || strings.Contains(s, "win7"):
-		return targetWin7
-	case strings.Contains(s, "windows 11") || strings.Contains(s, "win11"):
-		return targetWin11
-	case strings.Contains(s, "windows 10") || strings.Contains(s, "win10"):
-		return targetWin10
-	default:
-		return ""
-	}
+	return utils.DetectTarget(values...)
 }
 
 // 尝试从镜像元数据推测架构，失败再从文件名推测。

@@ -1,0 +1,37 @@
+name: windows-ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test-and-build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout ReSys
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Clone winui replace dependency
+        shell: pwsh
+        run: git clone --depth 1 https://github.com/AzureIvory/winui ..\winui
+
+      - name: Run Go tests
+        shell: pwsh
+        run: go test ./...
+
+      - name: Run build.bat
+        shell: cmd
+        run: build.bat
+
+      - name: Upload ReSys.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReSys-windows
+          path: ReSys.exe

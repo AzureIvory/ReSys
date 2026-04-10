@@ -1112,7 +1112,7 @@ func parseWimXML(xml string) ([]ImageMeta, error) {
 		}
 		block := xml[absStart : absStart+imgEnd+len(`</IMAGE>`)]
 
-		name := firstNonEmpty(
+		name := utils.FirstNonEmpty(
 			extractXMLTag(block, "DISPLAYNAME"),
 			extractXMLTag(block, "NAME"),
 		)
@@ -1165,14 +1165,6 @@ func extractXMLTag(xml, tag string) string {
 		return ""
 	}
 	return strings.TrimSpace(xml[s : s+e])
-}
-
-// firstNonEmpty 返回第一个非空字符串。
-func firstNonEmpty(a, b string) string {
-	if strings.TrimSpace(a) != "" {
-		return a
-	}
-	return b
 }
 
 // leU64 按小端序将 8 字节切片解码为 uint64。

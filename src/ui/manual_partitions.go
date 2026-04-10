@@ -106,7 +106,7 @@ func manualCollectPartitionRows() ([]manualPartitionRow, []manualPartitionRow, e
 			DiskNumber:     vol.DiskNumber,
 			PartitionType:  T("manual.partition.unknown"),
 			DiskStyle:      strings.TrimSpace(diskStyleByDisk[vol.DiskNumber]),
-			DiskKind:       manualFirstNonEmpty(kindByDisk[vol.DiskNumber], "Unknown"),
+			DiskKind:       utils.FirstNonEmpty(kindByDisk[vol.DiskNumber], "Unknown"),
 			FileSystem:     strings.TrimSpace(vol.FileSystem),
 			VolumeLabel:    strings.TrimSpace(vol.Label),
 			VolumeGuidPath: strings.TrimSpace(vol.VolumeGuidPath),
@@ -119,11 +119,11 @@ func manualCollectPartitionRows() ([]manualPartitionRow, []manualPartitionRow, e
 
 		if part, ok := partByGUID[manualNormalizeGUID(vol.VolumeGuidPath)]; ok {
 			row.PartitionNumber = part.PartitionNumber
-			row.PartitionType = manualFirstNonEmpty(part.PartitionType, row.PartitionType)
+			row.PartitionType = utils.FirstNonEmpty(part.PartitionType, row.PartitionType)
 			row.Ref = part.Ref
 		} else if part, ok := partByLetter[letter]; ok {
 			row.PartitionNumber = part.PartitionNumber
-			row.PartitionType = manualFirstNonEmpty(part.PartitionType, row.PartitionType)
+			row.PartitionType = utils.FirstNonEmpty(part.PartitionType, row.PartitionType)
 			row.Ref = part.Ref
 		}
 
@@ -138,7 +138,7 @@ func manualCollectPartitionRows() ([]manualPartitionRow, []manualPartitionRow, e
 			}
 		}
 
-		row.CurrentSystem = manualIsCurrentSystemRoot(row.TargetRoot)
+		row.CurrentSystem = utils.NeedsPE(row.TargetRoot, winos.SystemDriveRoot())
 		row.BitLocker = manualBitLockerText(manager, bitlockerReady, row.TargetRoot)
 		row.TargetSelectable = manualIsInstallTarget(row)
 		row.Summary = manualPartitionSummary(row)
@@ -209,9 +209,9 @@ func manualBuildBootRows(
 			row := manualPartitionRow{
 				DiskNumber:      diskNumber,
 				PartitionNumber: part.PartitionNumber,
-				PartitionType:   manualFirstNonEmpty(strings.TrimSpace(part.Type), T("manual.partition.unknown")),
+				PartitionType:   utils.FirstNonEmpty(strings.TrimSpace(part.Type), T("manual.partition.unknown")),
 				DiskStyle:       strings.TrimSpace(diskStyleByDisk[diskNumber]),
-				DiskKind:        manualFirstNonEmpty(kindByDisk[diskNumber], "Unknown"),
+				DiskKind:        utils.FirstNonEmpty(kindByDisk[diskNumber], "Unknown"),
 				VolumeGuidPath:  strings.TrimSpace(part.VolumeGuidPath),
 				DriveLetter:     manualNormalizeDriveLetter(part.DriveLetter),
 				SizeBytes:       part.SizeBytes,
@@ -255,7 +255,7 @@ func manualBuildBootRows(
 				}
 			}
 
-			row.CurrentSystem = manualIsCurrentSystemRoot(row.TargetRoot)
+			row.CurrentSystem = utils.NeedsPE(row.TargetRoot, winos.SystemDriveRoot())
 			row.BitLocker = manualBitLockerText(manager, bitlockerReady, row.TargetRoot)
 			row.TargetSelectable = manualIsInstallTarget(row)
 			row.Summary = manualPartitionSummary(row)
@@ -277,7 +277,7 @@ func manualBuildBootRows(
 // 排序策略为“同盘优先”，避免用户误选到其它磁盘的引导分区。
 func manualCollectBootTargets(target manualPartitionRow, mode string) []manualBootTargetOption {
 	options := make([]manualBootTargetOption, 0, 4)
-	if manualBootRepairType(target, mode) == "UEFI" {
+	if utils.BootType(mode, target.DiskStyle) == "UEFI" {
 		for _, row := range manual.bootRows {
 			if !manualIsUEFIBootPartition(row) {
 				continue
@@ -285,8 +285,8 @@ func manualCollectBootTargets(target manualPartitionRow, mode string) []manualBo
 			options = append(options, manualBootTargetOption{Ref: row.Ref, Text: manualBootTargetText(row)})
 		}
 		sort.Slice(options, func(i, j int) bool {
-			di, pi := manualParsePartitionRef(options[i].Ref)
-			dj, pj := manualParsePartitionRef(options[j].Ref)
+			di, pi, _ := utils.ParsePartRef(options[i].Ref)
+			dj, pj, _ := utils.ParsePartRef(options[j].Ref)
 			if di != dj {
 				if di == target.DiskNumber {
 					return true
@@ -308,8 +308,8 @@ func manualCollectBootTargets(target manualPartitionRow, mode string) []manualBo
 		options = append(options, manualBootTargetOption{Ref: row.Ref, Text: manualBootTargetText(row)})
 	}
 	sort.Slice(options, func(i, j int) bool {
-		di, pi := manualParsePartitionRef(options[i].Ref)
-		dj, pj := manualParsePartitionRef(options[j].Ref)
+		di, pi, _ := utils.ParsePartRef(options[i].Ref)
+		dj, pj, _ := utils.ParsePartRef(options[j].Ref)
 		if di != dj {
 			if di == target.DiskNumber {
 				return true
@@ -328,26 +328,6 @@ func manualCollectBootTargets(target manualPartitionRow, mode string) []manualBo
 		return pi < pj
 	})
 	return options
-}
-
-// manualBootRepairType 根据模式与目标磁盘分区表（GPT/MBR）推断需要 UEFI 还是 BIOS。
-func manualBootRepairType(target manualPartitionRow, mode string) string {
-	switch strings.TrimSpace(mode) {
-	case manualBootRepairManualUEFI:
-		return "UEFI"
-	case manualBootRepairManualBIOS:
-		return "BIOS"
-	case manualBootRepairLegacy:
-		if strings.EqualFold(target.DiskStyle, "GPT") {
-			return "UEFI"
-		}
-		return "BIOS"
-	default:
-		if strings.EqualFold(target.DiskStyle, "GPT") {
-			return "UEFI"
-		}
-		return "BIOS"
-	}
 }
 
 // manualIsUEFIBootPartition 判断分区是否可能是 EFI 系统分区（ESP）。
@@ -432,22 +412,6 @@ func manualIsInstallTarget(row manualPartitionRow) bool {
 	return !strings.EqualFold(strings.TrimSpace(row.FileSystem), "FAT32")
 }
 
-// manualIsCurrentSystemRoot 判断给定根路径是否为当前系统盘（通常是 C:\）。
-func manualIsCurrentSystemRoot(root string) bool {
-	if strings.TrimSpace(root) == "" {
-		return false
-	}
-	systemRoot := winos.SystemDriveRoot()
-	if norm, err := utils.NormalizeDrive(systemRoot, 0); err == nil {
-		systemRoot = norm
-	}
-	normRoot, err := utils.NormalizeDrive(root, 0)
-	if err != nil {
-		return false
-	}
-	return strings.EqualFold(normRoot, systemRoot)
-}
-
 // manualBitLockerText 将 BitLocker 状态转换为 UI 文案。
 // 当分区未挂载或 BitLocker 不可用时，会返回“未挂载/未知”。
 func manualBitLockerText(manager *bl.BitLockerManager, ready bool, root string) string {
@@ -527,16 +491,16 @@ func manualPartitionDetail(row manualPartitionRow) string {
 	}
 	return fmt.Sprintf(
 		T("manual.partition.detail.template"),
-		manualFirstNonEmpty(strings.TrimRight(row.TargetRoot, `\`), T("manual.partition.notMounted")),
-		manualFirstNonEmpty(row.VolumeLabel, "-"),
+		utils.FirstNonEmpty(strings.TrimRight(row.TargetRoot, `\`), T("manual.partition.notMounted")),
+		utils.FirstNonEmpty(row.VolumeLabel, "-"),
 		manualSizeDetailText(row.SizeBytes, row.FreeBytes),
-		manualFirstNonEmpty(row.FileSystem, "-"),
+		utils.FirstNonEmpty(row.FileSystem, "-"),
 		row.DiskNumber,
 		row.PartitionNumber,
-		manualFirstNonEmpty(row.PartitionType, "-"),
-		manualFirstNonEmpty(row.DiskStyle, "-"),
+		utils.FirstNonEmpty(row.PartitionType, "-"),
+		utils.FirstNonEmpty(row.DiskStyle, "-"),
 		manualDisplayDiskKind(row.DiskKind),
-		manualFirstNonEmpty(row.BitLocker, "-"),
+		utils.FirstNonEmpty(row.BitLocker, "-"),
 		currentText,
 		modeText,
 	)
@@ -618,7 +582,7 @@ func manualDisplayDiskKind(kind string) string {
 	if strings.EqualFold(strings.TrimSpace(kind), "Unknown") {
 		return T("manual.partition.unknown")
 	}
-	return manualFirstNonEmpty(kind, "-")
+	return utils.FirstNonEmpty(kind, "-")
 }
 
 // manualNormalizeGUID 规范化 GUID 路径（统一大小写/空白）。
@@ -634,28 +598,4 @@ func manualNormalizeDriveLetter(letter string) string {
 		return letter
 	}
 	return ""
-}
-
-// manualFirstNonEmpty 返回第一个非空字符串（会 TrimSpace）。
-func manualFirstNonEmpty(values ...string) string {
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
-// manualParsePartitionRef 解析 `disk:partition` 形式的 Ref。
-// 解析失败时返回 0,0。
-func manualParsePartitionRef(ref string) (int, int) {
-	parts := strings.Split(strings.TrimSpace(ref), ":")
-	if len(parts) != 2 {
-		return 0, 0
-	}
-	var diskNumber, partNumber int
-	fmt.Sscanf(parts[0], "%d", &diskNumber)
-	fmt.Sscanf(parts[1], "%d", &partNumber)
-	return diskNumber, partNumber
 }

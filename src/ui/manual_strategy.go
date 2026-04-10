@@ -116,11 +116,11 @@ func manualRefreshBootTargets() {
 	}
 
 	placeholder := T("manual.boot.placeholder.selectBIOS")
-	if manualBootRepairType(row, mode) == "UEFI" {
+	if utils.BootType(mode, row.DiskStyle) == "UEFI" {
 		placeholder = T("manual.boot.placeholder.selectUEFI")
 	}
 	if len(items) == 0 {
-		if manualBootRepairType(row, mode) == "UEFI" {
+		if utils.BootType(mode, row.DiskStyle) == "UEFI" {
 			placeholder = T("manual.boot.placeholder.noUEFI")
 		} else {
 			placeholder = T("manual.boot.placeholder.noBIOS")
@@ -158,7 +158,7 @@ func manualUpdatePEInputState() {
 func manualUpdateBootTargetState() {
 	manualSetState(
 		"manual.boot.targetEnabled",
-		!manual.partitionLoading && manualBootModeNeedsTarget() && len(manual.bootTargets) > 0,
+		!manual.partitionLoading && utils.NeedBootPart(manualSelectedBootMode()) && len(manual.bootTargets) > 0,
 	)
 	manualUpdateActionState()
 }
@@ -284,7 +284,7 @@ func manualBuildConfig() (ManualInstallConfig, error) {
 	if cfg.TargetOS == "" {
 		cfg.TargetOS = targetWin10
 	}
-	if manualBootModeNeedsTarget() {
+	if utils.NeedBootPart(manualSelectedBootMode()) {
 		cfg.BootTargetRef = manualSelectedBootTargetRef()
 	}
 	return cfg, nil
@@ -332,16 +332,6 @@ func manualSelectedBootMode() string {
 	return mode
 }
 
-// manualBootModeNeedsTarget 判断当前模式是否要求用户手动选择引导分区。
-func manualBootModeNeedsTarget() bool {
-	switch manualSelectedBootMode() {
-	case manualBootRepairLegacy, manualBootRepairManualUEFI, manualBootRepairManualBIOS:
-		return true
-	default:
-		return false
-	}
-}
-
 // manualBootRepairSummary 生成引导修复的可读摘要，用于底部汇总提示。
 func manualBootRepairSummary() string {
 	switch manualSelectedBootMode() {
@@ -360,7 +350,7 @@ func manualBootRepairSummary() string {
 	default:
 		row, ok := manualSelectedPartition()
 		if ok {
-			return fmt.Sprintf(T("manual.boot.summary.autoType"), manualBootRepairType(row, manualBootRepairAuto))
+			return fmt.Sprintf(T("manual.boot.summary.autoType"), utils.BootType(manualBootRepairAuto, row.DiskStyle))
 		}
 		return T("manual.boot.summary.auto")
 	}
@@ -395,17 +385,7 @@ func manualSelectedTargetOS() string {
 	if !ok {
 		return ""
 	}
-	s := strings.ToLower(strings.TrimSpace(info.Name + " " + info.Description + " " + info.Edition + " " + info.Flags))
-	switch {
-	case strings.Contains(s, "windows 7"), strings.Contains(s, "win7"):
-		return targetWin7
-	case strings.Contains(s, "windows 11"), strings.Contains(s, "win11"):
-		return targetWin11
-	case strings.Contains(s, "windows 10"), strings.Contains(s, "win10"):
-		return targetWin10
-	default:
-		return ""
-	}
+	return utils.DetectTarget(info.Name, info.Description, info.Edition, info.Flags)
 }
 
 // manualValidationReason 返回“当前不允许开始安装”的原因（空字符串表示就绪）。
@@ -433,10 +413,10 @@ func manualValidationReason() string {
 	if !row.TargetSelectable {
 		return T("manual.validation.targetNotSelectable")
 	}
-	if row.CurrentSystem && !manualOptionAutoPE() && manualPEPath() == "" {
+	if utils.MissingPE(row.CurrentSystem, manualOptionAutoPE(), manualPEPath()) {
 		return T("manual.validation.peRequired")
 	}
-	if manualBootModeNeedsTarget() && strings.TrimSpace(manualSelectedBootTargetRef()) == "" {
+	if utils.NeedBootPart(manualSelectedBootMode()) && strings.TrimSpace(manualSelectedBootTargetRef()) == "" {
 		return T("manual.validation.selectBoot")
 	}
 	return ""

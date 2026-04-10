@@ -3,7 +3,7 @@
 // BitLocker 解锁提示（JSONUI 版本）。
 //
 // 这里不创建独立的原生弹窗窗口，而是通过 JSONUI 的 Store 状态来控制
-// `rules/ui/layout.ui.json` 中的 prompt 区域显示/隐藏：
+// json ui 中的 prompt 区域显示/隐藏：
 // - 显示：设置 `prompt.visible=true`，并填充 `prompt.title/prompt.text` 等字段。
 // - 输入：Edit 的变更通过 action 回调写回 `prompt.credential`。
 // - 提交/取消：将结果通过 channel 回传给阻塞式调用者，并清理 prompt 状态。

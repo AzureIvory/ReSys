@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"ReSys/src/utils"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -105,7 +106,7 @@ func localizedBootModeItems() []widgets.ListItem {
 func loadUIConfig() uiAppConfig {
 	config := uiAppConfig{Language: autoLanguageCode}
 
-	path, err := projectFilePath(uiConfigRelative)
+	path, err := utils.ProjectFile(uiConfigRelative)
 	if err != nil {
 		return config
 	}
@@ -123,7 +124,7 @@ func loadUIConfig() uiAppConfig {
 }
 
 func resolveStartupLanguage(configured string) string {
-	language := normalizeLanguageCode(configured)
+	language := normLangCode(configured)
 	if language != "" && language != autoLanguageCode {
 		return language
 	}
@@ -135,7 +136,7 @@ func resolveStartupLanguage(configured string) string {
 	return systemLanguage
 }
 
-func normalizeLanguageCode(value string) string {
+func normLangCode(value string) string {
 	text := strings.TrimSpace(strings.ReplaceAll(value, "-", "_"))
 	if text == "" {
 		return ""
@@ -205,7 +206,7 @@ func loadLanguageTable(language string) (map[string]any, error) {
 }
 
 func readLanguageFile(language string) (map[string]any, error) {
-	path, err := projectFilePath(filepath.Join(langDirRelative, language+".json"))
+	path, err := utils.ProjectFile(filepath.Join(langDirRelative, language+".json"))
 	if err != nil {
 		return nil, err
 	}
@@ -220,32 +221,6 @@ func readLanguageFile(language string) (map[string]any, error) {
 		return nil, err
 	}
 	return table, nil
-}
-
-func projectFilePath(relativePath string) (string, error) {
-	candidates := make([]string, 0, 10)
-	suffix := filepath.FromSlash(relativePath)
-
-	if wd, err := os.Getwd(); err == nil && strings.TrimSpace(wd) != "" {
-		candidates = appendSearchRoots(candidates, wd, suffix)
-	}
-	if exe, err := os.Executable(); err == nil && strings.TrimSpace(exe) != "" {
-		candidates = appendSearchRoots(candidates, filepath.Dir(exe), suffix)
-	}
-
-	seen := map[string]struct{}{}
-	for _, candidate := range candidates {
-		candidate = filepath.Clean(candidate)
-		if _, ok := seen[candidate]; ok {
-			continue
-		}
-		seen[candidate] = struct{}{}
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			return candidate, nil
-		}
-	}
-
-	return "", fmt.Errorf("%w: %s", os.ErrNotExist, suffix)
 }
 
 func mergeMaps(base, override map[string]any) {

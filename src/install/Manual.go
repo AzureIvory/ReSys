@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -33,7 +32,7 @@ func StartManualInstall(cfg ui.ManualInstallConfig) {
 	ctx := NewInstallContext(plan)
 	log.LogWrite(0, "[StartManualInstall] image=%s index=%d target=%s mode=%s", plan.ImagePath, plan.ImageIndex, plan.TargetRoot, plan.Mode)
 
-	if manualTargetNeedsPE(plan) {
+	if utils.NeedsPE(plan.TargetRoot, os.Getenv("SystemDrive")) {
 		if err := runFlowWithGuard("StartManualInstallPreparePE", func() error {
 			return runManualPrepareFlow(ctx)
 		}); err != nil {
@@ -124,7 +123,10 @@ func buildManualInstallPlan(cfg ui.ManualInstallConfig) (*InstallPlan, error) {
 	if plan.ImageArch == "" {
 		plan.ImageArch = windows.DesiredArch()
 	}
-	if manualTargetNeedsPE(plan) && !plan.AutoPE && strings.TrimSpace(plan.ManualPEWIM) == "" {
+	if utils.NeedBootPart(string(plan.BootRepair)) && strings.TrimSpace(plan.BootTargetRef) == "" {
+		return nil, fmt.Errorf("%s", ui.Tr("manual.validation.selectBoot"))
+	}
+	if utils.MissingPE(utils.NeedsPE(plan.TargetRoot, os.Getenv("SystemDrive")), plan.AutoPE, plan.ManualPEWIM) {
 		return nil, fmt.Errorf("%s", ui.Tr("manual.validation.peRequired"))
 	}
 	return plan, nil
@@ -152,7 +154,7 @@ func runManualPrepareFlow(ctx *InstallContext) error {
 			},
 		},
 		{
-			Name: "保存安装计划",
+			Name: "淇濆瓨瀹夎璁″垝",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(35)
 				ui.UiSetStatus(ui.Tr("install.manual.writePlan"))
@@ -166,7 +168,7 @@ func runManualPrepareFlow(ctx *InstallContext) error {
 			},
 		},
 		{
-			Name: "准备PE",
+			Name: "鍑嗗PE",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(65)
 				ui.UiSetStatus(ui.Tr("install.manual.preparePE"))
@@ -174,7 +176,7 @@ func runManualPrepareFlow(ctx *InstallContext) error {
 			},
 		},
 		{
-			Name: "设置下次启动进入PE",
+			Name: "璁剧疆涓嬫鍚姩杩涘叆PE",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(85)
 				ui.UiSetStatus(ui.Tr("install.manual.setNextBootPE"))
@@ -199,7 +201,7 @@ func runManualDirectFlow(ctx *InstallContext) error {
 			},
 		},
 		{
-			Name: "备份驱动",
+			Name: "澶囦唤椹卞姩",
 			Run: func(ctx *InstallContext) error {
 				if ctx == nil || ctx.Plan == nil || !ctx.Plan.Flags.NeedBackupBeforePE {
 					return nil
@@ -221,7 +223,7 @@ func runManualDirectFlow(ctx *InstallContext) error {
 			},
 		},
 		{
-			Name: "解析镜像索引",
+			Name: "瑙ｆ瀽闀滃儚绱㈠紩",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(22)
 				ui.UiSetStatus(ui.Tr("install.auto.parseImage"))
@@ -235,7 +237,7 @@ func runManualDirectFlow(ctx *InstallContext) error {
 			},
 		},
 		{
-			Name: "应用镜像",
+			Name: "搴旂敤闀滃儚",
 			Run: func(ctx *InstallContext) error {
 				progressCb := func(phase string, pct float64, raw string) {
 					_ = phase
@@ -253,7 +255,7 @@ func runManualDirectFlow(ctx *InstallContext) error {
 			},
 		},
 		{
-			Name: "修复引导",
+			Name: "淇寮曞",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(70)
 				ui.UiSetStatus(ui.Tr("install.auto.repairBoot"))
@@ -281,7 +283,7 @@ func runManualDirectFlow(ctx *InstallContext) error {
 func runManualPEFlow(ctx *InstallContext) error {
 	stages := []*Stage{
 		{
-			Name: "读取安装计划",
+			Name: "璇诲彇瀹夎璁″垝",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(0)
 				ui.UiSetStatus(ui.Tr("install.manual.readPlan"))
@@ -294,19 +296,19 @@ func runManualPEFlow(ctx *InstallContext) error {
 			},
 		},
 		{
-			Name: "恢复镜像路径",
+			Name: "鎭㈠闀滃儚璺緞",
 			Run: func(ctx *InstallContext) error {
 				if ctx.Plan == nil {
 					return fmt.Errorf("install plan is nil")
 				}
 				if _, err := RecoverInstallImagePath(ctx.Plan); err != nil {
-					return fmt.Errorf("手动模式未找到已选镜像: %w", err)
+					return fmt.Errorf("鎵嬪姩妯″紡鏈壘鍒板凡閫夐暅鍍? %w", err)
 				}
 				return nil
 			},
 		},
 		{
-			Name: "解析目标分区",
+			Name: "瑙ｆ瀽鐩爣鍒嗗尯",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetStatus(ui.Tr("install.auto.resolveTarget"))
 				return ResolveInstallTarget(ctx.Plan)
@@ -324,7 +326,7 @@ func runManualPEFlow(ctx *InstallContext) error {
 			},
 		},
 		{
-			Name: "解析镜像索引",
+			Name: "瑙ｆ瀽闀滃儚绱㈠紩",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(20)
 				ui.UiSetStatus(ui.Tr("install.auto.parseImage"))
@@ -338,7 +340,7 @@ func runManualPEFlow(ctx *InstallContext) error {
 			},
 		},
 		{
-			Name: "应用镜像",
+			Name: "搴旂敤闀滃儚",
 			Run: func(ctx *InstallContext) error {
 				progressCb := func(phase string, pct float64, raw string) {
 					_ = phase
@@ -356,7 +358,7 @@ func runManualPEFlow(ctx *InstallContext) error {
 			},
 		},
 		{
-			Name: "修复引导",
+			Name: "淇寮曞",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(75)
 				ui.UiSetStatus(ui.Tr("install.auto.repairBoot"))
@@ -391,14 +393,14 @@ func prepareSelectedPEEnvironment(ctx *InstallContext) error {
 
 	wimPath := strings.TrimSpace(ctx.Plan.ManualPEWIM)
 	if wimPath == "" {
-		return fmt.Errorf("未指定 PE WIM 镜像")
+		return fmt.Errorf("鏈寚瀹?PE WIM 闀滃儚")
 	}
 	if !utils.FileExists(wimPath) {
-		return fmt.Errorf("PE WIM 不存在: %s", wimPath)
+		return fmt.Errorf("PE WIM 涓嶅瓨鍦? %s", wimPath)
 	}
 	sdiPath := resolveSdiPath(wimPath)
 	if sdiPath == "" {
-		return fmt.Errorf("未找到与 PE WIM 配套的 SDI 文件")
+		return fmt.Errorf("鏈壘鍒颁笌 PE WIM 閰嶅鐨?SDI 鏂囦欢")
 	}
 	return patchPreparedPE(ctx, preparedPE{
 		WIMPath: wimPath,
@@ -415,24 +417,6 @@ func finishManualInstall(plan *InstallPlan) {
 		return
 	}
 	ui.UiSetStatus(ui.Tr("install.manual.completed"))
-}
-
-func manualTargetNeedsPE(plan *InstallPlan) bool {
-	if plan == nil {
-		return false
-	}
-	targetRoot, err := utils.NormalizeDrive(plan.TargetRoot, 0)
-	if err != nil || targetRoot == "" {
-		return false
-	}
-	systemRoot, err := utils.NormalizeDrive(os.Getenv("SystemDrive"), 0)
-	if err != nil || systemRoot == "" {
-		systemRoot = windows.SystemDriveRoot()
-	}
-	if root, err := utils.NormalizeDrive(systemRoot, 0); err == nil && root != "" {
-		systemRoot = root
-	}
-	return strings.EqualFold(targetRoot, systemRoot)
 }
 
 func repairInstallBootManual(plan *InstallPlan) error {
@@ -459,7 +443,7 @@ func repairInstallBootManual(plan *InstallPlan) error {
 	if err != nil {
 		return fmt.Errorf("GetDiskInfo: %w", err)
 	}
-	if strings.EqualFold(style, "GPT") {
+	if utils.BootType(string(plan.BootRepair), style) == "UEFI" {
 		return repairInstallBootManualUEFI(targetRoot, part)
 	}
 	return repairInstallBootManualBIOS(targetRoot, part)
@@ -467,7 +451,7 @@ func repairInstallBootManual(plan *InstallPlan) error {
 
 func repairInstallBootManualUEFI(targetRoot string, part disk.PartitionInfo) error {
 	if !strings.EqualFold(strings.TrimSpace(part.Type), "EFI") {
-		return fmt.Errorf("所选分区不是 EFI 分区，无法按 UEFI 方式修复")
+		return fmt.Errorf("鎵€閫夊垎鍖轰笉鏄?EFI 鍒嗗尯锛屾棤娉曟寜 UEFI 鏂瑰紡淇")
 	}
 	espRoot, cleanup, err := disk.EnsureESPRoot(part)
 	if err != nil {
@@ -491,7 +475,7 @@ func repairInstallBootManualBIOS(targetRoot string, part disk.PartitionInfo) err
 }
 
 func findBootPartition(ref string) (disk.PartitionInfo, error) {
-	diskNumber, partNumber, err := parseBootTargetRef(ref)
+	diskNumber, partNumber, err := utils.ParsePartRef(ref)
 	if err != nil {
 		return disk.PartitionInfo{}, err
 	}
@@ -504,36 +488,7 @@ func findBootPartition(ref string) (disk.PartitionInfo, error) {
 			return part, nil
 		}
 	}
-	return disk.PartitionInfo{}, fmt.Errorf("未找到引导分区: %s", ref)
-}
-
-func parseBootTargetRef(ref string) (int, int, error) {
-	ref = strings.TrimSpace(ref)
-	if ref == "" {
-		return 0, 0, fmt.Errorf("未选择引导分区")
-	}
-	parts := strings.Split(ref, ":")
-	if len(parts) != 2 {
-		return 0, 0, fmt.Errorf("invalid boot target ref: %s", ref)
-	}
-	diskNumber, err := strconv.Atoi(strings.TrimSpace(parts[0]))
-	if err != nil {
-		return 0, 0, fmt.Errorf("invalid boot disk number: %w", err)
-	}
-	partNumber, err := strconv.Atoi(strings.TrimSpace(parts[1]))
-	if err != nil {
-		return 0, 0, fmt.Errorf("invalid boot partition number: %w", err)
-	}
-	return diskNumber, partNumber, nil
-}
-
-func detectManualTargetOS(imagePath string, infos []imgsvc.ImageMeta) string {
-	_ = imagePath
-	target := imgsvc.DetectTargetFromInfos(infos)
-	if target != "" {
-		return target
-	}
-	return TargetWin10
+	return disk.PartitionInfo{}, fmt.Errorf("鏈壘鍒板紩瀵煎垎鍖? %s", ref)
 }
 
 func detectManualInstallWIM(imagePath string) (string, error) {
@@ -556,5 +511,5 @@ func detectManualInstallWIM(imagePath string) (string, error) {
 	if _, err := os.Stat(installPath); err == nil {
 		return installPath, nil
 	}
-	return "", fmt.Errorf("ISO 中未找到安装镜像")
+	return "", fmt.Errorf("ISO 涓湭鎵惧埌瀹夎闀滃儚")
 }
