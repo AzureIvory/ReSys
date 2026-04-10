@@ -57,7 +57,7 @@ func PE() int {
 	ui.Win2()
 
 	if err := install.RunPEInstall(); err != nil {
-		ui.UiShowError("错误", err.Error())
+		ui.UiShowError("", err.Error())
 		os.Exit(-1)
 		return -1
 	}
