@@ -65,8 +65,8 @@ jobs:
       - name: Run tests with coverage
         shell: pwsh
         run: |
-          go test -shuffle=on -count=1 -covermode=atomic -coverprofile=coverage.out ./...
-          go tool cover -func=coverage.out | Out-File -FilePath coverage.txt -Encoding utf8
+          go test -shuffle=on -count=1 -covermode=atomic -coverprofile "coverage.out" ./...
+          go tool cover -func "coverage.out" | Out-File -FilePath "coverage.txt" -Encoding utf8
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
