@@ -9,7 +9,7 @@
         "guid":["{88BAE032-5A81-49F0-BC3D-A4FF138216D6}"]
     },
     "Layout":{
-        "_4":"整理硬盘指定硬盘的布局,调用函数J:src/disk/layout.go的ApplyDiskLayout,gpt下自动创建efi和mbr,当用这个创建过时就不需要再调用下方的格式化了",
+        "_4":"整理硬盘指定硬盘的布局,调用函数J:src/disk/layout.go的ApplyDiskLayout,gpt下自动创建efi和MSR,mbr则创建mbr分区,当用这个创建过时就不需要再调用下方的格式化了",
         "state":false,
         "_1":"disknum:硬盘号",      
         "disknum":0,
