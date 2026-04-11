@@ -22,9 +22,15 @@ func ParsePartRef(ref string) (int, int, error) {
 	if err != nil {
 		return 0, 0, fmt.Errorf("磁盘号无效: %w", err)
 	}
+	if diskNumber < 0 {
+		return 0, 0, fmt.Errorf("磁盘号无效: %d", diskNumber)
+	}
 	partNumber, err := strconv.Atoi(strings.TrimSpace(parts[1]))
 	if err != nil {
 		return 0, 0, fmt.Errorf("分区号无效: %w", err)
+	}
+	if partNumber <= 0 {
+		return 0, 0, fmt.Errorf("分区号无效: %d", partNumber)
 	}
 	return diskNumber, partNumber, nil
 }

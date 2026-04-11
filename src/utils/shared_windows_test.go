@@ -29,6 +29,9 @@ func TestParsePartRef(t *testing.T) {
 		{name: "bad format", ref: "1-2", wantErr: true},
 		{name: "bad disk", ref: "x:2", wantErr: true},
 		{name: "bad part", ref: "1:y", wantErr: true},
+		{name: "negative disk", ref: "-1:2", wantErr: true},
+		{name: "zero part", ref: "0:0", wantErr: true},
+		{name: "negative part", ref: "0:-1", wantErr: true},
 	}
 
 	for _, tt := range tests {

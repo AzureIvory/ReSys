@@ -1,0 +1,3 @@
+exec go env GOOS
+stdout windows
+

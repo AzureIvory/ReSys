@@ -3,11 +3,14 @@ name: windows-ci
 on:
   push:
   pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 2 * * *"
 
 jobs:
-  test-and-build:
+  lint:
+    if: github.event_name != 'schedule'
     runs-on: windows-latest
-
     steps:
       - name: Checkout ReSys
         uses: actions/checkout@v4
@@ -22,9 +25,101 @@ jobs:
         shell: pwsh
         run: git clone --depth 1 https://github.com/AzureIvory/winui ..\winui
 
-      - name: Run Go tests
+      - name: Run go vet
+        continue-on-error: true
         shell: pwsh
-        run: go test ./...
+        run: go vet ./...
+
+      - name: Install and run staticcheck
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          staticcheck ./...
+
+      - name: Install and run govulncheck
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+  test:
+    if: github.event_name != 'schedule'
+    runs-on: windows-latest
+    needs: lint
+    steps:
+      - name: Checkout ReSys
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Clone winui replace dependency
+        shell: pwsh
+        run: git clone --depth 1 https://github.com/AzureIvory/winui ..\winui
+
+      - name: Run tests with coverage
+        shell: pwsh
+        run: |
+          go test -shuffle=on -count=1 -covermode=atomic -coverprofile=coverage.out ./...
+          go tool cover -func=coverage.out | Out-File -FilePath coverage.txt -Encoding utf8
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-windows
+          path: |
+            coverage.out
+            coverage.txt
+
+  race:
+    if: github.event_name != 'schedule'
+    runs-on: windows-latest
+    needs: lint
+    env:
+      GOARCH: amd64
+      CGO_ENABLED: 1
+    steps:
+      - name: Checkout ReSys
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Clone winui replace dependency
+        shell: pwsh
+        run: git clone --depth 1 https://github.com/AzureIvory/winui ..\winui
+
+      - name: Run race tests
+        shell: pwsh
+        run: go test -race ./...
+
+  build:
+    if: github.event_name != 'schedule'
+    runs-on: windows-latest
+    needs:
+      - test
+      - race
+    steps:
+      - name: Checkout ReSys
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Clone winui replace dependency
+        shell: pwsh
+        run: git clone --depth 1 https://github.com/AzureIvory/winui ..\winui
 
       - name: Run build.bat
         shell: cmd
@@ -35,3 +130,26 @@ jobs:
         with:
           name: ReSys-windows
           path: ReSys.exe
+
+  nightly-fuzz:
+    if: github.event_name == 'schedule'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout ReSys
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Clone winui replace dependency
+        shell: pwsh
+        run: git clone --depth 1 https://github.com/AzureIvory/winui ..\winui
+
+      - name: Run nightly fuzz tests
+        shell: pwsh
+        run: |
+          go test ./src/utils -run=^$ -fuzz=FuzzParsePartRef -fuzztime=3m
+          go test ./src/utils -run=^$ -fuzz=FuzzDetectTarget -fuzztime=3m
