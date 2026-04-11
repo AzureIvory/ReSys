@@ -1,0 +1,58 @@
+{
+    "image_arch":"auto",
+    "pe_arch":"auto",
+    "BitLocker":"auto",
+    "_":"注释说明,支持通配符和指定guid的驱动程序,数量不限,如果backup_driver下的键值为则不备份,{88BAE032-5A81-49F0-BC3D-A4FF138216D6}这个guid含义为USB devices,详见:docs/driver-guid.md",
+    "backup_driver":{
+        "state":true,
+        "file":["oem*.inf"],
+        "guid":["{88BAE032-5A81-49F0-BC3D-A4FF138216D6}"]
+    },
+    "Layout":{
+        "_4":"整理硬盘指定硬盘的布局,调用函数J:src/disk/layout.go的ApplyDiskLayout,gpt下自动创建efi和mbr,当用这个创建过时就不需要再调用下方的格式化了",
+        "state":false,
+        "_1":"disknum:硬盘号",      
+        "disknum":0,
+        "_":"style 支持GPT(GUID)和MBR(不分大小写)",
+        "style": "GPT",
+        "_2":"efisize仅支持GPT格式的硬盘",
+        "efisize":"200",
+        "_3":"partition为创建分区的配置",
+        "partition":{
+            "1":{
+                "_":"分区1的配置,键值为空则自动或者默认",
+                "Letter":"",
+                "Label":"",
+                "fs":"NTFS",
+                "_1":"单位mb,当大小超过硬盘时,会自动自动使用全部空间(除了给efi和mbr预留的空间),并且跳过json后面定义的其他分区",
+                "size":"400000"
+            },
+            "2":{
+                "Letter":"",
+                "Label":"",
+                "fs":"NTFS",
+                "_1":"单位mb,值为0时,当只有一个分区就表示使用全部空间,后面json如果还有分区2的定义就直接跳过,如果前面已经有盘符而且值不是0就表示使用剩余空间",
+                "size":"0"
+            }
+        }
+    },
+    "format":{
+        "state":true,
+        "fs":"NTFS",
+        "quick":true,
+        "letter":"auto",
+        "_":"空字符说明不需要改,不需要这个参数",
+        "label":""
+    },
+    "apply":{
+        "_":"letter安装镜像的盘符,pe时可能会有变化",
+        "letter":"auto",
+        "_1":"tool支持auto,dism和wimlib-imagex",
+        "tool":"auto",
+        "_2":"CompactOS压缩技术,支持win10以上,目前暂时不开启,值:auto,false,true",
+        "CompactOS":false
+    },
+    "boot":{
+        "":""
+    }
+}
