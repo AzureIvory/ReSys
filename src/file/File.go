@@ -224,11 +224,47 @@ func Copy(src, dst string, overwrite, createDir bool) error {
 	return copyOneFile(src, dst, overwrite, createDir)
 }
 
+func clearDirContents(path string) error {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return fmt.Errorf("Remove: read dir failed: %w", err)
+	}
+	for _, entry := range entries {
+		child := filepath.Join(path, entry.Name())
+		if err := Remove(child, true, false); err != nil {
+			return fmt.Errorf("Remove: clear dir content failed: %s: %w", child, err)
+		}
+	}
+	return nil
+}
+
+func hasGlobPattern(path string) bool {
+	return strings.ContainsAny(path, "*?[")
+}
+
 // Remove 删除文件/目录。
 // recursive=true：递归删除；false：仅删除文件或空目录
-func Remove(path string, recursive bool) error {
-	if _, err := os.Lstat(path); err != nil {
+// clearOnly=true：仅在 recursive=true 且目标为目录时生效，表示清空目录内容但保留目录
+func Remove(path string, recursive bool, clearOnly bool) error {
+	if hasGlobPattern(path) {
+		matches, err := filepath.Glob(path)
+		if err != nil {
+			return fmt.Errorf("Remove: bad glob pattern: %w", err)
+		}
+		for _, match := range matches {
+			if err := Remove(match, recursive, clearOnly); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	st, err := os.Lstat(path)
+	if err != nil {
 		return fmt.Errorf("Remove: stat failed: %w", err)
+	}
+	if recursive && clearOnly && st.IsDir() {
+		return clearDirContents(path)
 	}
 
 	// os

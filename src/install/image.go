@@ -346,14 +346,14 @@ func moveImageFile(srcPath, root, subDir string) (string, error) {
 	dstPath := filepath.Join(dstDir, filepath.Base(srcPath))
 	log.LogWrite(0, "[moveImageFile] %s -> %s", srcPath, dstPath)
 	if err := file.Copy(srcPath, dstPath, true, true); err != nil {
-		_ = file.Remove(dstPath, false)
+		_ = file.Remove(dstPath, false, false)
 		return "", err
 	}
 	if _, err := os.Stat(dstPath); err != nil {
 		return "", err
 	}
 	if !strings.EqualFold(srcPath, dstPath) {
-		if err := file.Remove(srcPath, false); err != nil {
+		if err := file.Remove(srcPath, false, false); err != nil {
 			return "", err
 		}
 	}

@@ -21,9 +21,18 @@ import (
 
 var (
 	version                    = syscall.NewLazyDLL("version.dll")
+	Shell32                    = syscall.NewLazyDLL("shell32.dll")
 	procGetFileVersionInfoSize = version.NewProc("GetFileVersionInfoSizeW")
 	procGetFileVersionInfo     = version.NewProc("GetFileVersionInfoW")
 	procVerQueryValue          = version.NewProc("VerQueryValueW")
+	procSHEmptyRecycleBinW     = Shell32.NewProc("SHEmptyRecycleBinW")
+)
+
+// 清空回收站标志
+const (
+	SHERB_NOCONFIRMATION = 0x00000001 // 不弹确认框
+	SHERB_NOPROGRESSUI   = 0x00000002 // 不显示进度框
+	SHERB_NOSOUND        = 0x00000004 // 不播放清空音效
 )
 
 const (
@@ -601,9 +610,94 @@ func ClearPartition() {
 	winDir := os.Getenv("WINDIR")
 	allUsers := os.Getenv("ALLUSERSPROFILE")
 	systemRoot := os.Getenv("SystemRoot")
-	file.Remove(filepath.Join(userProfile, "AppData", "Local", "Microsoft", "Windows", "Temporary Internet Files"), true)
-	file.Remove(filepath.Join(temp), true)
-	file.Remove(filepath.Join(winDir, "Temp"), true)
-	file.Remove(filepath.Join(allUsers, "Microsoft", "Windows", "WER"), true)
-	file.Remove(filepath.Join(systemRoot, "Logs"), true)
+	//清理 Internet 缓存目录
+	file.Remove(filepath.Join(userProfile, "AppData", "Local", "Microsoft", "Windows", "Temporary Internet Files"), true, true)
+	file.Remove(filepath.Join(userProfile, "AppData", "Local", "Microsoft", "Windows", "INetCache"), true, true)
+	file.Remove(filepath.Join(userProfile, "AppData", "Local", "Microsoft", "Windows", "INetCookies"), true, true)
+	// 清理缩略图缓存
+	file.Remove(filepath.Join(userProfile, "AppData", "Local", "Microsoft", "Windows", "Explorer", "thumbcache_*.db"), false, false)
+	// 清理临时文件
+	file.Remove(filepath.Join(temp), true, true)
+	file.Remove(filepath.Join(winDir, "Temp"), true, true)
+	file.Remove(filepath.Join(winDir, "*.tmp"), false, false)
+	file.Remove(filepath.Join(winDir, "*.bak"), false, false)
+	file.Remove(filepath.Join(winDir, "*.old"), false, false)
+	file.Remove(filepath.Join(userProfile, "*.tmp"), false, false)
+	file.Remove(filepath.Join(userProfile, "*.bak"), false, false)
+	file.Remove(filepath.Join(userProfile, "Downloads", "*.tmp"), false, false)
+	file.Remove(filepath.Join(userProfile, "Desktop", "*.tmp"), false, false)
+	file.Remove(filepath.Join("C", "*.tmp"), false, false)
+	file.Remove(filepath.Join("C", "*._mp"), false, false)
+	file.Remove(filepath.Join(userProfile, "AppData", "Local", "Temp"), true, true)
+	//清理历史记录
+	file.Remove(filepath.Join(userProfile, "AppData", "Local", "Microsoft", "Windows", "History"), true, true)
+	//清理系统错误报告
+	file.Remove(filepath.Join(allUsers, "Microsoft", "Windows", "WER"), true, true)
+	//清理Windows目录下的转储文件
+	file.Remove(filepath.Join(winDir, "MEMORY.DMP"), false, false)
+	file.Remove(filepath.Join(winDir, "Minidump", "*.dmp"), false, false)
+	//清理系统错误内存转储文件
+	file.Remove(filepath.Join(systemRoot, "MEMORY.DMP"), false, false)
+	//清理调试转储文件
+	file.Remove(filepath.Join(systemRoot, "Minidump"), true, true)
+	//清理临时安装文件
+	file.Remove(filepath.Join(winDir, "msdownld.tmp"), true, true)
+	//清空回收站
+	flags := uintptr(SHERB_NOCONFIRMATION | SHERB_NOPROGRESSUI | SHERB_NOSOUND)
+	procSHEmptyRecycleBinW.Call(0, 0, flags)
+	//清理浏览器缓存
+	file.Remove(filepath.Join(userProfile, "AppData", "Local", "Google", "Chrome", "User Data", "Default", "Cache"), true, true)
+	file.Remove(filepath.Join(userProfile, "AppData", "Local", "Google", "Chrome", "User Data", "Default", "GPUCache"), true, true)
+	file.Remove(filepath.Join(userProfile, "AppData", "Local", "Microsoft", "Edge", "User Data", "Default", "Cache"), true, true)
+	file.Remove(filepath.Join(userProfile, "AppData", "Local", "Microsoft", "Edge", "User Data", "Default", "GPUCache"), true, true)
+	file.Remove(filepath.Join(userProfile, "AppData", "Roaming", "Mozilla", "Firefox", "Profiles", "*.default", "cache2"), true, true)
+	file.Remove(filepath.Join(userProfile, "AppData", "Mozilla", "Local", "Firefox", "Profiles", "*.default-release", "cache2"), true, true)
+	//清理更新下载缓存
+	file.Remove(filepath.Join(winDir, "SoftwareDistribution", "Download"), true, true)
+	//清理传递优化缓存
+	file.Remove(filepath.Join(winDir, "ServiceProfiles", "NetworkService", "AppData", "Local", "Microsoft", "Windows", "DeliveryOptimization", "Cache"), true, true)
+	//清理Windows更新日志
+	file.Remove(filepath.Join(winDir, "WindowsUpdate.log"), false, false)
+	//清理Windows.old文件夹
+	file.Remove(filepath.Join("C", "Windows.old"), true, false)
+	//清理Windows Installer缓存
+	file.Remove(filepath.Join(winDir, "Installer", "$PatchCache$"), true, true)
+	//清理系统更新卸载备份
+	file.Remove(filepath.Join(winDir, "servicing", "LCU"), true, true)
+	//清理系统日志文件
+	file.Remove(filepath.Join(winDir, "Logs", "CBS"), true, true)
+	file.Remove(filepath.Join(winDir, "Logs", "DISM"), true, true)
+	file.Remove(filepath.Join(winDir, "System32", "LogFiles"), true, true)
+	file.Remove(filepath.Join(winDir, "*.log"), false, false)
+	file.Remove(filepath.Join(winDir, "inf", "*.log"), false, false)
+	file.Remove(filepath.Join("C", "inetpub", "logs"), true, true)
+	//清理软件缓存
+	file.Remove(filepath.Join(userProfile, "AppData", "Roaming", "kingsoft", "wps", "cache"), true, true)
+	file.Remove(filepath.Join(userProfile, "AppData", "Local", "Kingsoft", "WPS Office", "cache"), true, true)
+	file.Remove(filepath.Join(userProfile, "AppData", "Roaming", "Kingsoft", "office6", "cache"), true, true)
+	file.Remove(filepath.Join(userProfile, "AppData", "Roaming", "Tencent", "QQ", "Temp"), true, true)
+	file.Remove(filepath.Join(userProfile, "AppData", "Local", "Tencent", "QQ", "Cache"), true, true)
+	file.Remove(filepath.Join(userProfile, "AppData", "Roaming", "Tencent", "WeChat", "Cache"), true, true)
+	file.Remove(filepath.Join(userProfile, "AppData", "Roaming", "Tencent", "WeChat", "Temp"), true, true)
+	file.Remove(filepath.Join(userProfile, "AppData", "Roaming", "Thunder Network", "Thunder", "Profiles", "*", "Cache", "*"), true, false)
+	file.Remove(filepath.Join(userProfile, "AppData", "Roaming", "Adobe", "Common", "Media Cache Files"), true, true)
+	file.Remove(filepath.Join(userProfile, "AppData", "Local", "Adobe", "Common", "Media Cache Files"), true, true)
+	file.Remove(filepath.Join(userProfile, "AppData", "Local", "Microsoft", "Office", "16.0", "OfficeFileCache"), true, true)
+	file.Remove(filepath.Join(userProfile, "AppData", "Local", "Microsoft", "Office", "15.0", "OfficeFileCache"), true, true)
+	file.Remove(filepath.Join(userProfile, "AppData", "Local", "Microsoft", "VisualStudio", "*", "ComponentModelCache", "*"), true, false)
+	//清理字体缓存
+	file.Remove(filepath.Join(winDir, "ServiceProfiles", "LocalService", "AppData", "Local", "FontCache"), true, true)
+	file.Remove(filepath.Join(winDir, "System32", "FNTCACHE.DAT"), false, false)
+	//清理Media Player缓存
+	file.Remove(filepath.Join(userProfile, "AppData", "Local", "Microsoft", "Media Player"), true, true)
+	//清理Windows搜索历史
+	file.Remove(filepath.Join(userProfile, "AppData", "Local", "Microsoft", "Windows", "ConnectedSearch", "History"), true, true)
+	//清理Game Bar缓存
+	file.Remove(filepath.Join(userProfile, "AppData", "Local", "Microsoft", "GameDVR"), true, true)
+	//清理OneDrive缓存
+	file.Remove(filepath.Join(userProfile, "AppData", "Local", "Microsoft", "OneDrive", "logs"), true, true)
+	//清理Windows缓存文件
+	file.Remove(filepath.Join(winDir, "cache"), true, true)
+	//清理日志
+	file.Remove(filepath.Join(systemRoot, "Logs"), true, true)
 }

@@ -364,7 +364,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 							useExisting = true
 						} else {
 							log.LogWrite(0, "[downloadPE] existing WEPE installer MD5 mismatch, redownloading: %s", exePath)
-							_ = file.Remove(exePath, false)
+							_ = file.Remove(exePath, false, false)
 						}
 					} else {
 						log.LogWrite(0, "[downloadPE] reusing existing WEPE installer (without MD5): %s", exePath)
@@ -381,7 +381,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 					if err != nil {
 						markFailedLink(link)
 						log.LogWrite(0, "[downloadPE] PE download failed: %v", err)
-						_ = file.Remove(exePath, false)
+						_ = file.Remove(exePath, false, false)
 						prevLink = link
 						switchReason = fmt.Sprintf("download error: %v", err)
 						continue
@@ -392,7 +392,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 						if merr != nil || !ok {
 							markFailedLink(link)
 							log.LogWrite(0, "[downloadPE] PE MD5 verification failed after download: %s", exePath)
-							_ = file.Remove(exePath, false)
+							_ = file.Remove(exePath, false, false)
 							prevLink = link
 							switchReason = "download completed but MD5 verification failed"
 							continue
@@ -409,7 +409,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 				}
 			} else {
 				if triedLink {
-					_ = file.Remove(wimPath+".part", false)
+					_ = file.Remove(wimPath+".part", false, false)
 				}
 				triedLink = true
 
@@ -421,7 +421,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 				if err != nil {
 					markFailedLink(link)
 					log.LogWrite(0, "[downloadPE] PE download failed: %v", err)
-					_ = file.Remove(wimPath, false)
+					_ = file.Remove(wimPath, false, false)
 					prevLink = link
 					switchReason = fmt.Sprintf("download error: %v", err)
 					continue
@@ -522,7 +522,7 @@ func downloadPEUrls(name string, size float64, arch string, links []string) (str
 			switchReason = ""
 		}
 		if triedLink {
-			_ = file.Remove(wimPath+".part", false)
+			_ = file.Remove(wimPath+".part", false, false)
 		}
 		triedLink = true
 
@@ -548,7 +548,7 @@ func downloadPEUrls(name string, size float64, arch string, links []string) (str
 						log.LogWrite(0, "[downloadPEUrls] reusing existing WEPE installer: %s", exePath)
 						useExisting = true
 					} else {
-						_ = file.Remove(exePath, false)
+						_ = file.Remove(exePath, false, false)
 					}
 				} else {
 					useExisting = true
@@ -564,7 +564,7 @@ func downloadPEUrls(name string, size float64, arch string, links []string) (str
 				if err != nil {
 					markFailedLink(link)
 					log.LogWrite(0, "[downloadPEUrls] PE installer download failed: %v, url:%s", err, link)
-					_ = file.Remove(exePath, false)
+					_ = file.Remove(exePath, false, false)
 					prevLink = link
 					switchReason = fmt.Sprintf("download error: %v", err)
 					continue
@@ -575,7 +575,7 @@ func downloadPEUrls(name string, size float64, arch string, links []string) (str
 					if merr != nil || !ok {
 						markFailedLink(link)
 						log.LogWrite(0, "[downloadPEUrls] installer MD5 mismatch: %s", exePath)
-						_ = file.Remove(exePath, false)
+						_ = file.Remove(exePath, false, false)
 						prevLink = link
 						switchReason = "download completed but MD5 verification failed"
 						continue
@@ -599,7 +599,7 @@ func downloadPEUrls(name string, size float64, arch string, links []string) (str
 			if err != nil {
 				markFailedLink(link)
 				log.LogWrite(0, "[downloadPEUrls] PE download failed: %v, url:%s", err, link)
-				_ = file.Remove(wimPath, false)
+				_ = file.Remove(wimPath, false, false)
 				prevLink = link
 				switchReason = fmt.Sprintf("download error: %v", err)
 				continue
@@ -704,13 +704,13 @@ func resolveSdiPath(wimPath string) string {
 // removePEArtifacts 删除临时 PE 产物。
 func removePEArtifacts(wimPath, sdiPath string) {
 	if strings.TrimSpace(wimPath) != "" {
-		_ = file.Remove(wimPath, false)
+		_ = file.Remove(wimPath, false, false)
 		if strings.Contains(strings.ToLower(wimPath), `\petemp\`) {
-			_ = file.Remove(filepath.Dir(wimPath), true)
+			_ = file.Remove(filepath.Dir(wimPath), true, false)
 		}
 	}
 	if strings.TrimSpace(sdiPath) != "" {
-		_ = file.Remove(sdiPath, false)
+		_ = file.Remove(sdiPath, false, false)
 	}
 }
 
@@ -848,7 +848,7 @@ func extractWePE(arch string) (string, error) {
 				fmt.Sprintf("%d", meta.OffsetEnd),
 				wimPath,
 			); err != nil {
-				_ = file.Remove(wimPath, false)
+				_ = file.Remove(wimPath, false, false)
 				continue
 			}
 

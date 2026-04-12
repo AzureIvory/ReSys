@@ -137,7 +137,7 @@ func cleanupDownloadArtifacts(dstPath string) error {
 		if _, err := os.Stat(path); err != nil {
 			continue
 		}
-		if err := file.Remove(path, false); err != nil {
+		if err := file.Remove(path, false, false); err != nil {
 			return err
 		}
 	}

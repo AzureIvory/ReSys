@@ -1,4 +1,3 @@
-//lint:file-ignore U1000 Keep legacy WIM verification helpers until the PE image pipeline is fully consolidated.
 package pe
 
 import (
@@ -842,6 +841,20 @@ func removeExecLines(b []byte, lines ...string) ([]byte, error) {
 	return appendExecLine(b, "", lines...)
 }
 
+func findPecmdININame(dirOutput string) (string, bool) {
+	for _, ln := range strings.Split(dirOutput, "\n") {
+		f := strings.Fields(strings.TrimSpace(ln))
+		if len(f) == 0 {
+			continue
+		}
+		name := strings.TrimRight(f[len(f)-1], `\/`)
+		if strings.EqualFold(name, "Pecmd.ini") {
+			return name, true
+		}
+	}
+	return "", false
+}
+
 func decodeTextMaybeUTF16LE(b []byte) string {
 	if len(b) >= 2 && b[0] == 0xFF && b[1] == 0xFE {
 		raw := b[2:]
@@ -916,7 +929,7 @@ func ensureWimWritable(wim string) error {
 	}
 	name := tf.Name()
 	_ = tf.Close()
-	_ = file.Remove(name, false)
+	_ = file.Remove(name, false, false)
 
 	return nil
 }
@@ -1086,17 +1099,9 @@ func Patwim(wim string) error {
 			return fmt.Errorf("dir失败 idx=%d: %v\n%s", idx, de, dout)
 		}
 
-		pecmdActual := ""
-		for _, ln := range strings.Split(dout, "\n") {
-			f := strings.Fields(strings.TrimSpace(ln))
-			if len(f) == 0 {
-				continue
-			}
-			nm := strings.TrimRight(f[len(f)-1], `\/`)
-			lm := strings.ToLower(nm)
-			if lm == "pecmd.ini" {
-				pecmdActual = nm
-			}
+		pecmdActual, ok := findPecmdININame(dout)
+		if !ok {
+			return fmt.Errorf("WIM镜像 idx=%d 缺少 \\Windows\\Pecmd.ini", idx)
 		}
 
 		cmdLines := make([]string, 0, len(legacyResList)+len(resList))
@@ -1119,9 +1124,6 @@ func Patwim(wim string) error {
 		}
 
 		iniName := pecmdActual
-		if iniName == "" {
-			iniName = "Pecmd.ini"
-		}
 
 		tmp, _ := os.MkdirTemp("", "wim_")
 		_, err = runCmdWithTimeout(wimlib,
@@ -1131,6 +1133,8 @@ func Patwim(wim string) error {
 		)
 		if err != nil {
 			log.LogWrite(0, "[Patwim]Patwim extract失败: wim=%s idx=%d err=%v", wim, idx, err)
+			_ = file.Remove(tmp, true, false)
+			return fmt.Errorf("提取ini失败 idx=%d: %w", idx, err)
 		}
 
 		p1 := filepath.Join(tmp, "Windows", iniName)
@@ -1140,21 +1144,24 @@ func Patwim(wim string) error {
 			inip = p2
 		}
 		if _, e2 := os.Stat(inip); e2 != nil {
-			_ = os.MkdirAll(filepath.Dir(p1), 0o755)
-			inip = p1
-			_ = os.WriteFile(inip, []byte{}, 0o644)
+			_ = file.Remove(tmp, true, false)
+			return fmt.Errorf("提取后的ini不存在 idx=%d: %w", idx, e2)
 		}
 
-		b, _ := os.ReadFile(inip)
+		b, err := os.ReadFile(inip)
+		if err != nil {
+			_ = file.Remove(tmp, true, false)
+			return fmt.Errorf("读取ini失败 idx=%d: %w", idx, err)
+		}
 		updated, err := appendExecLine(b, line, legacyLines...)
 		if err != nil {
 			log.LogWrite(0, "[Patwim]Patwim appendExecLine失败: idx=%d err=%v", idx, err)
-			_ = file.Remove(tmp, true)
+			_ = file.Remove(tmp, true, false)
 			return fmt.Errorf("修改ini失败 idx=%d: %w", idx, err)
 		}
 		if err := os.WriteFile(inip, updated, 0o644); err != nil {
 			log.LogWrite(0, "[Patwim]Patwim 写入ini失败: idx=%d err=%v", idx, err)
-			_ = file.Remove(tmp, true)
+			_ = file.Remove(tmp, true, false)
 			return fmt.Errorf("写入ini失败 idx=%d: %w", idx, err)
 		}
 
@@ -1165,7 +1172,7 @@ func Patwim(wim string) error {
 		}, "\n") + "\n"
 
 		iout, ie := runCmdWithTimeout(wimlib, []string{"update", wim, strconv.Itoa(idx)}, iniScript, 10*time.Minute)
-		_ = file.Remove(tmp, true)
+		_ = file.Remove(tmp, true, false)
 		if ie != nil {
 			log.LogWrite(0, "[Patwim]Patwim update ini失败: wim=%s idx=%d err=%v", wim, idx, ie)
 			return fmt.Errorf("写ini失败 idx=%d: %v\n%s", idx, ie, iout)
@@ -1176,64 +1183,6 @@ func Patwim(wim string) error {
 		}
 	}
 
-	return nil
-}
-
-// verifyPatwimWrite 校验写入成功。
-func verifyPatwimWriteOld(wimlib, wim string, idx int, resList []wimRes, line string, legacyLines ...string) error {
-	if wimlib == "" || wim == "" {
-		return fmt.Errorf("wimlib/wim 不能为空")
-	}
-	for _, r := range resList {
-		out, err := runCmdWithTimeout(wimlib, []string{"dir", wim, strconv.Itoa(idx), "--path=" + r.dst}, "", 2*time.Minute)
-		if err != nil {
-			return fmt.Errorf("校验资源失败: path=%s err=%w\n%s", r.dst, err, out)
-		}
-	}
-
-	tmp, err := os.MkdirTemp("", "wim_verify_")
-	if err != nil {
-		return fmt.Errorf("创建临时目录失败: %w", err)
-	}
-	defer func() {
-		_ = file.Remove(tmp, true)
-	}()
-
-	iniPath := `\Windows\Pecmd.ini`
-	if _, err := runCmdWithTimeout(wimlib, []string{"extract", wim, strconv.Itoa(idx), iniPath, "--dest-dir=" + tmp}, "", 3*time.Minute); err != nil {
-		return fmt.Errorf("校验ini提取失败: %w", err)
-	}
-	cand := filepath.Join(tmp, "Windows", "Pecmd.ini")
-	if _, err := os.Stat(cand); err != nil {
-		cand = filepath.Join(tmp, "Pecmd.ini")
-	}
-	b, err := os.ReadFile(cand)
-	if err != nil {
-		return fmt.Errorf("校验ini读取失败: %w", err)
-	}
-	iniText := string(b)
-	if len(b) >= 2 && b[0] == 0xFF && b[1] == 0xFE {
-		raw := b[2:]
-		if len(raw)%2 != 0 {
-			raw = raw[:len(raw)-1]
-		}
-		u := make([]uint16, len(raw)/2)
-		for i := range u {
-			u[i] = binary.LittleEndian.Uint16(raw[i*2 : i*2+2])
-		}
-		iniText = string(utf16.Decode(u))
-	}
-	for _, legacy := range legacyLines {
-		if legacy != "" && strings.Contains(strings.ToLower(iniText), strings.ToLower(legacy)) {
-			/*
-				return fmt.Errorf("鏍￠獙ini澶辫触: 鏃ф棫鍚姩椤逛粛瀛樺湪")
-			*/
-			return fmt.Errorf("verify ini failed: legacy launch entry still exists")
-		}
-	}
-	if !strings.Contains(strings.ToLower(iniText), strings.ToLower(line)) {
-		return fmt.Errorf("校验ini失败: 启动项未写入")
-	}
 	return nil
 }
 
@@ -1260,20 +1209,20 @@ func runCmdWithTimeout(exe string, args []string, stdinText string, to time.Dura
 
 func verifyUnpatwimWrite(wimlib, wim string, idx int, cleanupList []wimRes, removeLines ...string) error {
 	if wimlib == "" || wim == "" {
-		return fmt.Errorf("wimlib/wim 涓嶈兘涓虹┖")
+		return fmt.Errorf("wimlib/wim 不能为空")
 	}
 	for _, r := range cleanupList {
 		if out, err := runCmdWithTimeout(wimlib, []string{"dir", wim, strconv.Itoa(idx), "--path=" + r.dst}, "", 2*time.Minute); err == nil {
-			return fmt.Errorf("鏍￠獙璧勬簮鍒犻櫎澶辫触: path=%s still exists\n%s", r.dst, out)
+			return fmt.Errorf("校验资源删除失败: path=%s still exists\n%s", r.dst, out)
 		}
 	}
 
 	tmp, err := os.MkdirTemp("", "wim_verify_")
 	if err != nil {
-		return fmt.Errorf("鍒涘缓涓存椂鐩綍澶辫触: %w", err)
+		return fmt.Errorf("创建临时目录失败: %w", err)
 	}
 	defer func() {
-		_ = file.Remove(tmp, true)
+		_ = file.Remove(tmp, true, false)
 	}()
 
 	iniPath := `\Windows\Pecmd.ini`
@@ -1286,12 +1235,12 @@ func verifyUnpatwimWrite(wimlib, wim string, idx int, cleanupList []wimRes, remo
 	}
 	b, err := os.ReadFile(cand)
 	if err != nil {
-		return fmt.Errorf("鏍￠獙ini璇诲彇澶辫触: %w", err)
+		return fmt.Errorf("校验ini读取失败: %w", err)
 	}
 	iniText := strings.ToLower(decodeTextMaybeUTF16LE(b))
 	for _, line := range removeLines {
 		if line != "" && strings.Contains(iniText, strings.ToLower(line)) {
-			return fmt.Errorf("鏍￠獙ini鍒犻櫎澶辫触: startup entry still exists")
+			return fmt.Errorf("校验ini删除失败: startup entry still exists")
 		}
 	}
 	return nil
@@ -1299,22 +1248,22 @@ func verifyUnpatwimWrite(wimlib, wim string, idx int, cleanupList []wimRes, remo
 
 func Unpatwim(wim string) error {
 	if wim == "" {
-		return fmt.Errorf("wim涓虹┖")
+		return fmt.Errorf("wim为空")
 	}
 	wimAbs, err := filepath.Abs(wim)
 	if err != nil {
-		log.LogWrite(0, "[Unpatwim]Unpatwim 鑾峰彇缁濆璺緞澶辫触: wim=%s err=%v", wim, err)
+		log.LogWrite(0, "[Unpatwim]Unpatwim 获取绝对路径失败: wim=%s err=%v", wim, err)
 		return err
 	}
 	wim = wimAbs
 	if err := ensureWimWritable(wim); err != nil {
-		log.LogWrite(0, "[Unpatwim]Unpatwim ensureWimWritable澶辫触: wim=%s err=%v", wim, err)
+		log.LogWrite(0, "[Unpatwim]Unpatwim ensureWimWritable失败: wim=%s err=%v", wim, err)
 		return err
 	}
 
 	selfExe, err := os.Executable()
 	if err != nil {
-		log.LogWrite(0, "[Unpatwim]Unpatwim 鑾峰彇鑷韩璺緞澶辫触: err=%v", err)
+		log.LogWrite(0, "[Unpatwim]Unpatwim 获取自身路径失败: err=%v", err)
 		return err
 	}
 	selfExe, _ = filepath.Abs(selfExe)
@@ -1330,15 +1279,15 @@ func Unpatwim(wim string) error {
 
 	wimlib := findTool("wimlib-imagex.exe", filepath.Join(dir, "tools", "wimlib-imagex.exe"))
 	if wimlib == "" {
-		log.LogWrite(0, "[Unpatwim]Unpatwim 鏈壘鍒?wimlib-imagex.exe: dir=%s", dir)
+		log.LogWrite(0, "[Unpatwim]Unpatwim 未找到 wimlib-imagex.exe: dir=%s", dir)
 		return fmt.Errorf("找不到 wimlib-imagex.exe（PATH 或 %s）", filepath.Join(dir, "tools", "wimlib-imagex.exe"))
 	}
 
 	getIdxs := func() ([]int, error) {
 		out, err := runCmdWithTimeout(wimlib, []string{"info", wim}, "", 2*time.Minute)
 		if err != nil {
-			log.LogWrite(0, "[Unpatwim]Unpatwim wimlib info澶辫触: wim=%s err=%v", wim, err)
-			return nil, fmt.Errorf("wimlib info澶辫触: %w\n%s", err, out)
+			log.LogWrite(0, "[Unpatwim]Unpatwim wimlib info失败: wim=%s err=%v", wim, err)
+			return nil, fmt.Errorf("wimlib info失败: %w\n%s", err, out)
 		}
 
 		reIdx := regexp.MustCompile(`(?m)^\s*Image\s+(\d+)\s*:`)
@@ -1408,31 +1357,20 @@ func Unpatwim(wim string) error {
 
 		uout, ue := runCmdWithTimeout(wimlib, []string{"update", wim, strconv.Itoa(idx)}, script, 10*time.Minute)
 		if ue != nil {
-			log.LogWrite(0, "[Unpatwim]Unpatwim update澶辫触: wim=%s idx=%d err=%v", wim, idx, ue)
-			return fmt.Errorf("鍒犻櫎ReSys_PE澶辫触 idx=%d: %v\n%s", idx, ue, uout)
+			log.LogWrite(0, "[Unpatwim]Unpatwim update失败: wim=%s idx=%d err=%v", wim, idx, ue)
+			return fmt.Errorf("删除ReSys_PE失败 idx=%d: %v\n%s", idx, ue, uout)
 		}
 
 		dout, de := runCmdWithTimeout(wimlib, []string{"dir", wim, strconv.Itoa(idx), `--path=\Windows`}, "", 2*time.Minute)
 		if de != nil {
-			log.LogWrite(0, "[Unpatwim]Unpatwim dir澶辫触: wim=%s idx=%d err=%v", wim, idx, de)
-			return fmt.Errorf("dir澶辫触 idx=%d: %v\n%s", idx, de, dout)
+			log.LogWrite(0, "[Unpatwim]Unpatwim dir失败: wim=%s idx=%d err=%v", wim, idx, de)
+			return fmt.Errorf("dir失败 idx=%d: %v\n%s", idx, de, dout)
 		}
 
-		pecmdActual := ""
-		for _, ln := range strings.Split(dout, "\n") {
-			f := strings.Fields(strings.TrimSpace(ln))
-			if len(f) == 0 {
-				continue
-			}
-			nm := strings.TrimRight(f[len(f)-1], `\/`)
-			if strings.EqualFold(nm, "Pecmd.ini") {
-				pecmdActual = nm
-				break
-			}
-		}
-		if pecmdActual == "" {
+		pecmdActual, ok := findPecmdININame(dout)
+		if !ok {
 			if err := verifyUnpatwimWrite(wimlib, wim, idx, cleanupList, removeLines...); err != nil {
-				log.LogWrite(0, "[Unpatwim]Unpatwim 鏍￠獙澶辫触: wim=%s idx=%d err=%v", wim, idx, err)
+				log.LogWrite(0, "[Unpatwim]Unpatwim 校验失败: wim=%s idx=%d err=%v", wim, idx, err)
 				return err
 			}
 			continue
@@ -1445,9 +1383,9 @@ func Unpatwim(wim string) error {
 			5*time.Minute,
 		)
 		if err != nil {
-			log.LogWrite(0, "[Unpatwim]Unpatwim extract澶辫触: wim=%s idx=%d err=%v", wim, idx, err)
-			_ = file.Remove(tmp, true)
-			return fmt.Errorf("鎻愬彇ini澶辫触 idx=%d: %w", idx, err)
+			log.LogWrite(0, "[Unpatwim]Unpatwim extract失败: wim=%s idx=%d err=%v", wim, idx, err)
+			_ = file.Remove(tmp, true, false)
+			return fmt.Errorf("提取ini失败 idx=%d: %w", idx, err)
 		}
 
 		p1 := filepath.Join(tmp, "Windows", pecmdActual)
@@ -1458,17 +1396,17 @@ func Unpatwim(wim string) error {
 		}
 		b, err := os.ReadFile(inip)
 		if err != nil {
-			_ = file.Remove(tmp, true)
-			return fmt.Errorf("璇诲彇ini澶辫触 idx=%d: %w", idx, err)
+			_ = file.Remove(tmp, true, false)
+			return fmt.Errorf("读取ini失败 idx=%d: %w", idx, err)
 		}
 		updated, err := removeExecLines(b, removeLines...)
 		if err != nil {
-			_ = file.Remove(tmp, true)
-			return fmt.Errorf("淇敼ini澶辫触 idx=%d: %w", idx, err)
+			_ = file.Remove(tmp, true, false)
+			return fmt.Errorf("修改ini失败 idx=%d: %w", idx, err)
 		}
 		if err := os.WriteFile(inip, updated, 0o644); err != nil {
-			_ = file.Remove(tmp, true)
-			return fmt.Errorf("鍐欏叆ini澶辫触 idx=%d: %w", idx, err)
+			_ = file.Remove(tmp, true, false)
+			return fmt.Errorf("写入ini失败 idx=%d: %w", idx, err)
 		}
 
 		iniDst := `\Windows\` + pecmdActual
@@ -1478,14 +1416,14 @@ func Unpatwim(wim string) error {
 		}, "\n") + "\n"
 
 		iout, ie := runCmdWithTimeout(wimlib, []string{"update", wim, strconv.Itoa(idx)}, iniScript, 10*time.Minute)
-		_ = file.Remove(tmp, true)
+		_ = file.Remove(tmp, true, false)
 		if ie != nil {
-			log.LogWrite(0, "[Unpatwim]Unpatwim update ini澶辫触: wim=%s idx=%d err=%v", wim, idx, ie)
-			return fmt.Errorf("鍐檌ni澶辫触 idx=%d: %v\n%s", idx, ie, iout)
+			log.LogWrite(0, "[Unpatwim]Unpatwim update ini失败: wim=%s idx=%d err=%v", wim, idx, ie)
+			return fmt.Errorf("写ini失败 idx=%d: %v\n%s", idx, ie, iout)
 		}
 
 		if err := verifyUnpatwimWrite(wimlib, wim, idx, cleanupList, removeLines...); err != nil {
-			log.LogWrite(0, "[Unpatwim]Unpatwim 鏍￠獙澶辫触: wim=%s idx=%d err=%v", wim, idx, err)
+			log.LogWrite(0, "[Unpatwim]Unpatwim 校验失败: wim=%s idx=%d err=%v", wim, idx, err)
 			return err
 		}
 	}
@@ -1495,26 +1433,26 @@ func Unpatwim(wim string) error {
 
 func verifyPatwimWrite(wimlib, wim string, idx int, resList []wimRes, line string, legacyLines ...string) error {
 	if wimlib == "" || wim == "" {
-		return fmt.Errorf("wimlib/wim 涓嶈兘涓虹┖")
+		return fmt.Errorf("wimlib/wim 不能为空")
 	}
 	for _, r := range resList {
 		out, err := runCmdWithTimeout(wimlib, []string{"dir", wim, strconv.Itoa(idx), "--path=" + r.dst}, "", 2*time.Minute)
 		if err != nil {
-			return fmt.Errorf("鏍￠獙璧勬簮澶辫触: path=%s err=%w\n%s", r.dst, err, out)
+			return fmt.Errorf("校验资源失败: path=%s err=%w\n%s", r.dst, err, out)
 		}
 	}
 
 	tmp, err := os.MkdirTemp("", "wim_verify_")
 	if err != nil {
-		return fmt.Errorf("鍒涘缓涓存椂鐩綍澶辫触: %w", err)
+		return fmt.Errorf("创建临时目录失败: %w", err)
 	}
 	defer func() {
-		_ = file.Remove(tmp, true)
+		_ = file.Remove(tmp, true, false)
 	}()
 
 	iniPath := `\Windows\Pecmd.ini`
 	if _, err := runCmdWithTimeout(wimlib, []string{"extract", wim, strconv.Itoa(idx), iniPath, "--dest-dir=" + tmp}, "", 3*time.Minute); err != nil {
-		return fmt.Errorf("鏍￠獙ini鎻愬彇澶辫触: %w", err)
+		return fmt.Errorf("校验ini提取失败: %w", err)
 	}
 	cand := filepath.Join(tmp, "Windows", "Pecmd.ini")
 	if _, err := os.Stat(cand); err != nil {
@@ -1522,7 +1460,7 @@ func verifyPatwimWrite(wimlib, wim string, idx int, resList []wimRes, line strin
 	}
 	b, err := os.ReadFile(cand)
 	if err != nil {
-		return fmt.Errorf("鏍￠獙ini璇诲彇澶辫触: %w", err)
+		return fmt.Errorf("校验ini读取失败: %w", err)
 	}
 	iniText := strings.ToLower(decodeTextMaybeUTF16LE(b))
 	for _, legacy := range legacyLines {
@@ -1531,7 +1469,7 @@ func verifyPatwimWrite(wimlib, wim string, idx int, resList []wimRes, line strin
 		}
 	}
 	if !strings.Contains(iniText, strings.ToLower(line)) {
-		return fmt.Errorf("鏍￠獙ini澶辫触: 鍚姩椤规湭鍐欏叆")
+		return fmt.Errorf("校验ini失败: 启动项未写入")
 	}
 	return nil
 }

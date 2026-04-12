@@ -259,7 +259,7 @@ func DownloadImage(target, arch string) (string, error) {
 					finalPath = dstPath
 				} else if cErr := file.Copy(realPath, dstPath, true, true); cErr == nil {
 					finalPath = dstPath
-					_ = file.Remove(realPath, false)
+					_ = file.Remove(realPath, false, false)
 				} else {
 					log.LogWrite(0, "[downloadImage] failed to normalize BT output path: real=%s dst=%s err=%v", realPath, dstPath, cErr)
 					finalPath = realPath
