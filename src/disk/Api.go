@@ -627,7 +627,10 @@ func ListDrive() ([]string, error) {
 	drives := make([]string, 0, 26)
 	for c := 'A'; c <= 'Z'; c++ {
 		root := fmt.Sprintf("%c:\\", c)
-		p := syscall.StringToUTF16Ptr(root)
+		p, err := syscall.UTF16PtrFromString(root)
+		if err != nil {
+			continue
+		}
 		t, _, _ := procGetDriveTypeW.Call(uintptr(unsafe.Pointer(p)))
 		// DRIVE_NO_ROOT_DIR(1) 表示不存在
 		if t != 1 {

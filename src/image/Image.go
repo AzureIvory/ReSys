@@ -27,7 +27,6 @@ const (
 
 var t = dism.NewDism()
 
-// 全盘寻找镜像,跳过小于1g
 func Findimg() ([]string, error) {
 	drives, err := disk.ListDrive()
 	if err != nil {
@@ -42,19 +41,19 @@ func Findimg() ([]string, error) {
 	)
 
 	patterns := []string{"*.iso", "*.esd", "*.wim"}
-	const maxDepth = 2                            // 搜 2 层目录
-	const minSize = int64(1) * 1024 * 1024 * 1024 //跳过小于1g
+	const maxDepth = 2
+	const minSize = int64(1) * 1024 * 1024 * 1024
 
 	skipNames := map[string]struct{}{
 		"03pe.wim":    {},
 		"11pex64.wim": {},
 	}
+
 	validateImage := func(imagePath string) bool {
-		if _, err := t.ListImageInfos(imagePath); err != nil {
-			return false
-		}
-		return true
+		_, err := t.ListImageInfos(imagePath)
+		return err == nil
 	}
+
 	validateISO := func(isoPath string) bool {
 		f, err := os.Open(isoPath)
 		if err != nil {
@@ -63,12 +62,10 @@ func Findimg() ([]string, error) {
 		defer f.Close()
 
 		format, err := detectISOFormat(f)
-		if err != nil {
+		if err != nil || format != "iso9660" {
 			return false
 		}
-		if format != "iso9660" {
-			return false
-		}
+
 		img, err := iso9660.OpenImage(f)
 		if err != nil {
 			return false
@@ -84,9 +81,10 @@ func Findimg() ([]string, error) {
 
 	for _, root := range drives {
 		root := root
-		if disk.GetDriveType(root) == 5 { //5=driveCdrom光盘
+		if disk.GetDriveType(root) == 5 {
 			continue
 		}
+
 		for _, pattern := range patterns {
 			pattern := pattern
 
@@ -104,18 +102,19 @@ func Findimg() ([]string, error) {
 					return
 				}
 
-				if len(found) > 0 {
-					mu.Lock()
-					files = append(files, found...)
-					mu.Unlock()
+				if len(found) == 0 {
+					return
 				}
+
+				mu.Lock()
+				files = append(files, found...)
+				mu.Unlock()
 			}()
 		}
 	}
 
 	wg.Wait()
 
-	// 去重 + 过滤
 	if len(files) > 0 {
 		seen := make(map[string]struct{}, len(files))
 		dst := files[:0]
@@ -136,8 +135,8 @@ func Findimg() ([]string, error) {
 			if _, ok := seen[lp]; ok {
 				continue
 			}
-			ext := strings.ToLower(filepath.Ext(p))
-			switch ext {
+
+			switch strings.ToLower(filepath.Ext(p)) {
 			case ".iso":
 				if !validateISO(p) {
 					continue
@@ -149,15 +148,16 @@ func Findimg() ([]string, error) {
 			default:
 				continue
 			}
+
 			seen[lp] = struct{}{}
 			dst = append(dst, p)
 		}
 
 		files = dst
 	}
-	//排列
+
 	sort.Slice(files, func(i, j int) bool {
-		pri := func(p string) int {
+		priority := func(p string) int {
 			switch strings.ToLower(filepath.Ext(p)) {
 			case ".esd":
 				return 0
@@ -169,24 +169,23 @@ func Findimg() ([]string, error) {
 				return 3
 			}
 		}
-		pi, pj := pri(files[i]), pri(files[j])
+
+		pi := priority(files[i])
+		pj := priority(files[j])
 		if pi != pj {
 			return pi < pj
 		}
+
 		return strings.ToLower(files[i]) < strings.ToLower(files[j])
 	})
 
 	if firstErr != nil && len(files) == 0 {
 		return nil, firstErr
 	}
+
 	return files, firstErr
 }
 
-// 在全盘搜索镜像并按目标系统/架构筛选。
-// 规则：
-// - 优先匹配目标系统（win7/win10/win11）
-// - 架构优先与期望一致（32/64）
-// - 若仅有 64 位则直接使用 64 位
 func FindLocalImage(target, arch string) (string, error) {
 	imgs, err := Findimg()
 	if len(imgs) == 0 {
@@ -194,24 +193,18 @@ func FindLocalImage(target, arch string) (string, error) {
 			log.LogWrite(0, "[findLocalImage] local image scan failed: %v", err)
 			return "", err
 		}
+
 		log.LogWrite(0, "[findLocalImage] no local image found")
 		return "", fmt.Errorf("no local image found")
 	}
+
 	if err != nil {
 		log.LogWrite(0, "[findLocalImage] skipped inaccessible volume(s): %v", err)
-		err = nil
 	}
-	if err != nil {
-		log.LogWrite(0, "[findLocalImage]全盘搜索镜像失败：%v", err)
-		return "", err
-	}
-	if len(imgs) == 0 {
-		log.LogWrite(0, "[findLocalImage]全盘未找到镜像")
-		return "", fmt.Errorf("未找到本地镜像")
-	}
-	log.LogWrite(0, "[findLocalImage]搜索到镜像：%s", strings.Join(imgs, " | "))
 
-	var matchTarget []string
+	log.LogWrite(0, "[findLocalImage] candidates: %s", strings.Join(imgs, " | "))
+
+	matchTarget := make([]string, 0, len(imgs))
 	for _, p := range imgs {
 		if targetMatchesImage(p, target) {
 			matchTarget = append(matchTarget, p)
@@ -222,7 +215,7 @@ func FindLocalImage(target, arch string) (string, error) {
 	}
 
 	filterByArch := func(paths []string, want string) []string {
-		var out []string
+		out := make([]string, 0, len(paths))
 		for _, p := range paths {
 			a := DetectImageArchHint(p)
 			if a == "" || a == want {
@@ -239,50 +232,52 @@ func FindLocalImage(target, arch string) (string, error) {
 	if len(byArch) == 0 {
 		byArch = matchTarget
 	}
+
 	log.LogWrite(0, "[findLocalImage] selected local image candidate(s): %s", strings.Join(byArch, " | "))
-	return byArch[0], nil
-	log.LogWrite(0, "[findLocalImage]本地镜像筛选结果：%s", strings.Join(byArch, " | "))
 	return byArch[0], nil
 }
 
-// 从 WIM/ESD 或 ISO 中读取镜像元数据。
 func DetectImageInfos(imagePath string) ([]dism.ImageMeta, error) {
 	ext := strings.ToLower(filepath.Ext(imagePath))
 	if ext != ".iso" {
 		return t.ListImageInfos(imagePath)
 	}
+
 	isoRoot, err := MountISO(imagePath, 30*time.Second)
 	if err != nil {
 		return nil, err
 	}
+
 	installPath := filepath.Join(isoRoot, "sources", "install.wim")
 	if _, err := os.Stat(installPath); err != nil {
 		installPath = filepath.Join(isoRoot, "sources", "install.esd")
 	}
+
 	if _, err := os.Stat(installPath); err != nil {
 		found, err := file.FindFile(isoRoot, "install.wim|install.esd", 3)
 		if err != nil || len(found) == 0 {
-			return nil, fmt.Errorf("ISO中未找到安装镜像")
+			return nil, fmt.Errorf("ISO does not contain install.wim or install.esd")
 		}
 		sort.Strings(found)
 		installPath = found[0]
 	}
+
 	return t.ListImageInfos(installPath)
 }
 
-// 从镜像元信息中推测目标系统类型。
 func DetectTargetFromInfos(infos []dism.ImageMeta) string {
 	if len(infos) == 0 {
 		return ""
 	}
+
 	values := make([]string, 0, len(infos)*4)
 	for _, info := range infos {
 		values = append(values, info.Name, info.Description, info.Edition, info.Flags)
 	}
+
 	return utils.DetectTarget(values...)
 }
 
-// 尝试从镜像元数据推测架构，失败再从文件名推测。
 func DetectImageArchHint(imagePath string) string {
 	infos, err := DetectImageInfos(imagePath)
 	if err == nil {
@@ -296,6 +291,7 @@ func DetectImageArchHint(imagePath string) string {
 			}
 		}
 	}
+
 	name := strings.ToLower(imagePath)
 	if strings.Contains(name, "x64") || strings.Contains(name, "amd64") || strings.Contains(name, "64") {
 		return "64"
@@ -303,21 +299,23 @@ func DetectImageArchHint(imagePath string) string {
 	if strings.Contains(name, "x86") || strings.Contains(name, "32") {
 		return "32"
 	}
+
 	return ""
 }
 
-// 判断镜像是否匹配目标系统（win7/win10/win11）。
 func targetMatchesImage(imagePath, target string) bool {
 	target = strings.ToLower(strings.TrimSpace(target))
 	if target == "" {
 		return true
 	}
+
 	infos, err := DetectImageInfos(imagePath)
 	if err == nil {
-		if t := DetectTargetFromInfos(infos); t != "" {
-			return t == target
+		if detected := DetectTargetFromInfos(infos); detected != "" {
+			return detected == target
 		}
 	}
+
 	name := strings.ToLower(imagePath)
 	switch target {
 	case targetWin7:
@@ -331,22 +329,18 @@ func targetMatchesImage(imagePath, target string) bool {
 	}
 }
 
-// FilterRuleItemsByArch returns only the rule items whose normalized
-// architecture exactly matches the requested architecture.
-//
-// The data package already normalizes common architecture aliases into
-// canonical values such as `32`, `64`, and `arm64`, so the filter can stay
-// simple and do an exact comparison here.
 func FilterRuleItemsByArch(items []data.RuleItem, arch string) []data.RuleItem {
 	arch = strings.TrimSpace(arch)
 	if arch == "" {
 		return items
 	}
+
 	out := make([]data.RuleItem, 0, len(items))
 	for _, it := range items {
 		if strings.TrimSpace(it.Arch) == arch {
 			out = append(out, it)
 		}
 	}
+
 	return out
 }

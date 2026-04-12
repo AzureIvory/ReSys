@@ -1,3 +1,4 @@
+//lint:file-ignore U1000 Keep legacy WIM verification helpers until the PE image pipeline is fully consolidated.
 package pe
 
 import (
@@ -402,8 +403,7 @@ func applyPEBoot(best peCand) error {
 	log.LogWrite(0, "[applyPEBoot]PE:", nm, "DRV:", lt, "SDI:", sdi, "WIM:", wim)
 
 	bcdeditPath := utils.GetSystemExe("bcdedit.exe")
-	out, err := tools.RunCmd(bcdeditPath, nil, nil, "")
-	if err != nil && (errors.Is(err, os.ErrNotExist) || errors.Is(err, exec.ErrNotFound)) {
+	if _, err := tools.RunCmd(bcdeditPath, nil, nil, ""); err != nil && (errors.Is(err, os.ErrNotExist) || errors.Is(err, exec.ErrNotFound)) {
 		exe, e := os.Executable()
 		if e == nil {
 			bcdeditPath = filepath.Join(filepath.Dir(exe), "tools", "bcdedit.exe")
@@ -411,7 +411,7 @@ func applyPEBoot(best peCand) error {
 	}
 
 	// /device guid
-	out, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/create", "/d", "pe", "/device")
+	out, err := tools.RunCmd(bcdeditPath, nil, nil, "", "/create", "/d", "pe", "/device")
 	if err != nil {
 		return err
 	}

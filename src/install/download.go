@@ -323,7 +323,7 @@ func chooseDownloadRoot() string {
 		}
 	}
 
-	tmp, err := disk.EnsureTempVolumeForBytes(needBytes)
+	tmp, err := disk.NewTempVolume(needBytes)
 	if err == nil && tmp != "" {
 		return tmp
 	}

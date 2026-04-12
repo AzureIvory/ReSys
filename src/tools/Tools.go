@@ -1,3 +1,4 @@
+//lint:file-ignore U1000 Preserve the legacy command runner while the newer implementation is being validated.
 package tools
 
 import (

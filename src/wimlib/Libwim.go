@@ -55,7 +55,7 @@ type wbWimInfo struct {
 }
 
 type wbDirEntry struct {
-	FullPath   uintptr
+	FullPath   *uint16
 	Depth      uint32
 	Attributes uint32
 }
@@ -306,7 +306,7 @@ func (w *WIM) GetXML() (string, error) {
 		return "", errors.New("nil WIM")
 	}
 
-	var p uintptr
+	var p *byte
 	var n uint32
 
 	r1, _, callErr := w.lib.procGetXMLUtf8.Call(
@@ -317,15 +317,15 @@ func (w *WIM) GetXML() (string, error) {
 	if int32(r1) != 0 {
 		return "", w.lib.errorFromCode(int32(r1), callErr)
 	}
-	if p == 0 || n == 0 {
-		if p != 0 {
-			w.lib.procFreeBuffer.Call(p)
+	if p == nil || n == 0 {
+		if p != nil {
+			w.lib.procFreeBuffer.Call(uintptr(unsafe.Pointer(p)))
 		}
 		return "", nil
 	}
-	defer w.lib.procFreeBuffer.Call(p)
+	defer w.lib.procFreeBuffer.Call(uintptr(unsafe.Pointer(p)))
 
-	b := unsafe.Slice((*byte)(unsafe.Pointer(p)), int(n))
+	b := unsafe.Slice(p, int(n))
 	return string(b), nil
 }
 
@@ -384,7 +384,7 @@ func (w *WIM) ListPaths(image int, wimPath string, iterateFlags int) ([]DirEntry
 		return nil, err
 	}
 
-	var items uintptr
+	var items *wbDirEntry
 	var count uint32
 
 	r1, _, callErr := w.lib.procListPaths.Call(
@@ -398,16 +398,16 @@ func (w *WIM) ListPaths(image int, wimPath string, iterateFlags int) ([]DirEntry
 	if int32(r1) != 0 {
 		return nil, w.lib.errorFromCode(int32(r1), callErr)
 	}
-	if items == 0 || count == 0 {
+	if items == nil || count == 0 {
 		return nil, nil
 	}
-	defer w.lib.procFreeDirEntries.Call(items, uintptr(count))
+	defer w.lib.procFreeDirEntries.Call(uintptr(unsafe.Pointer(items)), uintptr(count))
 
-	raw := unsafe.Slice((*wbDirEntry)(unsafe.Pointer(items)), int(count))
+	raw := unsafe.Slice(items, int(count))
 	out := make([]DirEntry, 0, len(raw))
 	for _, it := range raw {
 		out = append(out, DirEntry{
-			FullPath:   utf16PtrToString((*uint16)(unsafe.Pointer(it.FullPath))),
+			FullPath:   utf16PtrToString(it.FullPath),
 			Depth:      it.Depth,
 			Attributes: it.Attributes,
 		})

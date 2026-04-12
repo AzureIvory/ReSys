@@ -1,6 +1,7 @@
 package windows
 
 import (
+	"ReSys/src/file"
 	"ReSys/src/log"
 	"ReSys/src/registry"
 	"ReSys/src/tools"
@@ -382,7 +383,7 @@ func getFileVersion(filePath string) (uint16, uint16, uint16, error) {
 	}
 
 	subBlock, _ := syscall.UTF16PtrFromString(`\`)
-	var blockPtr uintptr
+	var blockPtr unsafe.Pointer
 	var blockLen uint32
 
 	ret, _, err = procVerQueryValue.Call(
@@ -395,7 +396,7 @@ func getFileVersion(filePath string) (uint16, uint16, uint16, error) {
 		return 0, 0, 0, fmt.Errorf("查询固定文件信息失败: %v", err)
 	}
 
-	fixedInfo := (*VS_FIXEDFILEINFO)(unsafe.Pointer(blockPtr))
+	fixedInfo := (*VS_FIXEDFILEINFO)(blockPtr)
 	if fixedInfo.DwSignature != 0xfeef04bd {
 		return 0, 0, 0, fmt.Errorf("无效的版本信息签名")
 	}
@@ -427,17 +428,17 @@ func IsWinPE() bool {
 	}
 
 	// 特征5：MiniNT 注册表键
-	if registryKeyExistsHKLM(`SYSTEM\CurrentControlSet\Control\MiniNT`) {
+	if regKeyInHKLM(`SYSTEM\CurrentControlSet\Control\MiniNT`) {
 		return true
 	}
 
 	// 额外常见特征：SystemStartOptions 包含 MININT（一些 PE 会有）
-	if systemStartOptionsHasMinint() {
+	if isMinint() {
 		return true
 	}
 
 	// 额外常见特征：HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\WinPE（有的 PE 会写）
-	if registryKeyExistsHKLMAnyView(`SOFTWARE\Microsoft\Windows NT\CurrentVersion\WinPE`) {
+	if regKeyInHKLMAnyView(`SOFTWARE\Microsoft\Windows NT\CurrentVersion\WinPE`) {
 		return true
 	}
 
@@ -453,7 +454,7 @@ func IsWinPE() bool {
 }
 
 // 判断当前系统是不是带有 MININT 启动标记(PE)
-func systemStartOptionsHasMinint() bool {
+func isMinint() bool {
 	const keyPath = `SYSTEM\CurrentControlSet\Control`
 	const valueName = "SystemStartOptions"
 
@@ -471,7 +472,7 @@ func systemStartOptionsHasMinint() bool {
 }
 
 // 判断 HKLM 下某个注册表键是否存在
-func registryKeyExistsHKLM(path string) bool {
+func regKeyInHKLM(path string) bool {
 	k, err := reg.OpenKey(reg.LOCAL_MACHINE, path, reg.READ)
 	if err != nil {
 		return false
@@ -480,10 +481,10 @@ func registryKeyExistsHKLM(path string) bool {
 	return true
 }
 
-// registryKeyExistsHKLMAnyView：
+// regKeyInHKLMAnyView：
 // 32 位进程在 64 位系统上访问 HKLM\SOFTWARE 时会被重定向到 Wow6432Node，
 // 这个函数会优先尝试 64-bit view（WOW64_64KEY），再尝试默认 view。
-func registryKeyExistsHKLMAnyView(path string) bool {
+func regKeyInHKLMAnyView(path string) bool {
 	access := uint32(reg.READ)
 
 	// 只有 SOFTWARE 类路径才会被 Wow64 重定向
@@ -503,21 +504,21 @@ func registryKeyExistsHKLMAnyView(path string) bool {
 	return false
 }
 
-// TPMEnabledAndVersion：
+// GetTPM：
 // 1) 优先 WMI（最靠谱，能拿到 IsEnabled_InitialValue / SpecVersion）
 // 2) WMI 不可用（WinPE/裁剪系统）时，退回注册表设备枚举：
 //   - ACPI\MSFT0101 => 2.0
 //   - Root\SecurityDevices\0000 => 1.2
 //
 // 注意：注册表兜底更偏“设备存在/版本推断”，无法 100% 等价于“固件启用状态”。
-func TPMEnabledAndVersion() (bool, string, error) {
+func GetTPM() (bool, string, error) {
 	// 1) WMI
 	if enabled, ver, ok, err := tpmViaWMI(); ok {
 		return enabled, ver, err // err 通常为 nil；保留以便你记录诊断
 	}
 
 	// 2) Registry fallback
-	ver, present := tpmVersionViaRegistry()
+	ver, present := tpmVersionReg()
 	if present {
 		// 兜底：能枚举到 TPM 设备，一般意味着系统能看到它；这里用 enabled=true 更贴近
 		return true, ver, nil
@@ -525,13 +526,13 @@ func TPMEnabledAndVersion() (bool, string, error) {
 	return false, "", nil
 }
 
-func tpmVersionViaRegistry() (version string, present bool) {
+func tpmVersionReg() (version string, present bool) {
 	// TPM 2.0 常见枚举
-	if registryKeyExistsHKLM(`SYSTEM\CurrentControlSet\Enum\ACPI\MSFT0101`) {
+	if regKeyInHKLM(`SYSTEM\CurrentControlSet\Enum\ACPI\MSFT0101`) {
 		return "2.0", true
 	}
 	// TPM 1.2 常见枚举
-	if registryKeyExistsHKLM(`SYSTEM\CurrentControlSet\Enum\Root\SecurityDevices\0000`) {
+	if regKeyInHKLM(`SYSTEM\CurrentControlSet\Enum\Root\SecurityDevices\0000`) {
 		return "1.2", true
 	}
 	return "", false
@@ -591,4 +592,18 @@ func SystemDriveRoot() string {
 		return vol + `\`
 	}
 	return ""
+}
+
+// 清理指定分区垃圾文件
+func ClearPartition() {
+	userProfile := os.Getenv("USERPROFILE")
+	temp := os.Getenv("TEMP")
+	winDir := os.Getenv("WINDIR")
+	allUsers := os.Getenv("ALLUSERSPROFILE")
+	systemRoot := os.Getenv("SystemRoot")
+	file.Remove(filepath.Join(userProfile, "AppData", "Local", "Microsoft", "Windows", "Temporary Internet Files"), true)
+	file.Remove(filepath.Join(temp), true)
+	file.Remove(filepath.Join(winDir, "Temp"), true)
+	file.Remove(filepath.Join(allUsers, "Microsoft", "Windows", "WER"), true)
+	file.Remove(filepath.Join(systemRoot, "Logs"), true)
 }

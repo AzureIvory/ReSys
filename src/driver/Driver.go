@@ -1,3 +1,4 @@
+//lint:file-ignore U1000 Keep compatibility helpers for future driver maintenance flows.
 package driver
 
 import (

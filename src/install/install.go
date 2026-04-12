@@ -545,11 +545,6 @@ func LoadInstallPlan() (*InstallPlan, error) {
 
 // ===== 目标分区解析与格式化 =====
 
-// ClearPartition 为未来的分区清理能力预留扩展点。
-func ClearPartition(letter string) error {
-	return nil
-}
-
 // FindTempRootByMarker 根据标记文件查找临时分区。
 func FindTempRootByMarker() string {
 	drives, _ := disk.ListDrive()

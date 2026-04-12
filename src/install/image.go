@@ -322,7 +322,7 @@ func moveImageToDisk(imgPath, systemRoot string, needBytes uint64) (string, bool
 func moveImageToTemp(imgPath string, needBytes uint64) (string, error) {
 	ui.UiSetStatus(ui.Tr("install.image.moveToTempVolume"))
 
-	tmpRoot, err := disk.EnsureTempVolumeForBytes(needBytes + driverBackupWorkspaceReserveBytes())
+	tmpRoot, err := disk.NewTempVolume(needBytes + driverBackupWorkspaceReserveBytes())
 	if err != nil {
 		return "", err
 	}

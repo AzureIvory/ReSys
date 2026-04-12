@@ -5,6 +5,8 @@
 // JSONUI 负责“声明控件与布局”，但控件的字体、颜色、圆角、间距、对齐等细节
 // 由 Theme 统一配置。这里的 Theme 会被注入到 jsonui.LoadOptions.Theme 中，
 // 作用范围覆盖整个窗口。
+//
+//lint:file-ignore U1000 Keep alternate dialog theme helpers available for upcoming JSON UI refinements.
 package ui
 
 import (

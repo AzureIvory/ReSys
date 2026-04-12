@@ -21,18 +21,13 @@ import (
 
 var (
 	//文件操作相关
-	Kernel32              = syscall.NewLazyDLL("kernel32.dll")
-	modShell32            = syscall.NewLazyDLL("shell32.dll")
-	procShellExecuteW     = modShell32.NewProc("ShellExecuteW")
-	procCopyFileW         = Kernel32.NewProc("CopyFileW")
-	procDeleteFileW       = Kernel32.NewProc("DeleteFileW")
-	procRemoveDirectoryW  = Kernel32.NewProc("RemoveDirectoryW")
-	procSetFileAttributes = Kernel32.NewProc("SetFileAttributesW")
-	procFindFirstFileW    = Kernel32.NewProc("FindFirstFileW")
-	procFindNextFileW     = Kernel32.NewProc("FindNextFileW")
-	procFindClose         = Kernel32.NewProc("FindClose")
-	procSetFileAttrsW     = Kernel32.NewProc("SetFileAttributesW")
-	procSHFileOperationW  = modShell32.NewProc("SHFileOperationW")
+	Kernel32             = syscall.NewLazyDLL("kernel32.dll")
+	modShell32           = syscall.NewLazyDLL("shell32.dll")
+	procCopyFileW        = Kernel32.NewProc("CopyFileW")
+	procDeleteFileW      = Kernel32.NewProc("DeleteFileW")
+	procRemoveDirectoryW = Kernel32.NewProc("RemoveDirectoryW")
+	procSetFileAttrsW    = Kernel32.NewProc("SetFileAttributesW")
+	procSHFileOperationW = modShell32.NewProc("SHFileOperationW")
 )
 
 const (
@@ -252,7 +247,10 @@ func Remove(path string, recursive bool) error {
 	}
 	if recursive {
 		// SHFileOperation 需要 double-null terminated 的 pFrom
-		from := syscall.StringToUTF16(path)
+		from, err := syscall.UTF16FromString(path)
+		if err != nil {
+			return fmt.Errorf("Remove: UTF16FromString failed: %w", err)
+		}
 		from = append(from, 0) // 再补一个 0，形成双 0 结尾
 
 		op := shFileOpStructW{
@@ -322,11 +320,11 @@ func PeelFile(exePath, start, end, out string) error {
 		return errors.New("out 不能为空")
 	}
 
-	startOffset, err := parseOffsetString(start)
+	startOffset, err := parseOffset(start)
 	if err != nil {
 		return fmt.Errorf("解析 startOffset 失败: %w", err)
 	}
-	endOffset, err := parseOffsetString(end)
+	endOffset, err := parseOffset(end)
 	if err != nil {
 		return fmt.Errorf("解析 endOffset 失败: %w", err)
 	}
@@ -394,7 +392,7 @@ func PeelFile(exePath, start, end, out string) error {
 }
 
 // 解析偏移字符串：
-func parseOffsetString(s string) (int64, error) {
+func parseOffset(s string) (int64, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return 0, errors.New("偏移字符串为空")

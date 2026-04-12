@@ -543,9 +543,9 @@ func Format(letter, fs, label string, quick bool) error {
 	return nil
 }
 
-// 优先：用连续未分配空间创建 TEMP 分区；失败再最后 SplitVolume(C)
+// 优先用连续未分配空间创建 TEMP 分区；失败再最后 SplitVolume(C)，目前只能在运行中的正常系统使用
 // needBytes：需要的空间
-func EnsureTempVolumeForBytes(needBytes uint64) (string, error) {
+func NewTempVolume(needBytes uint64) (string, error) {
 	// 给点余量
 	const extra uint64 = 512 * 1024 * 1024
 	if needBytes < minImageBytes {
@@ -553,7 +553,7 @@ func EnsureTempVolumeForBytes(needBytes uint64) (string, error) {
 	}
 	needBytes += extra
 
-	// 1) 先用未分配空间（全盘扫描，支持“另一块盘全未分配”的情况）
+	// 先用未分配空间（全盘扫描，支持另一块盘全未分配的情况）
 	extent, err := PickFreeExtent(needBytes, ExtentPickPolicy{
 		PreferNonSystemDisk: true,
 		PreferLargestExtent: true,
@@ -579,7 +579,7 @@ func EnsureTempVolumeForBytes(needBytes uint64) (string, error) {
 		}
 	}
 
-	// 2) 最后兜底：拆分系统盘
+	//拆分系统盘
 	// 尝试先清理一下，增加 shrink 成功率
 	//_ = ClearPartition("C")
 
