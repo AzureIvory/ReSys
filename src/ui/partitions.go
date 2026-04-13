@@ -34,9 +34,11 @@ func manualCollectPartitionRows() ([]manualPartitionRow, []manualPartitionRow, e
 		return nil, nil, err
 	}
 
+	diskInfoByDisk := map[int]disk.DiskInfo{}
 	diskStyleByDisk := map[int]string{}
 	if disks, err := disk.ListPhysicalDisks(); err == nil {
 		for _, info := range disks {
+			diskInfoByDisk[info.DiskNumber] = info
 			diskStyleByDisk[info.DiskNumber] = strings.TrimSpace(info.PartitionStyle)
 		}
 	}
@@ -79,7 +81,15 @@ func manualCollectPartitionRows() ([]manualPartitionRow, []manualPartitionRow, e
 	}
 	sort.Ints(orderedDisks)
 
-	bootRows := manualBuildBootRows(orderedDisks, volumes, diskStyleByDisk, kindByDisk, manager, bitlockerReady)
+	bootRows := manualBuildBootRows(
+		orderedDisks,
+		volumes,
+		diskInfoByDisk,
+		diskStyleByDisk,
+		kindByDisk,
+		manager,
+		bitlockerReady,
+	)
 	partByGUID := make(map[string]manualPartitionRow, len(bootRows))
 	partByLetter := make(map[string]manualPartitionRow, len(bootRows))
 	for _, row := range bootRows {
@@ -114,7 +124,6 @@ func manualCollectPartitionRows() ([]manualPartitionRow, []manualPartitionRow, e
 			TargetRoot:     targetRoot,
 			SizeBytes:      vol.SizeBytes,
 			FreeBytes:      vol.FreeBytes,
-			Ref:            strings.ToUpper(targetRoot),
 		}
 
 		if part, ok := partByGUID[manualNormalizeGUID(vol.VolumeGuidPath)]; ok {
@@ -135,6 +144,18 @@ func manualCollectPartitionRows() ([]manualPartitionRow, []manualPartitionRow, e
 		if row.DiskKind == "Unknown" {
 			if kind, err := disk.GetDiskKind(row.TargetRoot); err == nil {
 				row.DiskKind = kind
+			}
+		}
+		if row.Ref == "" {
+			if diskInfo, part, err := disk.FindPartitionByRoot(row.TargetRoot); err == nil {
+				row.PartitionNumber = part.PartitionNumber
+				row.PartitionType = utils.FirstNonEmpty(part.Type, row.PartitionType)
+				if row.DiskStyle == "" {
+					row.DiskStyle = strings.TrimSpace(diskInfo.PartitionStyle)
+				}
+				if ref, err := disk.BuildPartitionRef(diskInfo, part); err == nil {
+					row.Ref = ref
+				}
 			}
 		}
 
@@ -183,6 +204,7 @@ func manualCollectPartitionRows() ([]manualPartitionRow, []manualPartitionRow, e
 func manualBuildBootRows(
 	orderedDisks []int,
 	volumes []disk.VolumeInfo,
+	diskInfoByDisk map[int]disk.DiskInfo,
 	diskStyleByDisk map[int]string,
 	kindByDisk map[int]string,
 	manager *bl.BitLockerManager,
@@ -215,7 +237,11 @@ func manualBuildBootRows(
 				VolumeGuidPath:  strings.TrimSpace(part.VolumeGuidPath),
 				DriveLetter:     manualNormalizeDriveLetter(part.DriveLetter),
 				SizeBytes:       part.SizeBytes,
-				Ref:             fmt.Sprintf("%d:%d", diskNumber, part.PartitionNumber),
+			}
+			if diskInfo, ok := diskInfoByDisk[diskNumber]; ok {
+				if ref, err := disk.BuildPartitionRef(diskInfo, part); err == nil {
+					row.Ref = ref
+				}
 			}
 
 			vol, ok := volByGUID[manualNormalizeGUID(part.VolumeGuidPath)]
@@ -276,57 +302,68 @@ func manualBuildBootRows(
 // manualCollectBootTargets 按引导类型（UEFI/BIOS）从 bootRows 中筛选候选分区。
 // 排序策略为“同盘优先”，避免用户误选到其它磁盘的引导分区。
 func manualCollectBootTargets(target manualPartitionRow, mode string) []manualBootTargetOption {
-	options := make([]manualBootTargetOption, 0, 4)
+	rows := make([]manualPartitionRow, 0, 4)
 	if utils.BootType(mode, target.DiskStyle) == "UEFI" {
 		for _, row := range manual.bootRows {
 			if !manualIsUEFIBootPartition(row) {
 				continue
 			}
-			options = append(options, manualBootTargetOption{Ref: row.Ref, Text: manualBootTargetText(row)})
+			rows = append(rows, row)
 		}
-		sort.Slice(options, func(i, j int) bool {
-			di, pi, _ := utils.ParsePartRef(options[i].Ref)
-			dj, pj, _ := utils.ParsePartRef(options[j].Ref)
-			if di != dj {
-				if di == target.DiskNumber {
+		sort.Slice(rows, func(i, j int) bool {
+			if rows[i].DiskNumber != rows[j].DiskNumber {
+				if rows[i].DiskNumber == target.DiskNumber {
 					return true
 				}
-				if dj == target.DiskNumber {
+				if rows[j].DiskNumber == target.DiskNumber {
 					return false
 				}
-				return di < dj
+				return rows[i].DiskNumber < rows[j].DiskNumber
 			}
-			return pi < pj
+			return rows[i].PartitionNumber < rows[j].PartitionNumber
 		})
-		return options
+		return manualBootTargetOptions(rows)
 	}
 
 	for _, row := range manual.bootRows {
 		if !manualIsBIOSBootPartition(row) {
 			continue
 		}
-		options = append(options, manualBootTargetOption{Ref: row.Ref, Text: manualBootTargetText(row)})
+		rows = append(rows, row)
 	}
-	sort.Slice(options, func(i, j int) bool {
-		di, pi, _ := utils.ParsePartRef(options[i].Ref)
-		dj, pj, _ := utils.ParsePartRef(options[j].Ref)
-		if di != dj {
-			if di == target.DiskNumber {
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].DiskNumber != rows[j].DiskNumber {
+			if rows[i].DiskNumber == target.DiskNumber {
 				return true
 			}
-			if dj == target.DiskNumber {
+			if rows[j].DiskNumber == target.DiskNumber {
 				return false
 			}
-			return di < dj
+			return rows[i].DiskNumber < rows[j].DiskNumber
 		}
-		if options[i].Ref == target.Ref {
+		if rows[i].Ref == target.Ref {
 			return true
 		}
-		if options[j].Ref == target.Ref {
+		if rows[j].Ref == target.Ref {
 			return false
 		}
-		return pi < pj
+		return rows[i].PartitionNumber < rows[j].PartitionNumber
 	})
+	return manualBootTargetOptions(rows)
+}
+
+// manualBootTargetOptions 将内部的分区行模型转换为引导分区下拉框可用的选项。
+//
+// 这里保留 `row.Ref` 作为稳定值，显示文本则继续复用现有的人类可读摘要，
+// 从而保证 UI 展示不变，但实际提交给安装流程的是新的统一分区引用。
+func manualBootTargetOptions(rows []manualPartitionRow) []manualBootTargetOption {
+	options := make([]manualBootTargetOption, 0, len(rows))
+	for _, row := range rows {
+		options = append(options, manualBootTargetOption{
+			Ref:  row.Ref,
+			Text: manualBootTargetText(row),
+		})
+	}
 	return options
 }
 

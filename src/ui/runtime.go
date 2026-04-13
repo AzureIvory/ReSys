@@ -36,12 +36,13 @@ type ManualInstallConfig struct {
 	ImagePath     string
 	ImageIndex    int
 	TargetRoot    string
+	TargetPartRef string
 	AutoPE        bool
 	ManualPEWIM   string
 	FormatTarget  bool
 	AutoReboot    bool
 	BootRepair    string
-	BootTargetRef string
+	BootPartRef   string
 	AutoDeploy    bool
 	BackupDrivers bool
 }

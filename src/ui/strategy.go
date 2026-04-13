@@ -270,6 +270,7 @@ func manualBuildConfig() (ManualInstallConfig, error) {
 		ImagePath:     strings.TrimSpace(manual.imagePath),
 		ImageIndex:    info.Index,
 		TargetRoot:    row.TargetRoot,
+		TargetPartRef: row.Ref,
 		AutoPE:        manualOptionAutoPE(),
 		ManualPEWIM:   manualPEPath(),
 		FormatTarget:  manualOptionFormatTarget(),
@@ -285,7 +286,7 @@ func manualBuildConfig() (ManualInstallConfig, error) {
 		cfg.TargetOS = targetWin10
 	}
 	if utils.NeedBootPart(manualSelectedBootMode()) {
-		cfg.BootTargetRef = manualSelectedBootTargetRef()
+		cfg.BootPartRef = manualSelectedBootTargetRef()
 	}
 	return cfg, nil
 }

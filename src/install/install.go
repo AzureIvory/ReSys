@@ -53,6 +53,7 @@ type InstallPlan struct {
 	ImagePath     string
 	ImageIndex    int
 	TargetRoot    string
+	TargetPartRef string
 	DiskPath      string
 	VolumeGUID    string
 	DiskUniqueID  string
@@ -62,7 +63,7 @@ type InstallPlan struct {
 	FormatTarget  bool
 	AutoReboot    bool
 	BootRepair    BootRepairMode
-	BootTargetRef string
+	BootPartRef   string
 	Flags         InstallFlags
 }
 
@@ -255,6 +256,10 @@ func SaveInstallPlan(plan *InstallPlan) error {
 		plan.ImagePath = absPath
 	}
 
+	if err := ResolveInstallTarget(plan); err != nil {
+		return err
+	}
+
 	if plan.ImageIndex <= 0 {
 		if infos, err := image.DetectImageInfos(plan.ImagePath); err == nil {
 			plan.ImageIndex = SelectInstallIndex(infos)
@@ -269,19 +274,43 @@ func SaveInstallPlan(plan *InstallPlan) error {
 		plan.TargetRoot = root
 	}
 
-	systemDrive := os.Getenv("SystemDrive")
-	if systemDrive == "" {
-		systemDrive = "C:"
+	lines, err := formatInstallPlanLines(plan)
+	if err != nil {
+		return err
 	}
-	sysRoot, _ := utils.NormalizeDrive(systemDrive, 0)
-	if sysRoot == "" {
-		sysRoot = systemDrive + `\`
+
+	if err := os.WriteFile(installPlanPath(), []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		return err
 	}
-	restallPath := filepath.Join(sysRoot, "restall_win.dat")
+
+	imageRoot, _ := utils.NormalizeDrive(plan.ImagePath, 2)
+	if plan.DiskPath == "" && imageRoot != "" {
+		imgDat := filepath.Join(imageRoot, "restall_img.dat")
+		_ = os.WriteFile(imgDat, []byte("image="+plan.ImagePath+"\n"), 0o644)
+	}
+
+	return nil
+}
+
+// formatInstallPlanLines 将安装计划序列化为 `key=value` 行文本。
+//
+// `restall_win.dat` 现在以稳定分区引用为核心，因此这里会强制要求
+// `TargetPartRef` 存在；引导分区在需要手动修复时则额外写入 `BootPartRef`。
+func formatInstallPlanLines(plan *InstallPlan) ([]string, error) {
+	if plan == nil {
+		return nil, fmt.Errorf("install plan is nil")
+	}
+	if strings.TrimSpace(plan.ImagePath) == "" {
+		return nil, fmt.Errorf("install image path is empty")
+	}
+	if strings.TrimSpace(plan.TargetPartRef) == "" {
+		return nil, fmt.Errorf("install target partition ref is empty")
+	}
 
 	lines := []string{
 		fmt.Sprintf("mode=%s", plan.Mode),
 		fmt.Sprintf("image=%s", plan.ImagePath),
+		fmt.Sprintf("target_part_ref=%s", plan.TargetPartRef),
 	}
 	if plan.TargetRoot != "" {
 		lines = append(lines, fmt.Sprintf("target_root=%s", plan.TargetRoot))
@@ -310,7 +339,8 @@ func SaveInstallPlan(plan *InstallPlan) error {
 	if plan.PreparedPEWIM != "" {
 		lines = append(lines, fmt.Sprintf("prepared_pe_wim=%s", plan.PreparedPEWIM))
 	}
-	lines = append(lines,
+	lines = append(
+		lines,
 		fmt.Sprintf("auto_pe=%t", plan.AutoPE),
 		fmt.Sprintf("format_target=%t", plan.FormatTarget),
 		fmt.Sprintf("auto_reboot=%t", plan.AutoReboot),
@@ -319,30 +349,35 @@ func SaveInstallPlan(plan *InstallPlan) error {
 	if plan.ManualPEWIM != "" {
 		lines = append(lines, fmt.Sprintf("manual_pe_wim=%s", plan.ManualPEWIM))
 	}
-	if plan.BootTargetRef != "" {
-		lines = append(lines, fmt.Sprintf("boot_target_ref=%s", plan.BootTargetRef))
+	if plan.BootPartRef != "" {
+		lines = append(lines, fmt.Sprintf("boot_part_ref=%s", plan.BootPartRef))
 	}
 	if plan.ImageIndex > 0 {
 		lines = append(lines, fmt.Sprintf("index=%d", plan.ImageIndex))
 	}
-	lines = append(lines,
+	lines = append(
+		lines,
 		fmt.Sprintf("flag_need_bitlocker=%t", plan.Flags.NeedBitLockerHandling),
 		fmt.Sprintf("flag_need_backup_before_pe=%t", plan.Flags.NeedBackupBeforePE),
 		fmt.Sprintf("flag_need_offline_drivers=%t", plan.Flags.NeedOfflineDrivers),
 		fmt.Sprintf("flag_need_copy_xml_after_boot=%t", plan.Flags.NeedCopyXMLAfterBoot),
 	)
+	return lines, nil
+}
 
-	if err := os.WriteFile(restallPath, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
-		return err
+// installPlanPath 返回当前系统卷上的安装计划文件路径。
+//
+// 安装计划始终放在当前系统卷根目录，便于重启进 PE 后重新扫描并恢复。
+func installPlanPath() string {
+	systemDrive := os.Getenv("SystemDrive")
+	if systemDrive == "" {
+		systemDrive = "C:"
 	}
-
-	imageRoot, _ := utils.NormalizeDrive(plan.ImagePath, 2)
-	if plan.DiskPath == "" && imageRoot != "" {
-		imgDat := filepath.Join(imageRoot, "restall_img.dat")
-		_ = os.WriteFile(imgDat, []byte("image="+plan.ImagePath+"\n"), 0o644)
+	sysRoot, _ := utils.NormalizeDrive(systemDrive, 0)
+	if sysRoot == "" {
+		sysRoot = systemDrive + `\`
 	}
-
-	return nil
+	return filepath.Join(sysRoot, "restall_win.dat")
 }
 
 // captureInstallImageLocation 记录镜像所在磁盘与卷的元数据。
@@ -465,70 +500,13 @@ func LoadInstallPlan() (*InstallPlan, error) {
 			continue
 		}
 
-		plan := &InstallPlan{
-			Mode:       ReinstallModeAuto,
-			TargetRoot: h.root,
-		}
-		for _, ln := range strings.Split(string(b), "\n") {
-			ln = strings.TrimSpace(ln)
-			if ln == "" {
-				continue
+		plan, err := parseInstallPlanData(string(b), h.root)
+		if err != nil {
+			log.LogWrite(0, "[LoadInstallPlan] failed to parse %s: %v", h.path, err)
+			if len(hits) == 0 {
+				return nil, err
 			}
-			parts := strings.SplitN(ln, "=", 2)
-			if len(parts) != 2 {
-				continue
-			}
-
-			key := strings.TrimSpace(parts[0])
-			val := strings.TrimSpace(parts[1])
-			switch key {
-			case "mode":
-				plan.Mode = ReinstallMode(val)
-			case "target_root":
-				plan.TargetRoot = val
-			case "disk":
-				plan.DiskPath = val
-			case "image":
-				plan.ImagePath = val
-			case "volume_guid":
-				plan.VolumeGUID = val
-			case "disk_unique_id":
-				plan.DiskUniqueID = val
-			case "image_rel":
-				plan.ImageRel = val
-			case "target":
-				plan.TargetOS = val
-			case "arch":
-				plan.ImageArch = val
-			case "pe_arch":
-				plan.PEArch = val
-			case "prepared_pe_wim":
-				plan.PreparedPEWIM = val
-			case "auto_pe":
-				plan.AutoPE = parsePlanBool(val)
-			case "manual_pe_wim":
-				plan.ManualPEWIM = val
-			case "format_target":
-				plan.FormatTarget = parsePlanBool(val)
-			case "auto_reboot":
-				plan.AutoReboot = parsePlanBool(val)
-			case "boot_repair":
-				plan.BootRepair = BootRepairMode(strings.TrimSpace(val))
-			case "boot_target_ref":
-				plan.BootTargetRef = val
-			case "index":
-				if v, e := strconv.Atoi(val); e == nil {
-					plan.ImageIndex = v
-				}
-			case "flag_need_bitlocker":
-				plan.Flags.NeedBitLockerHandling = parsePlanBool(val)
-			case "flag_need_backup_before_pe":
-				plan.Flags.NeedBackupBeforePE = parsePlanBool(val)
-			case "flag_need_offline_drivers":
-				plan.Flags.NeedOfflineDrivers = parsePlanBool(val)
-			case "flag_need_copy_xml_after_boot":
-				plan.Flags.NeedCopyXMLAfterBoot = parsePlanBool(val)
-			}
+			continue
 		}
 
 		if err := NormalizeInstallPlan(plan); err != nil {
@@ -546,6 +524,87 @@ func LoadInstallPlan() (*InstallPlan, error) {
 // ===== 目标分区解析与格式化 =====
 
 // FindTempRootByMarker 根据标记文件查找临时分区。
+// parseInstallPlanData 解析 `restall_win.dat` 的文本内容并还原为安装计划。
+//
+// 因为本次改造明确不兼容旧格式，这里会把 `target_part_ref` 视为硬性字段；
+// 对于要求手动指定引导分区的模式，还会进一步要求 `boot_part_ref` 必须存在。
+func parseInstallPlanData(data string, defaultTargetRoot string) (*InstallPlan, error) {
+	plan := &InstallPlan{
+		Mode:       ReinstallModeAuto,
+		TargetRoot: defaultTargetRoot,
+	}
+	for _, ln := range strings.Split(data, "\n") {
+		ln = strings.TrimSpace(ln)
+		if ln == "" {
+			continue
+		}
+		parts := strings.SplitN(ln, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		key := strings.TrimSpace(parts[0])
+		val := strings.TrimSpace(parts[1])
+		switch key {
+		case "mode":
+			plan.Mode = ReinstallMode(val)
+		case "target_root":
+			plan.TargetRoot = val
+		case "target_part_ref":
+			plan.TargetPartRef = val
+		case "disk":
+			plan.DiskPath = val
+		case "image":
+			plan.ImagePath = val
+		case "volume_guid":
+			plan.VolumeGUID = val
+		case "disk_unique_id":
+			plan.DiskUniqueID = val
+		case "image_rel":
+			plan.ImageRel = val
+		case "target":
+			plan.TargetOS = val
+		case "arch":
+			plan.ImageArch = val
+		case "pe_arch":
+			plan.PEArch = val
+		case "prepared_pe_wim":
+			plan.PreparedPEWIM = val
+		case "auto_pe":
+			plan.AutoPE = parsePlanBool(val)
+		case "manual_pe_wim":
+			plan.ManualPEWIM = val
+		case "format_target":
+			plan.FormatTarget = parsePlanBool(val)
+		case "auto_reboot":
+			plan.AutoReboot = parsePlanBool(val)
+		case "boot_repair":
+			plan.BootRepair = BootRepairMode(strings.TrimSpace(val))
+		case "boot_part_ref":
+			plan.BootPartRef = val
+		case "index":
+			if v, e := strconv.Atoi(val); e == nil {
+				plan.ImageIndex = v
+			}
+		case "flag_need_bitlocker":
+			plan.Flags.NeedBitLockerHandling = parsePlanBool(val)
+		case "flag_need_backup_before_pe":
+			plan.Flags.NeedBackupBeforePE = parsePlanBool(val)
+		case "flag_need_offline_drivers":
+			plan.Flags.NeedOfflineDrivers = parsePlanBool(val)
+		case "flag_need_copy_xml_after_boot":
+			plan.Flags.NeedCopyXMLAfterBoot = parsePlanBool(val)
+		}
+	}
+	if strings.TrimSpace(plan.TargetPartRef) == "" {
+		return nil, fmt.Errorf("target_part_ref is required")
+	}
+	if utils.NeedBootPart(string(plan.BootRepair)) && strings.TrimSpace(plan.BootPartRef) == "" {
+		return nil, fmt.Errorf("boot_part_ref is required for %s", plan.BootRepair)
+	}
+	return plan, nil
+}
+
 func FindTempRootByMarker() string {
 	drives, _ := disk.ListDrive()
 	for _, d := range drives {
@@ -567,6 +626,19 @@ func ResolveInstallTarget(plan *InstallPlan) error {
 		return fmt.Errorf("install plan is nil")
 	}
 
+	if strings.TrimSpace(plan.TargetPartRef) != "" {
+		_, part, err := disk.FindPartitionByRef(plan.TargetPartRef)
+		if err != nil {
+			return err
+		}
+		root, err := partitionRootFromInfo(part)
+		if err != nil {
+			return err
+		}
+		plan.TargetRoot = root
+		return EnsureInstallImageOutsideTarget(plan)
+	}
+
 	if root, err := utils.NormalizeDrive(plan.TargetRoot, 0); err == nil {
 		plan.TargetRoot = root
 	}
@@ -577,7 +649,59 @@ func ResolveInstallTarget(plan *InstallPlan) error {
 		return fmt.Errorf("未找到可用系统分区")
 	}
 
+	if err := captureInstallTargetLocation(plan); err != nil {
+		return err
+	}
+
 	return EnsureInstallImageOutsideTarget(plan)
+}
+
+// captureInstallTargetLocation 根据当前 TargetRoot 反查并记录稳定分区引用。
+//
+// 这个步骤发生在进入 PE 之前，用于把“当前在线环境中的盘符”转换成
+// “重启后依然可识别的分区身份”，避免后续流程依赖变化的盘符。
+func captureInstallTargetLocation(plan *InstallPlan) error {
+	if plan == nil {
+		return fmt.Errorf("install plan is nil")
+	}
+	if strings.TrimSpace(plan.TargetRoot) == "" {
+		return fmt.Errorf("install target root is empty")
+	}
+
+	diskInfo, part, err := disk.FindPartitionByRoot(plan.TargetRoot)
+	if err != nil {
+		return err
+	}
+	partRef, err := disk.BuildPartitionRef(diskInfo, part)
+	if err != nil {
+		return err
+	}
+	root, err := partitionRootFromInfo(part)
+	if err != nil {
+		return err
+	}
+
+	plan.TargetRoot = root
+	plan.TargetPartRef = partRef
+	return nil
+}
+
+// partitionRootFromInfo 从分区枚举结果中提取可直接访问的卷根路径。
+//
+// 当前安装和格式化流程仍然需要一个实际可访问的根路径，因此这里要求
+// 分区已经有盘符；若目标分区尚未分配盘符，则上层应先处理挂载问题。
+func partitionRootFromInfo(part disk.PartitionInfo) (string, error) {
+	if part.DriveLetter != "" {
+		root, err := utils.NormalizeDrive(part.DriveLetter, 0)
+		if err == nil && root != "" {
+			return root, nil
+		}
+	}
+	return "", fmt.Errorf(
+		"partition has no drive letter: disk=%d part=%d",
+		part.DiskNumber,
+		part.PartitionNumber,
+	)
 }
 
 // FormatTargetPartition 按安装要求格式化目标分区。

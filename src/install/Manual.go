@@ -73,12 +73,13 @@ func buildManualInstallPlan(cfg ui.ManualInstallConfig) (*InstallPlan, error) {
 		ImagePath:     strings.TrimSpace(cfg.ImagePath),
 		ImageIndex:    cfg.ImageIndex,
 		TargetRoot:    strings.TrimSpace(cfg.TargetRoot),
+		TargetPartRef: strings.TrimSpace(cfg.TargetPartRef),
 		AutoPE:        cfg.AutoPE,
 		ManualPEWIM:   strings.TrimSpace(cfg.ManualPEWIM),
 		FormatTarget:  cfg.FormatTarget,
 		AutoReboot:    cfg.AutoReboot,
 		BootRepair:    BootRepairMode(strings.TrimSpace(cfg.BootRepair)),
-		BootTargetRef: strings.TrimSpace(cfg.BootTargetRef),
+		BootPartRef:   strings.TrimSpace(cfg.BootPartRef),
 		Flags: InstallFlags{
 			NeedBitLockerHandling: true,
 			NeedBackupBeforePE:    cfg.BackupDrivers,
@@ -99,6 +100,9 @@ func buildManualInstallPlan(cfg ui.ManualInstallConfig) (*InstallPlan, error) {
 		return nil, fmt.Errorf("%s", ui.Tr("manual.validation.selectImage"))
 	}
 	if strings.TrimSpace(plan.TargetRoot) == "" {
+		return nil, fmt.Errorf("%s", ui.Tr("manual.validation.selectTarget"))
+	}
+	if strings.TrimSpace(plan.TargetPartRef) == "" {
 		return nil, fmt.Errorf("%s", ui.Tr("manual.validation.selectTarget"))
 	}
 
@@ -123,7 +127,7 @@ func buildManualInstallPlan(cfg ui.ManualInstallConfig) (*InstallPlan, error) {
 	if plan.ImageArch == "" {
 		plan.ImageArch = windows.DesiredArch()
 	}
-	if utils.NeedBootPart(string(plan.BootRepair)) && strings.TrimSpace(plan.BootTargetRef) == "" {
+	if utils.NeedBootPart(string(plan.BootRepair)) && strings.TrimSpace(plan.BootPartRef) == "" {
 		return nil, fmt.Errorf("%s", ui.Tr("manual.validation.selectBoot"))
 	}
 	if utils.MissingPE(utils.NeedsPE(plan.TargetRoot, os.Getenv("SystemDrive")), plan.AutoPE, plan.ManualPEWIM) {
@@ -423,7 +427,7 @@ func repairInstallBootManual(plan *InstallPlan) error {
 	if plan == nil {
 		return fmt.Errorf("install plan is nil")
 	}
-	part, err := findBootPartition(plan.BootTargetRef)
+	part, err := findBootPartition(plan.BootPartRef)
 	if err != nil {
 		return err
 	}
@@ -475,20 +479,11 @@ func repairInstallBootManualBIOS(targetRoot string, part disk.PartitionInfo) err
 }
 
 func findBootPartition(ref string) (disk.PartitionInfo, error) {
-	diskNumber, partNumber, err := utils.ParsePartRef(ref)
+	_, part, err := disk.FindPartitionByRef(ref)
 	if err != nil {
 		return disk.PartitionInfo{}, err
 	}
-	parts, err := disk.ListDiskPartitions(diskNumber)
-	if err != nil {
-		return disk.PartitionInfo{}, err
-	}
-	for _, part := range parts {
-		if part.PartitionNumber == partNumber {
-			return part, nil
-		}
-	}
-	return disk.PartitionInfo{}, fmt.Errorf("鏈壘鍒板紩瀵煎垎鍖? %s", ref)
+	return part, nil
 }
 
 func detectManualInstallWIM(imagePath string) (string, error) {

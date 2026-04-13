@@ -603,6 +603,20 @@ func SystemDriveRoot() string {
 	return ""
 }
 
+// CompactOS 支持对win10+系统进行压缩，支持正在运行的系统，速度较慢，不建议使用
+func CompactOS(always bool) error {
+	if always {
+		t, err := tools.RunCmd("compact", nil, nil, "", "/compactos:always")
+		fmt.Println(t)
+		return err
+	} else {
+		t, err := tools.RunCmd("compact", nil, nil, "", "/compactos:never")
+		fmt.Println(t)
+		return err
+	}
+
+}
+
 // 清理指定分区垃圾文件
 func ClearPartition() {
 	userProfile := os.Getenv("USERPROFILE")
@@ -685,6 +699,7 @@ func ClearPartition() {
 	file.Remove(filepath.Join(userProfile, "AppData", "Local", "Microsoft", "Office", "16.0", "OfficeFileCache"), true, true)
 	file.Remove(filepath.Join(userProfile, "AppData", "Local", "Microsoft", "Office", "15.0", "OfficeFileCache"), true, true)
 	file.Remove(filepath.Join(userProfile, "AppData", "Local", "Microsoft", "VisualStudio", "*", "ComponentModelCache", "*"), true, false)
+	file.Remove(filepath.Join("C", "DrvPath"), true, true)
 	//清理字体缓存
 	file.Remove(filepath.Join(winDir, "ServiceProfiles", "LocalService", "AppData", "Local", "FontCache"), true, true)
 	file.Remove(filepath.Join(winDir, "System32", "FNTCACHE.DAT"), false, false)
