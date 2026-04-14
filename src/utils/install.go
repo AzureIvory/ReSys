@@ -37,10 +37,10 @@ func ParsePartRef(ref string) (int, int, error) {
 
 // BootType 根据修复模式和目标磁盘分区表类型推断应使用 UEFI 还是 BIOS。
 func BootType(mode, diskStyle string) string {
-	switch strings.TrimSpace(mode) {
-	case "manual_uefi":
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "uefi":
 		return "UEFI"
-	case "manual_bios":
+	case "bios":
 		return "BIOS"
 	default:
 		if strings.EqualFold(strings.TrimSpace(diskStyle), "GPT") {
@@ -52,10 +52,6 @@ func BootType(mode, diskStyle string) string {
 
 // NeedBootPart 判断当前模式是否要求手动选择引导分区。
 func NeedBootPart(mode string) bool {
-	switch strings.TrimSpace(mode) {
-	case "manual", "manual_uefi", "manual_bios":
-		return true
-	default:
-		return false
-	}
+	_ = mode
+	return false
 }

@@ -4,6 +4,7 @@ import (
 	"ReSys/src/boot"
 	"ReSys/src/disk"
 	imgsvc "ReSys/src/image"
+	"ReSys/src/installcfg"
 	"ReSys/src/log"
 	"ReSys/src/tools"
 	"ReSys/src/ui"
@@ -21,8 +22,8 @@ func init() {
 }
 
 // StartManualInstall starts the advanced manual reinstall flow.
-func StartManualInstall(cfg ui.ManualInstallConfig) {
-	plan, err := buildManualInstallPlan(cfg)
+func StartManualInstall(src string) {
+	plan, err := buildManualInstallPlan(src)
 	if err != nil {
 		ui.UiShowError("", err.Error())
 		ui.UiShowManualMode()
@@ -64,32 +65,14 @@ func StartManualInstall(cfg ui.ManualInstallConfig) {
 	finishManualInstall(ctx.Plan)
 }
 
-func buildManualInstallPlan(cfg ui.ManualInstallConfig) (*InstallPlan, error) {
-	plan := &InstallPlan{
-		Mode:          ReinstallModeManual,
-		TargetOS:      strings.TrimSpace(cfg.TargetOS),
-		ImageArch:     utils.NormalizeArch(cfg.ImageArch),
-		PEArch:        windows.SystemArch(),
-		ImagePath:     strings.TrimSpace(cfg.ImagePath),
-		ImageIndex:    cfg.ImageIndex,
-		TargetRoot:    strings.TrimSpace(cfg.TargetRoot),
-		TargetPartRef: strings.TrimSpace(cfg.TargetPartRef),
-		AutoPE:        cfg.AutoPE,
-		ManualPEWIM:   strings.TrimSpace(cfg.ManualPEWIM),
-		FormatTarget:  cfg.FormatTarget,
-		AutoReboot:    cfg.AutoReboot,
-		BootRepair:    BootRepairMode(strings.TrimSpace(cfg.BootRepair)),
-		BootPartRef:   strings.TrimSpace(cfg.BootPartRef),
-		Flags: InstallFlags{
-			NeedBitLockerHandling: true,
-			NeedBackupBeforePE:    cfg.BackupDrivers,
-			NeedOfflineDrivers:    cfg.BackupDrivers,
-			NeedCopyXMLAfterBoot:  cfg.AutoDeploy,
-		},
+func buildManualInstallPlan(src string) (*InstallPlan, error) {
+	cfg, err := installcfg.ParseSource(src)
+	if err != nil {
+		return nil, err
 	}
-	if plan.BootRepair == "" {
-		plan.BootRepair = BootRepairModeAuto
-	}
+
+	plan := planFromCfg(cfg)
+	plan.PEArch = windows.SystemArch()
 	if err := NormalizeInstallPlan(plan); err != nil {
 		return nil, err
 	}
@@ -100,9 +83,6 @@ func buildManualInstallPlan(cfg ui.ManualInstallConfig) (*InstallPlan, error) {
 		return nil, fmt.Errorf("%s", ui.Tr("manual.validation.selectImage"))
 	}
 	if strings.TrimSpace(plan.TargetRoot) == "" {
-		return nil, fmt.Errorf("%s", ui.Tr("manual.validation.selectTarget"))
-	}
-	if strings.TrimSpace(plan.TargetPartRef) == "" {
 		return nil, fmt.Errorf("%s", ui.Tr("manual.validation.selectTarget"))
 	}
 
@@ -127,13 +107,63 @@ func buildManualInstallPlan(cfg ui.ManualInstallConfig) (*InstallPlan, error) {
 	if plan.ImageArch == "" {
 		plan.ImageArch = windows.DesiredArch()
 	}
-	if utils.NeedBootPart(string(plan.BootRepair)) && strings.TrimSpace(plan.BootPartRef) == "" {
-		return nil, fmt.Errorf("%s", ui.Tr("manual.validation.selectBoot"))
-	}
 	if utils.MissingPE(utils.NeedsPE(plan.TargetRoot, os.Getenv("SystemDrive")), plan.AutoPE, plan.ManualPEWIM) {
 		return nil, fmt.Errorf("%s", ui.Tr("manual.validation.peRequired"))
 	}
 	return plan, nil
+}
+
+// planFromCfg 把手动重装 JSON 配置映射成安装计划。
+//
+// 这里只做字段翻译，不做磁盘扫描、镜像解析等依赖系统状态的动作，
+// 这样测试可以稳定覆盖 JSON 语义本身。
+func planFromCfg(cfg installcfg.Config) *InstallPlan {
+	plan := &InstallPlan{
+		Mode:         ReinstallModeManual,
+		PEArch:       "",
+		ImagePath:    strings.TrimSpace(cfg.ImagePath),
+		ImageIndex:   cfg.Index,
+		TargetRoot:   strings.TrimSpace(cfg.Partition),
+		AutoPE:       strings.TrimSpace(cfg.PEWIM) == "",
+		ManualPEWIM:  strings.TrimSpace(cfg.PEWIM),
+		FormatTarget: cfg.Format.State,
+		FormatFS:     strings.TrimSpace(cfg.Format.FS),
+		FormatLabel:  strings.TrimSpace(cfg.Format.Label),
+		FormatQuick:  cfg.Format.Quick,
+		AutoReboot:   cfg.Restart,
+		BootRepair:   BootRepairMode(strings.ToLower(strings.TrimSpace(cfg.Boot.Method))),
+		UnattendFile: strings.TrimSpace(cfg.Unattended.File),
+		DriverFiles:  append([]string{}, cfg.BackupDriver.File...),
+		DriverGUIDs:  append([]string{}, cfg.BackupDriver.GUID...),
+		Flags: InstallFlags{
+			NeedBitLockerHandling: true,
+			NeedBackupBeforePE:    cfg.BackupDriver.State,
+			NeedOfflineDrivers:    cfg.BackupDriver.State,
+			NeedCopyXMLAfterBoot:  cfg.Unattended.State,
+		},
+	}
+	if strings.EqualFold(strings.TrimSpace(cfg.Boot.BootPartition), installcfg.Auto) {
+		plan.BootPartRef = ""
+	} else {
+		plan.BootPartRef = strings.TrimSpace(cfg.Boot.BootPartition)
+	}
+	return plan
+}
+
+// unattendedPath 返回本次安装应使用的无人值守文件路径。
+func unattendedPath(plan *InstallPlan, baseDir string) string {
+	if plan == nil {
+		return ""
+	}
+
+	path := strings.TrimSpace(plan.UnattendFile)
+	if path == "" || strings.EqualFold(path, installcfg.Auto) {
+		if strings.EqualFold(plan.TargetOS, TargetWin7) {
+			return filepath.Join(baseDir, "tools", "win7.xml")
+		}
+		return filepath.Join(baseDir, "tools", "win10.xml")
+	}
+	return path
 }
 
 func runManualPrepareFlow(ctx *InstallContext) error {
@@ -158,7 +188,7 @@ func runManualPrepareFlow(ctx *InstallContext) error {
 			},
 		},
 		{
-			Name: "淇濆瓨瀹夎璁″垝",
+			Name: "保存安装计划",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(35)
 				ui.UiSetStatus(ui.Tr("install.manual.writePlan"))
@@ -172,7 +202,7 @@ func runManualPrepareFlow(ctx *InstallContext) error {
 			},
 		},
 		{
-			Name: "鍑嗗PE",
+			Name: "准备PE",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(65)
 				ui.UiSetStatus(ui.Tr("install.manual.preparePE"))
@@ -180,7 +210,7 @@ func runManualPrepareFlow(ctx *InstallContext) error {
 			},
 		},
 		{
-			Name: "璁剧疆涓嬫鍚姩杩涘叆PE",
+			Name: "设置下次启动进入PE",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(85)
 				ui.UiSetStatus(ui.Tr("install.manual.setNextBootPE"))
@@ -205,7 +235,7 @@ func runManualDirectFlow(ctx *InstallContext) error {
 			},
 		},
 		{
-			Name: "澶囦唤椹卞姩",
+			Name: "备份驱动",
 			Run: func(ctx *InstallContext) error {
 				if ctx == nil || ctx.Plan == nil || !ctx.Plan.Flags.NeedBackupBeforePE {
 					return nil
@@ -227,7 +257,7 @@ func runManualDirectFlow(ctx *InstallContext) error {
 			},
 		},
 		{
-			Name: "瑙ｆ瀽闀滃儚绱㈠紩",
+			Name: "解析镜像索引",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(22)
 				ui.UiSetStatus(ui.Tr("install.auto.parseImage"))
@@ -241,7 +271,7 @@ func runManualDirectFlow(ctx *InstallContext) error {
 			},
 		},
 		{
-			Name: "搴旂敤闀滃儚",
+			Name: "应用镜像",
 			Run: func(ctx *InstallContext) error {
 				progressCb := func(phase string, pct float64, raw string) {
 					_ = phase
@@ -259,7 +289,7 @@ func runManualDirectFlow(ctx *InstallContext) error {
 			},
 		},
 		{
-			Name: "淇寮曞",
+			Name: "修复引导",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(70)
 				ui.UiSetStatus(ui.Tr("install.auto.repairBoot"))
@@ -287,7 +317,7 @@ func runManualDirectFlow(ctx *InstallContext) error {
 func runManualPEFlow(ctx *InstallContext) error {
 	stages := []*Stage{
 		{
-			Name: "璇诲彇瀹夎璁″垝",
+			Name: "读取安装计划",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(0)
 				ui.UiSetStatus(ui.Tr("install.manual.readPlan"))
@@ -300,19 +330,19 @@ func runManualPEFlow(ctx *InstallContext) error {
 			},
 		},
 		{
-			Name: "鎭㈠闀滃儚璺緞",
+			Name: "恢复镜像路径",
 			Run: func(ctx *InstallContext) error {
 				if ctx.Plan == nil {
 					return fmt.Errorf("install plan is nil")
 				}
 				if _, err := RecoverInstallImagePath(ctx.Plan); err != nil {
-					return fmt.Errorf("鎵嬪姩妯″紡鏈壘鍒板凡閫夐暅鍍? %w", err)
+					return fmt.Errorf("手动模式未找到已选镜像: %w", err)
 				}
 				return nil
 			},
 		},
 		{
-			Name: "瑙ｆ瀽鐩爣鍒嗗尯",
+			Name: "解析目标分区",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetStatus(ui.Tr("install.auto.resolveTarget"))
 				return ResolveInstallTarget(ctx.Plan)
@@ -330,7 +360,7 @@ func runManualPEFlow(ctx *InstallContext) error {
 			},
 		},
 		{
-			Name: "瑙ｆ瀽闀滃儚绱㈠紩",
+			Name: "解析镜像索引",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(20)
 				ui.UiSetStatus(ui.Tr("install.auto.parseImage"))
@@ -344,7 +374,7 @@ func runManualPEFlow(ctx *InstallContext) error {
 			},
 		},
 		{
-			Name: "搴旂敤闀滃儚",
+			Name: "应用镜像",
 			Run: func(ctx *InstallContext) error {
 				progressCb := func(phase string, pct float64, raw string) {
 					_ = phase
@@ -362,7 +392,7 @@ func runManualPEFlow(ctx *InstallContext) error {
 			},
 		},
 		{
-			Name: "淇寮曞",
+			Name: "修复引导",
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(75)
 				ui.UiSetStatus(ui.Tr("install.auto.repairBoot"))
@@ -397,14 +427,14 @@ func prepareSelectedPEEnvironment(ctx *InstallContext) error {
 
 	wimPath := strings.TrimSpace(ctx.Plan.ManualPEWIM)
 	if wimPath == "" {
-		return fmt.Errorf("鏈寚瀹?PE WIM 闀滃儚")
+		return fmt.Errorf("未指定 PE WIM 镜像")
 	}
 	if !utils.FileExists(wimPath) {
-		return fmt.Errorf("PE WIM 涓嶅瓨鍦? %s", wimPath)
+		return fmt.Errorf("PE WIM 不存在: %s", wimPath)
 	}
 	sdiPath := resolveSdiPath(wimPath)
 	if sdiPath == "" {
-		return fmt.Errorf("鏈壘鍒颁笌 PE WIM 閰嶅鐨?SDI 鏂囦欢")
+		return fmt.Errorf("未找到与 PE WIM 配套的 SDI 文件")
 	}
 	return patchPreparedPE(ctx, preparedPE{
 		WIMPath: wimPath,
@@ -437,9 +467,9 @@ func repairInstallBootManual(plan *InstallPlan) error {
 		return fmt.Errorf("invalid install target root: %s", plan.TargetRoot)
 	}
 	switch plan.BootRepair {
-	case BootRepairModeManualUEFI:
+	case BootRepairModeUEFI:
 		return repairInstallBootManualUEFI(targetRoot, part)
-	case BootRepairModeManualBIOS:
+	case BootRepairModeBIOS:
 		return repairInstallBootManualBIOS(targetRoot, part)
 	}
 
@@ -455,7 +485,7 @@ func repairInstallBootManual(plan *InstallPlan) error {
 
 func repairInstallBootManualUEFI(targetRoot string, part disk.PartitionInfo) error {
 	if !strings.EqualFold(strings.TrimSpace(part.Type), "EFI") {
-		return fmt.Errorf("鎵€閫夊垎鍖轰笉鏄?EFI 鍒嗗尯锛屾棤娉曟寜 UEFI 鏂瑰紡淇")
+		return fmt.Errorf("所选分区不是 EFI 分区，无法按 UEFI 方式修复")
 	}
 	espRoot, cleanup, err := disk.EnsureESPRoot(part)
 	if err != nil {
@@ -506,5 +536,5 @@ func detectManualInstallWIM(imagePath string) (string, error) {
 	if _, err := os.Stat(installPath); err == nil {
 		return installPath, nil
 	}
-	return "", fmt.Errorf("ISO 涓湭鎵惧埌瀹夎闀滃儚")
+	return "", fmt.Errorf("ISO 中未找到安装镜像")
 }

@@ -26,26 +26,7 @@ import (
 // UI 层只负责收集参数并触发该回调：
 // - 不在这里做分区格式化/应用镜像/引导修复等耗时操作；
 // - 该回调会在 goroutine 中调用，不保证运行在 UI 线程。
-var StartManualInstall = func(cfg ManualInstallConfig) {}
-
-// ManualInstallConfig 是“手动模式”最终汇总出来的安装参数。
-// 它会被传给 StartManualInstall，由业务层决定如何执行安装策略。
-type ManualInstallConfig struct {
-	TargetOS      string
-	ImageArch     string
-	ImagePath     string
-	ImageIndex    int
-	TargetRoot    string
-	TargetPartRef string
-	AutoPE        bool
-	ManualPEWIM   string
-	FormatTarget  bool
-	AutoReboot    bool
-	BootRepair    string
-	BootPartRef   string
-	AutoDeploy    bool
-	BackupDrivers bool
-}
+var StartManualInstall = func(src string) {}
 
 // manualUIState 是手动模式的内存状态缓存。
 // JSONUI 的 Store 适合做“可绑定的 UI 状态”，而一些派生数据/缓存更适合留在 Go 内存里：
@@ -100,12 +81,10 @@ const (
 	manualBootRepairAuto = "auto"
 	// manualBootRepairSkip: 不做引导修复。
 	manualBootRepairSkip = "skip"
-	// manualBootRepairLegacy: 根据目标磁盘分区表（GPT/MBR）选择 BIOS/UEFI，但允许手动指定。
-	manualBootRepairLegacy = "manual"
-	// manualBootRepairManualUEFI: 强制 UEFI，并要求用户手动选择 EFI 分区。
-	manualBootRepairManualUEFI = "manual_uefi"
-	// manualBootRepairManualBIOS: 强制 BIOS，并要求用户手动选择 BIOS 引导分区。
-	manualBootRepairManualBIOS = "manual_bios"
+	// manualBootRepairUEFI: 强制按 UEFI 修复引导。
+	manualBootRepairUEFI = "uefi"
+	// manualBootRepairBIOS: 强制按 BIOS 修复引导。
+	manualBootRepairBIOS = "bios"
 )
 
 var manual manualUIState
@@ -188,7 +167,7 @@ func manualHandleOptionChange(path string, checked bool) {
 // manualHandleStart 点击“开始重装”。
 // 这里仅做校验与二次确认，然后切到进度页并在后台调用 StartManualInstall。
 func manualHandleStart() {
-	cfg, err := manualBuildConfig()
+	text, err := manualBuildJSON()
 	if err != nil {
 		UiShowError("", err.Error())
 		return
@@ -197,7 +176,7 @@ func manualHandleStart() {
 		return
 	}
 	applyMode(modeProgress)
-	go StartManualInstall(cfg)
+	go StartManualInstall(text)
 }
 
 // manualLoadImage 处理“安装镜像路径”变更：解析镜像并刷新索引列表。

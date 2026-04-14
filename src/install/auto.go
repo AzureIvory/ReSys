@@ -23,7 +23,13 @@ func StartInstall(target string) {
 		PEArch:       windows.SystemArch(),
 		AutoPE:       true,
 		FormatTarget: true,
+		FormatFS:     "NTFS",
+		FormatLabel:  "Windows",
+		FormatQuick:  true,
 		BootRepair:   BootRepairModeAuto,
+		UnattendFile: "AUTO",
+		DriverFiles:  []string{},
+		DriverGUIDs:  []string{},
 		Flags: InstallFlags{
 			NeedBitLockerHandling: true,
 			NeedBackupBeforePE:    true,

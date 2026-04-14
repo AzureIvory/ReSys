@@ -66,11 +66,11 @@ func TestBootType(t *testing.T) {
 		diskStyle string
 		want      string
 	}{
-		{name: "manual uefi", mode: "manual_uefi", diskStyle: "MBR", want: "UEFI"},
-		{name: "manual bios", mode: "manual_bios", diskStyle: "GPT", want: "BIOS"},
+		{name: "force uefi", mode: "uefi", diskStyle: "MBR", want: "UEFI"},
+		{name: "force bios", mode: "bios", diskStyle: "GPT", want: "BIOS"},
 		{name: "auto gpt", mode: "auto", diskStyle: "GPT", want: "UEFI"},
 		{name: "auto mbr", mode: "auto", diskStyle: "MBR", want: "BIOS"},
-		{name: "legacy gpt", mode: "manual", diskStyle: "GPT", want: "UEFI"},
+		{name: "skip gpt", mode: "skip", diskStyle: "GPT", want: "UEFI"},
 	}
 
 	for _, tt := range tests {
@@ -81,14 +81,14 @@ func TestBootType(t *testing.T) {
 }
 
 func TestNeedBootPart(t *testing.T) {
-	if !NeedBootPart("manual") {
-		t.Fatal("NeedBootPart(manual) = false, want true")
-	}
-	if !NeedBootPart("manual_uefi") {
-		t.Fatal("NeedBootPart(manual_uefi) = false, want true")
-	}
 	if NeedBootPart("auto") {
 		t.Fatal("NeedBootPart(auto) = true, want false")
+	}
+	if NeedBootPart("uefi") {
+		t.Fatal("NeedBootPart(uefi) = true, want false")
+	}
+	if NeedBootPart("bios") {
+		t.Fatal("NeedBootPart(bios) = true, want false")
 	}
 }
 

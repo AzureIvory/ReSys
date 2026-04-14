@@ -97,8 +97,8 @@ func i18nSnapshot() map[string]any {
 func localizedBootModeItems() []widgets.ListItem {
 	return []widgets.ListItem{
 		{Value: manualBootRepairAuto, Text: T("manual.boot.mode.auto")},
-		{Value: manualBootRepairManualUEFI, Text: T("manual.boot.mode.uefi")},
-		{Value: manualBootRepairManualBIOS, Text: T("manual.boot.mode.bios")},
+		{Value: manualBootRepairUEFI, Text: T("manual.boot.mode.uefi")},
+		{Value: manualBootRepairBIOS, Text: T("manual.boot.mode.bios")},
 		{Value: manualBootRepairSkip, Text: T("manual.boot.mode.skip")},
 	}
 }

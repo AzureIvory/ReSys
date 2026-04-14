@@ -10,6 +10,7 @@ import (
 	"ReSys/src/tools"
 	"ReSys/src/utils"
 	"ReSys/src/windows"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -30,11 +31,10 @@ const (
 type BootRepairMode string
 
 const (
-	BootRepairModeAuto       BootRepairMode = "auto"
-	BootRepairModeSkip       BootRepairMode = "skip"
-	BootRepairModeManual     BootRepairMode = "manual"
-	BootRepairModeManualUEFI BootRepairMode = "manual_uefi"
-	BootRepairModeManualBIOS BootRepairMode = "manual_bios"
+	BootRepairModeAuto BootRepairMode = "auto"
+	BootRepairModeSkip BootRepairMode = "skip"
+	BootRepairModeUEFI BootRepairMode = "uefi"
+	BootRepairModeBIOS BootRepairMode = "bios"
 )
 
 type InstallFlags struct {
@@ -61,9 +61,15 @@ type InstallPlan struct {
 	AutoPE        bool
 	ManualPEWIM   string
 	FormatTarget  bool
+	FormatFS      string
+	FormatLabel   string
+	FormatQuick   bool
 	AutoReboot    bool
 	BootRepair    BootRepairMode
 	BootPartRef   string
+	UnattendFile  string
+	DriverFiles   []string
+	DriverGUIDs   []string
 	Flags         InstallFlags
 }
 
@@ -135,6 +141,26 @@ func NormalizeInstallPlan(plan *InstallPlan) error {
 	}
 	if plan.BootRepair == "" {
 		plan.BootRepair = BootRepairModeAuto
+	}
+	if strings.TrimSpace(plan.FormatFS) == "" {
+		plan.FormatFS = "NTFS"
+	}
+	if plan.Mode == ReinstallModeAuto {
+		if strings.TrimSpace(plan.FormatLabel) == "" {
+			plan.FormatLabel = "Windows"
+		}
+		if !plan.FormatQuick {
+			plan.FormatQuick = true
+		}
+	}
+	if plan.DriverFiles == nil {
+		plan.DriverFiles = []string{}
+	}
+	if plan.DriverGUIDs == nil {
+		plan.DriverGUIDs = []string{}
+	}
+	if strings.TrimSpace(plan.UnattendFile) == "" {
+		plan.UnattendFile = "AUTO"
 	}
 	if !plan.Flags.NeedBitLockerHandling &&
 		!plan.Flags.NeedBackupBeforePE &&
@@ -343,14 +369,32 @@ func formatInstallPlanLines(plan *InstallPlan) ([]string, error) {
 		lines,
 		fmt.Sprintf("auto_pe=%t", plan.AutoPE),
 		fmt.Sprintf("format_target=%t", plan.FormatTarget),
+		fmt.Sprintf("format_fs=%s", plan.FormatFS),
+		fmt.Sprintf("format_label=%s", plan.FormatLabel),
+		fmt.Sprintf("format_quick=%t", plan.FormatQuick),
 		fmt.Sprintf("auto_reboot=%t", plan.AutoReboot),
 		fmt.Sprintf("boot_repair=%s", plan.BootRepair),
+		fmt.Sprintf("unattend_file=%s", plan.UnattendFile),
 	)
 	if plan.ManualPEWIM != "" {
 		lines = append(lines, fmt.Sprintf("manual_pe_wim=%s", plan.ManualPEWIM))
 	}
 	if plan.BootPartRef != "" {
 		lines = append(lines, fmt.Sprintf("boot_part_ref=%s", plan.BootPartRef))
+	}
+	if len(plan.DriverFiles) > 0 {
+		text, err := json.Marshal(plan.DriverFiles)
+		if err != nil {
+			return nil, err
+		}
+		lines = append(lines, fmt.Sprintf("driver_files=%s", string(text)))
+	}
+	if len(plan.DriverGUIDs) > 0 {
+		text, err := json.Marshal(plan.DriverGUIDs)
+		if err != nil {
+			return nil, err
+		}
+		lines = append(lines, fmt.Sprintf("driver_guids=%s", string(text)))
 	}
 	if plan.ImageIndex > 0 {
 		lines = append(lines, fmt.Sprintf("index=%d", plan.ImageIndex))
@@ -576,12 +620,24 @@ func parseInstallPlanData(data string, defaultTargetRoot string) (*InstallPlan, 
 			plan.ManualPEWIM = val
 		case "format_target":
 			plan.FormatTarget = parsePlanBool(val)
+		case "format_fs":
+			plan.FormatFS = val
+		case "format_label":
+			plan.FormatLabel = val
+		case "format_quick":
+			plan.FormatQuick = parsePlanBool(val)
 		case "auto_reboot":
 			plan.AutoReboot = parsePlanBool(val)
 		case "boot_repair":
-			plan.BootRepair = BootRepairMode(strings.TrimSpace(val))
+			plan.BootRepair = BootRepairMode(strings.ToLower(strings.TrimSpace(val)))
 		case "boot_part_ref":
 			plan.BootPartRef = val
+		case "unattend_file":
+			plan.UnattendFile = val
+		case "driver_files":
+			_ = json.Unmarshal([]byte(val), &plan.DriverFiles)
+		case "driver_guids":
+			_ = json.Unmarshal([]byte(val), &plan.DriverGUIDs)
 		case "index":
 			if v, e := strconv.Atoi(val); e == nil {
 				plan.ImageIndex = v
@@ -598,9 +654,6 @@ func parseInstallPlanData(data string, defaultTargetRoot string) (*InstallPlan, 
 	}
 	if strings.TrimSpace(plan.TargetPartRef) == "" {
 		return nil, fmt.Errorf("target_part_ref is required")
-	}
-	if utils.NeedBootPart(string(plan.BootRepair)) && strings.TrimSpace(plan.BootPartRef) == "" {
-		return nil, fmt.Errorf("boot_part_ref is required for %s", plan.BootRepair)
 	}
 	return plan, nil
 }
@@ -714,7 +767,7 @@ func FormatTargetPartition(plan *InstallPlan) error {
 	}
 
 	letter := strings.ReplaceAll(strings.ReplaceAll(plan.TargetRoot, `\`, ""), ":", "")
-	return disk.Format(letter, "ntfs", "Windows", true)
+	return disk.Format(letter, plan.FormatFS, plan.FormatLabel, plan.FormatQuick)
 }
 
 // chooseInstallTargetRoot 选择优先用于安装的目标分区。
@@ -813,10 +866,22 @@ func RepairInstallBoot(plan *InstallPlan) error {
 	switch plan.BootRepair {
 	case BootRepairModeSkip:
 		return nil
-	case BootRepairModeManual, BootRepairModeManualUEFI, BootRepairModeManualBIOS:
-		return repairInstallBootManual(plan)
+	case BootRepairModeUEFI:
+		if strings.TrimSpace(plan.BootPartRef) != "" {
+			return repairInstallBootManual(plan)
+		}
+		return boot.FixUEFI(plan.TargetRoot, "", "zh-cn")
+	case BootRepairModeBIOS:
+		if strings.TrimSpace(plan.BootPartRef) != "" {
+			return repairInstallBootManual(plan)
+		}
+		return boot.FixBIOS(plan.TargetRoot, "", "zh-cn")
+	default:
+		if strings.TrimSpace(plan.BootPartRef) != "" {
+			return repairInstallBootManual(plan)
+		}
+		return boot.FixBoot(plan.TargetRoot, "", "zh-cn")
 	}
-	return boot.FixBoot(plan.TargetRoot, "", "zh-cn")
 }
 
 // ===== 内建钩子 =====
@@ -1005,11 +1070,7 @@ func autoinstools(ctx *InstallContext) error {
 		return err
 	}
 	baseDir := filepath.Dir(selfExe)
-
-	unattend := filepath.Join(baseDir, "tools", "win10.xml")
-	if strings.EqualFold(ctx.Plan.TargetOS, TargetWin7) {
-		unattend = filepath.Join(baseDir, "tools", "win7.xml")
-	}
+	unattend := unattendedPath(ctx.Plan, baseDir)
 	_ = file.Copy(unattend, filepath.Join(ctx.Plan.TargetRoot, "Windows", "Panther", "Unattend.xml"), true, true)
 	_ = file.Copy(filepath.Join(baseDir, "tools", "HEU_KMS_Activator.exe"), filepath.Join(ctx.Plan.TargetRoot, "HEU_KMS_Activator.exe"), true, true)
 	_, _ = tools.CreateShortcut(filepath.Join(ctx.Plan.TargetRoot, "Users", "Public", "Desktop")+`\`, "应用商店", "https://store.ttraw.com")

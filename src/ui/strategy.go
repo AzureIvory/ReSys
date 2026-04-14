@@ -12,8 +12,8 @@ package ui
 import (
 	"ReSys/src/dism"
 	imgsvc "ReSys/src/image"
+	"ReSys/src/installcfg"
 	"ReSys/src/utils"
-	winos "ReSys/src/windows"
 	"fmt"
 	"strings"
 
@@ -111,10 +111,6 @@ func manualRefreshBootTargets() {
 			selectedRef = option.Ref
 		}
 	}
-	if selectedRef == "" && len(manual.bootTargets) > 0 {
-		selectedRef = manual.bootTargets[0].Ref
-	}
-
 	placeholder := T("manual.boot.placeholder.selectBIOS")
 	if utils.BootType(mode, row.DiskStyle) == "UEFI" {
 		placeholder = T("manual.boot.placeholder.selectUEFI")
@@ -158,7 +154,7 @@ func manualUpdatePEInputState() {
 func manualUpdateBootTargetState() {
 	manualSetState(
 		"manual.boot.targetEnabled",
-		!manual.partitionLoading && utils.NeedBootPart(manualSelectedBootMode()) && len(manual.bootTargets) > 0,
+		!manual.partitionLoading && manualUsesBootTarget() && len(manual.bootTargets) > 0,
 	)
 	manualUpdateActionState()
 }
@@ -251,44 +247,60 @@ func manualUpdateSummary() {
 	manualUpdateActionState()
 }
 
-// manualBuildConfig 将当前 UI 状态“收敛”为业务层可用的 ManualInstallConfig。
-//
-// 这里不会执行安装，只做参数整理与默认值兜底：
-// - ImageArch 为空时使用系统期望架构（winos.DesiredArch）。
-// - TargetOS 为空时默认为 Win10。
-// - 仅当模式需要时才填写 BootTargetRef。
-func manualBuildConfig() (ManualInstallConfig, error) {
+// manualBuildJSON 将当前 UI 状态收敛为手动重装 JSON 文本。
+func manualBuildJSON() (string, error) {
 	if reason := manualValidationReason(); reason != "" {
-		return ManualInstallConfig{}, fmt.Errorf("%s", reason)
+		return "", fmt.Errorf("%s", reason)
 	}
 
 	row, _ := manualSelectedPartition()
 	info, _ := manualSelectedImageInfo()
-	cfg := ManualInstallConfig{
-		TargetOS:      manualSelectedTargetOS(),
-		ImageArch:     utils.NormalizeArch(info.Arch),
-		ImagePath:     strings.TrimSpace(manual.imagePath),
-		ImageIndex:    info.Index,
-		TargetRoot:    row.TargetRoot,
-		TargetPartRef: row.Ref,
-		AutoPE:        manualOptionAutoPE(),
-		ManualPEWIM:   manualPEPath(),
-		FormatTarget:  manualOptionFormatTarget(),
-		AutoReboot:    manualOptionAutoReboot(),
-		BootRepair:    manualSelectedBootMode(),
-		AutoDeploy:    manualOptionAutoDeploy(),
-		BackupDrivers: manualOptionBackupDrivers(),
+	partition := strings.TrimRight(strings.TrimSpace(row.TargetRoot), `\`)
+	peWIM := ""
+	if row.CurrentSystem && !manualOptionAutoPE() {
+		peWIM = manualPEPath()
 	}
-	if cfg.ImageArch == "" {
-		cfg.ImageArch = winos.DesiredArch()
+
+	bootPart := installcfg.Auto
+	if text := strings.TrimSpace(manualSelectedBootTargetRef()); text != "" {
+		bootPart = text
 	}
-	if cfg.TargetOS == "" {
-		cfg.TargetOS = targetWin10
+
+	fileRules := []string{}
+	guidRules := []string{}
+	if manualOptionBackupDrivers() {
+		fileRules = []string{"oem*.inf"}
+		guidRules = []string{"{88BAE032-5A81-49F0-BC3D-A4FF138216D6}"}
 	}
-	if utils.NeedBootPart(manualSelectedBootMode()) {
-		cfg.BootPartRef = manualSelectedBootTargetRef()
+
+	cfg := installcfg.Config{
+		ImagePath: strings.TrimSpace(manual.imagePath),
+		Index:     info.Index,
+		Partition: partition,
+		PEWIM:     peWIM,
+		Boot: installcfg.Boot{
+			Method:        manualSelectedBootMode(),
+			BootPartition: bootPart,
+		},
+		Restart: manualOptionAutoReboot(),
+		Unattended: installcfg.Unattended{
+			State: manualOptionAutoDeploy(),
+			File:  installcfg.Auto,
+		},
+		BackupDriver: installcfg.BackupDriver{
+			State: manualOptionBackupDrivers(),
+			File:  fileRules,
+			GUID:  guidRules,
+		},
+		Format: installcfg.Format{
+			State:  manualOptionFormatTarget(),
+			FS:     "NTFS",
+			Quick:  true,
+			Letter: installcfg.Auto,
+			Label:  "",
+		},
 	}
-	return cfg, nil
+	return installcfg.Marshal(cfg)
 }
 
 // manualSelectedImageInfo 从缓存的 imageInfos 中按 Store 里选中的索引找出对应镜像元信息。
@@ -338,12 +350,12 @@ func manualBootRepairSummary() string {
 	switch manualSelectedBootMode() {
 	case manualBootRepairSkip:
 		return T("manual.boot.summary.disabled")
-	case manualBootRepairManualUEFI:
+	case manualBootRepairUEFI:
 		if text := manualSelectedBootTargetText(); text != "" {
 			return fmt.Sprintf(T("manual.boot.summary.uefiTarget"), text)
 		}
 		return T("manual.boot.summary.uefi")
-	case manualBootRepairManualBIOS:
+	case manualBootRepairBIOS:
 		if text := manualSelectedBootTargetText(); text != "" {
 			return fmt.Sprintf(T("manual.boot.summary.biosTarget"), text)
 		}
@@ -417,9 +429,6 @@ func manualValidationReason() string {
 	if utils.MissingPE(row.CurrentSystem, manualOptionAutoPE(), manualPEPath()) {
 		return T("manual.validation.peRequired")
 	}
-	if utils.NeedBootPart(manualSelectedBootMode()) && strings.TrimSpace(manualSelectedBootTargetRef()) == "" {
-		return T("manual.validation.selectBoot")
-	}
 	return ""
 }
 
@@ -451,6 +460,15 @@ func manualOptionAutoReboot() bool {
 // manualPEPath 读取“手动指定 PE WIM”的路径。
 func manualPEPath() string {
 	return manualStoreString("manual.options.pePath", "")
+}
+
+func manualUsesBootTarget() bool {
+	switch manualSelectedBootMode() {
+	case manualBootRepairUEFI, manualBootRepairBIOS:
+		return true
+	default:
+		return false
+	}
 }
 
 // manualPatchState 批量 Patch Store（适合一次更新多个字段）。

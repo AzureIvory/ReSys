@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 /*
@@ -81,7 +82,11 @@ func backupDriversBeforeEnterPE(ctx *InstallContext) error {
 }
 */
 
-// backupDriversBeforeEnterPE keeps only the OEM export path enabled for test runs.
+// backupDriversBeforeEnterPE 按 JSON 规则备份在线驱动。
+//
+// 当前支持两类规则：
+// 1. file: 按 OEM INF 文件名通配符筛选；
+// 2. guid: 按设备类 GUID 单独导出。
 func backupDriversBeforeEnterPE(ctx *InstallContext) error {
 	if ctx == nil || ctx.Plan == nil {
 		return fmt.Errorf("install context is nil")
@@ -103,20 +108,45 @@ func backupDriversBeforeEnterPE(ctx *InstallContext) error {
 		return err
 	}
 
-	oemDir := filepath.Join(backupRoot, driverBackupOEMDir)
-	ui.UiSetStatus(ui.Tr("install.driver.backupOEM"))
-	log.LogWrite(0, "[backupDriversBeforeEnterPE] OEM-only backup root=%s image=%s dir=%s", backupRoot, ctx.Plan.ImagePath, oemDir)
-
-	dismSvc := dism.NewDism()
-	if err := dismSvc.ExportDriversOnlineCmd(oemDir, nil); err != nil {
-		return fmt.Errorf("backup online OEM drivers failed: %w", err)
+	fileRules := trimDriverRules(ctx.Plan.DriverFiles)
+	guidRules := trimDriverRules(ctx.Plan.DriverGUIDs)
+	if len(fileRules) == 0 && len(guidRules) == 0 {
+		log.LogWrite(0, "[backupDriversBeforeEnterPE] skip: no file/guid rule configured")
+		return SaveInstallPlan(ctx.Plan)
 	}
 
-	infCount, err := countINFUnderDir(oemDir)
+	if len(fileRules) > 0 {
+		oemDir := filepath.Join(backupRoot, driverBackupOEMDir)
+		ui.UiSetStatus(ui.Tr("install.driver.backupOEM"))
+		log.LogWrite(0, "[backupDriversBeforeEnterPE] OEM backup root=%s image=%s dir=%s", backupRoot, ctx.Plan.ImagePath, oemDir)
+
+		dismSvc := dism.NewDism()
+		if err := dismSvc.ExportDriversOnlineCmd(oemDir, nil); err != nil {
+			return fmt.Errorf("backup online OEM drivers failed: %w", err)
+		}
+		if err := filterDriverDirs(oemDir, fileRules); err != nil {
+			return err
+		}
+	}
+
+	if len(guidRules) > 0 {
+		guidRoot := filepath.Join(backupRoot, driverBackupGUIDDir)
+		for _, guid := range guidRules {
+			dirName := driverGUIDDirName(guid)
+			dstDir := filepath.Join(guidRoot, dirName)
+			count, err := driversvc.ExportDriversByClassGUID(dstDir, guid)
+			if err != nil {
+				return fmt.Errorf("backup guid %s drivers failed: %w", guid, err)
+			}
+			log.LogWrite(0, "[backupDriversBeforeEnterPE] guid backup completed: guid=%s count=%d dir=%s", guid, count, dstDir)
+		}
+	}
+
+	infCount, err := countINFUnderDir(backupRoot)
 	if err != nil {
 		return err
 	}
-	log.LogWrite(0, "[backupDriversBeforeEnterPE] OEM-only backup completed: dir=%s infCount=%d", oemDir, infCount)
+	log.LogWrite(0, "[backupDriversBeforeEnterPE] backup completed: dir=%s infCount=%d", backupRoot, infCount)
 	return SaveInstallPlan(ctx.Plan)
 }
 
@@ -239,4 +269,107 @@ func countINFUnderDir(root string) (int, error) {
 		return nil
 	})
 	return count, err
+}
+
+func trimDriverRules(items []string) []string {
+	if len(items) == 0 {
+		return []string{}
+	}
+
+	out := make([]string, 0, len(items))
+	seen := map[string]struct{}{}
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		key := strings.ToLower(item)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, item)
+	}
+	return out
+}
+
+func matchDriverFile(name string, patterns []string) bool {
+	name = strings.ToLower(strings.TrimSpace(filepath.Base(name)))
+	if name == "" {
+		return false
+	}
+	for _, pattern := range patterns {
+		pattern = strings.ToLower(strings.TrimSpace(filepath.Base(pattern)))
+		if pattern == "" {
+			continue
+		}
+		if ok, err := filepath.Match(pattern, name); err == nil && ok {
+			return true
+		}
+	}
+	return false
+}
+
+func filterDriverDirs(root string, patterns []string) error {
+	patterns = trimDriverRules(patterns)
+	if len(patterns) == 0 {
+		return nil
+	}
+
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		path := filepath.Join(root, entry.Name())
+		keep, err := keepDriverPath(path, patterns)
+		if err != nil {
+			return err
+		}
+		if !keep {
+			if err := os.RemoveAll(path); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func keepDriverPath(path string, patterns []string) (bool, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false, err
+	}
+	if !info.IsDir() {
+		return matchDriverFile(path, patterns), nil
+	}
+
+	keep := false
+	err = filepath.WalkDir(path, func(filePath string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !strings.EqualFold(filepath.Ext(filePath), ".inf") {
+			return nil
+		}
+		if matchDriverFile(filePath, patterns) {
+			keep = true
+		}
+		return nil
+	})
+	return keep, err
+}
+
+func driverGUIDDirName(guid string) string {
+	guid = strings.TrimSpace(strings.Trim(guid, "{}"))
+	guid = strings.ReplaceAll(guid, "-", "_")
+	guid = strings.ReplaceAll(guid, ":", "_")
+	guid = strings.ToLower(guid)
+	if guid == "" {
+		return "guid"
+	}
+	return guid
 }
