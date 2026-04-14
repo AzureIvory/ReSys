@@ -1,11 +1,11 @@
 //go:build windows
 
-// Package installcfg 定义手动重装的 JSON 配置模型。
+// Package config 定义手动重装使用的 JSON 配置模型。
 //
 // 这个包只负责两件事：
-// 1. 在 UI 侧把当前选择序列化为 JSON 文本；
-// 2. 在安装侧把“JSON 文本 / JSON 绝对路径”解析为结构化配置。
-package installcfg
+// 1. 在 UI 侧把当前选择序列化为 JSON 文本。
+// 2. 在安装侧把 JSON 文本或 JSON 绝对路径解析为结构化配置。
+package config
 
 import (
 	"encoding/json"
@@ -99,7 +99,7 @@ func Marshal(cfg Config) (string, error) {
 	return string(buf), nil
 }
 
-// Normalize 补齐默认值，并把大小写/别名转换为内部统一形式。
+// Normalize 补齐默认值，并把大小写与别名转换为内部统一形式。
 func (cfg *Config) Normalize() error {
 	if cfg == nil {
 		return fmt.Errorf("install config is nil")

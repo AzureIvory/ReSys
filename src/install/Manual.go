@@ -2,9 +2,9 @@ package install
 
 import (
 	"ReSys/src/boot"
+	"ReSys/src/config"
 	"ReSys/src/disk"
 	imgsvc "ReSys/src/image"
-	"ReSys/src/installcfg"
 	"ReSys/src/log"
 	"ReSys/src/tools"
 	"ReSys/src/ui"
@@ -66,7 +66,7 @@ func StartManualInstall(src string) {
 }
 
 func buildManualInstallPlan(src string) (*InstallPlan, error) {
-	cfg, err := installcfg.ParseSource(src)
+	cfg, err := config.ParseSource(src)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +117,7 @@ func buildManualInstallPlan(src string) (*InstallPlan, error) {
 //
 // 这里只做字段翻译，不做磁盘扫描、镜像解析等依赖系统状态的动作，
 // 这样测试可以稳定覆盖 JSON 语义本身。
-func planFromCfg(cfg installcfg.Config) *InstallPlan {
+func planFromCfg(cfg config.Config) *InstallPlan {
 	plan := &InstallPlan{
 		Mode:         ReinstallModeManual,
 		PEArch:       "",
@@ -142,7 +142,7 @@ func planFromCfg(cfg installcfg.Config) *InstallPlan {
 			NeedCopyXMLAfterBoot:  cfg.Unattended.State,
 		},
 	}
-	if strings.EqualFold(strings.TrimSpace(cfg.Boot.BootPartition), installcfg.Auto) {
+	if strings.EqualFold(strings.TrimSpace(cfg.Boot.BootPartition), config.Auto) {
 		plan.BootPartRef = ""
 	} else {
 		plan.BootPartRef = strings.TrimSpace(cfg.Boot.BootPartition)
@@ -157,7 +157,7 @@ func unattendedPath(plan *InstallPlan, baseDir string) string {
 	}
 
 	path := strings.TrimSpace(plan.UnattendFile)
-	if path == "" || strings.EqualFold(path, installcfg.Auto) {
+	if path == "" || strings.EqualFold(path, config.Auto) {
 		if strings.EqualFold(plan.TargetOS, TargetWin7) {
 			return filepath.Join(baseDir, "tools", "win7.xml")
 		}

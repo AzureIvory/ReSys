@@ -10,9 +10,9 @@
 package ui
 
 import (
+	"ReSys/src/config"
 	"ReSys/src/dism"
 	imgsvc "ReSys/src/image"
-	"ReSys/src/installcfg"
 	"ReSys/src/utils"
 	"fmt"
 	"strings"
@@ -261,7 +261,7 @@ func manualBuildJSON() (string, error) {
 		peWIM = manualPEPath()
 	}
 
-	bootPart := installcfg.Auto
+	bootPart := config.Auto
 	if text := strings.TrimSpace(manualSelectedBootTargetRef()); text != "" {
 		bootPart = text
 	}
@@ -273,34 +273,34 @@ func manualBuildJSON() (string, error) {
 		guidRules = []string{"{88BAE032-5A81-49F0-BC3D-A4FF138216D6}"}
 	}
 
-	cfg := installcfg.Config{
+	cfg := config.Config{
 		ImagePath: strings.TrimSpace(manual.imagePath),
 		Index:     info.Index,
 		Partition: partition,
 		PEWIM:     peWIM,
-		Boot: installcfg.Boot{
+		Boot: config.Boot{
 			Method:        manualSelectedBootMode(),
 			BootPartition: bootPart,
 		},
 		Restart: manualOptionAutoReboot(),
-		Unattended: installcfg.Unattended{
+		Unattended: config.Unattended{
 			State: manualOptionAutoDeploy(),
-			File:  installcfg.Auto,
+			File:  config.Auto,
 		},
-		BackupDriver: installcfg.BackupDriver{
+		BackupDriver: config.BackupDriver{
 			State: manualOptionBackupDrivers(),
 			File:  fileRules,
 			GUID:  guidRules,
 		},
-		Format: installcfg.Format{
+		Format: config.Format{
 			State:  manualOptionFormatTarget(),
 			FS:     "NTFS",
 			Quick:  true,
-			Letter: installcfg.Auto,
+			Letter: config.Auto,
 			Label:  "",
 		},
 	}
-	return installcfg.Marshal(cfg)
+	return config.Marshal(cfg)
 }
 
 // manualSelectedImageInfo 从缓存的 imageInfos 中按 Store 里选中的索引找出对应镜像元信息。
