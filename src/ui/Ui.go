@@ -195,7 +195,7 @@ func onResize(_ *core.App, _ *widgets.Scene, size core.Size) {
 	ui.window.Root.SetBounds(widgets.Rect{W: size.Width, H: size.Height})
 }
 
-// onDPIChanged 触发资源重载（主要是 icon 等），并同步根节点 bounds。
+// onDPIChanged 触发资源重载（主要是 image 等），并同步根节点 bounds。
 func onDPIChanged(_ *core.App, _ *widgets.Scene, _ core.DPIInfo) {
 	if ui.window != nil {
 		_ = ui.window.ReloadResources(jsonui.ReloadReasonDPIChanged)

@@ -94,7 +94,7 @@ func resysTheme() *widgets.Theme {
 }
 
 // selectButtonStyle 是“选择页”三张系统卡片按钮的默认样式。
-// 这些按钮通常包含图标与文字，因此 IconSizeDP/TextInsetDP/GapDP 需要一起配合。
+// 这些按钮通常包含图片与文字，因此 ImageSizeDP/TextInsetDP/GapDP 需要一起配合。
 func selectButtonStyle() widgets.ButtonStyle {
 	return widgets.ButtonStyle{
 		Font: widgets.FontSpec{
@@ -112,7 +112,7 @@ func selectButtonStyle() widgets.ButtonStyle {
 		Disabled:     core.RGB(241, 245, 249),
 		Border:       core.RGB(226, 232, 240),
 		CornerRadius: 12,
-		IconSizeDP:   40,
+		ImageSizeDP:  40,
 		TextInsetDP:  24,
 		GapDP:        8,
 		PadDP:        12,

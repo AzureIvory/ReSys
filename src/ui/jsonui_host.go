@@ -46,11 +46,11 @@ func newUIStore() *jsonui.Store {
 //
 // 这里会同时注入：
 // - ActionHandlers：把 UI 事件回调到 Go。
-// - AssetsDir：JSON 中引用的 icon/gif 等资源的实际目录（由 ensureUIAssets 解包提供）。
+// - AssetsDir：JSON 中引用的 image/gif 等资源的实际目录（由 ensureUIAssets 解包提供）。
 // - Data：Store（用于 data 绑定与 Patch/Set 驱动 UI 更新）。
 // - Theme：统一字体、颜色、按钮风格等。
 //
-// IconSizeDP 设为 48，主要是为了匹配内置图标的实际像素尺寸，减少缩放导致的模糊。
+// ImageSizeDP 设为 48，作为窗口/按钮图片的默认 DP 基准尺寸。
 func loadUIDocument(store *jsonui.Store) (*jsonui.Document, error) {
 	if store == nil {
 		store = newUIStore()
@@ -72,7 +72,7 @@ func loadUIDocument(store *jsonui.Store) (*jsonui.Document, error) {
 		Data:           store,
 		DefaultMode:    widgets.ModeCustom,
 		Theme:          resysTheme(),
-		IconSizeDP:     48,
+		ImageSizeDP:    48,
 	})
 }
 
@@ -158,7 +158,7 @@ func defaultUIState() map[string]any {
 
 // ensureUIAssets 把内嵌资源解包到临时目录，并返回该目录路径。
 //
-// JSONUI 只认识文件路径（例如 `icon: "win11.ico"`），因此这里需要把 res 包里的字节资源
+// JSONUI 只认识文件路径（例如 `image: "win11.png"`），因此这里需要把 res 包里的字节资源
 // 写到磁盘上供运行时加载。使用 sync.Once 避免重复写入。
 func ensureUIAssets() (string, error) {
 	uiAssetsOnce.Do(func() {
@@ -169,10 +169,10 @@ func ensureUIAssets() (string, error) {
 		}
 
 		assets := map[string][]byte{
-			"icon.ico":  res.IcoApp,
-			"win7.ico":  res.IcoWin7,
-			"win10.ico": res.IcoWin10,
-			"win11.ico": res.IcoWin11,
+			"icon.png":  res.PngApp,
+			"win7.png":  res.PngWin7,
+			"win10.png": res.PngWin10,
+			"win11.png": res.PngWin11,
 			"wait.gif":  res.WaitGIF,
 		}
 		for name, data := range assets {
