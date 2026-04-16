@@ -42,7 +42,7 @@ func newUIStore() *jsonui.Store {
 	return jsonui.NewStore(defaultUIState())
 }
 
-// loadUIDocument 读取布局 JSON，组装成可运行的 jsonui.Document。
+// loadUIJSON 读取布局 JSON，组装成可运行的 jsonui.Document。
 //
 // 这里会同时注入：
 // - ActionHandlers：把 UI 事件回调到 Go。
@@ -51,7 +51,7 @@ func newUIStore() *jsonui.Store {
 // - Theme：统一字体、颜色、按钮风格等。
 //
 // ImageSizeDP 设为 48，作为窗口/按钮图片的默认 DP 基准尺寸。
-func loadUIDocument(store *jsonui.Store) (*jsonui.Document, error) {
+func loadUIJSON(store *jsonui.Store) (*jsonui.Document, error) {
 	if store == nil {
 		store = newUIStore()
 	}
@@ -145,6 +145,11 @@ func defaultUIState() map[string]any {
 				"autoReboot":    true,
 				"startEnabled":  false,
 			},
+			"driver": map[string]any{
+				"visible":     false,
+				"infPatterns": "",
+				"summary":     T("manual.driver.summary.empty"),
+			},
 		},
 		"prompt": map[string]any{
 			"visible":    false,
@@ -211,49 +216,58 @@ func uiActionHandlers() map[string]func(jsonui.ActionContext) {
 			manualLoadImage(ctx.Value)
 		},
 		"manual-index-change": func(ctx jsonui.ActionContext) {
-			manualHandleImageIndexChange(ctx.Value)
+			HandleIndexChange(ctx.Value)
 		},
 		"manual-partition-change": func(ctx jsonui.ActionContext) {
-			manualHandlePartitionChange(ctx.Value)
+			HandlePartitionChange(ctx.Value)
 		},
 		"manual-auto-pe-change": func(ctx jsonui.ActionContext) {
-			manualHandleAutoPEChange(ctx.Checked)
+			HandleAutoPEChange(ctx.Checked)
 		},
 		"manual-pe-change": func(ctx jsonui.ActionContext) {
-			manualHandlePEPathChange(ctx.Value)
+			HandlePEPathChange(ctx.Value)
 		},
 		"manual-boot-mode-change": func(ctx jsonui.ActionContext) {
-			manualHandleBootModeChange(ctx.Value)
+			HandleBootModeChange(ctx.Value)
 		},
 		"manual-boot-target-change": func(ctx jsonui.ActionContext) {
-			manualHandleBootTargetChange(ctx.Value)
+			HandleBootTargetChange(ctx.Value)
 		},
 		"manual-format-change": func(ctx jsonui.ActionContext) {
-			manualHandleOptionChange("manual.options.formatTarget", ctx.Checked)
+			HandleOptionChange("manual.options.formatTarget", ctx.Checked)
 		},
 		"manual-backup-change": func(ctx jsonui.ActionContext) {
-			manualHandleOptionChange("manual.options.backupDrivers", ctx.Checked)
+			HandleBackupDriversChange(ctx.Checked)
+		},
+		"manual-driver-pattern-change": func(ctx jsonui.ActionContext) {
+			HandleDriverPatternChange(ctx.Value)
+		},
+		"manual-driver-confirm": func(jsonui.ActionContext) {
+			HandleDriverDialogConfirm()
+		},
+		"manual-driver-cancel": func(jsonui.ActionContext) {
+			HandleDriverDialogCancel()
 		},
 		"manual-deploy-change": func(ctx jsonui.ActionContext) {
-			manualHandleOptionChange("manual.options.autoDeploy", ctx.Checked)
+			HandleOptionChange("manual.options.autoDeploy", ctx.Checked)
 		},
 		"manual-reboot-change": func(ctx jsonui.ActionContext) {
-			manualHandleOptionChange("manual.options.autoReboot", ctx.Checked)
+			HandleOptionChange("manual.options.autoReboot", ctx.Checked)
 		},
 		"manual-start": func(jsonui.ActionContext) {
-			manualHandleStart()
+			HandleStart()
 		},
 		"prompt-input-change": func(ctx jsonui.ActionContext) {
-			bitLockerPromptInputChanged(ctx.Value)
+			bitLockerInput(ctx.Value)
 		},
 		"prompt-submit-password": func(jsonui.ActionContext) {
-			submitBitLockerPrompt(false)
+			submitBitLocker(false)
 		},
 		"prompt-submit-recovery": func(jsonui.ActionContext) {
-			submitBitLockerPrompt(true)
+			submitBitLocker(true)
 		},
 		"prompt-cancel": func(jsonui.ActionContext) {
-			cancelBitLockerPrompt()
+			cancelBitLocker()
 		},
 	}
 }

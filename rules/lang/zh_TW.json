@@ -98,6 +98,19 @@
       "placeholder": "自動處理 PE 關閉後，可手動指定 PE WIM",
       "dialogTitle": "選擇 PE WIM"
     },
+    "driver": {
+      "title": "備份驅動規則",
+      "tip": "支援依 INF 萬用字元與裝置類別 GUID 選擇驅動備份範圍。",
+      "patternLabel": "INF 萬用字元（逗號/分號/換行分隔）",
+      "patternPlaceholder": "例如：oem*.inf, net*.inf",
+      "guidLabel": "按裝置類別 GUID 選擇",
+      "summary": {
+        "empty": "尚未選擇任何規則，將取消勾選備份驅動。",
+        "selected": "已選擇規則：INF %d 項，GUID %d 項。"
+      },
+      "confirm": "確定",
+      "cancel": "取消"
+    },
     "start": "開始重裝",
     "summary": {
       "default": "請選擇本機安裝映像與目標分割區。",

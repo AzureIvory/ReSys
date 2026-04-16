@@ -28,28 +28,31 @@ import (
 // - 该回调会在 goroutine 中调用，不保证运行在 UI 线程。
 var StartManualInstall = func(src string) {}
 
-// manualUIState 是手动模式的内存状态缓存。
+// UIState 是手动模式的内存状态缓存。
 // JSONUI 的 Store 适合做“可绑定的 UI 状态”，而一些派生数据/缓存更适合留在 Go 内存里：
 // - imageInfos/partitionRows/bootRows：避免每次读取 Store 都要重复解析/计算；
 // - partitionLoadID：用于异步加载的“代号”，防止慢请求覆盖新请求的结果。
-type manualUIState struct {
-	imagePath        string
-	imageInfos       []dism.ImageMeta
-	imageParseErr    string
-	partitionRows    []manualPartitionRow
-	bootRows         []manualPartitionRow
-	partitionError   string
-	bootTargets      []manualBootTargetOption
-	partitionLoading bool
-	partitionLoadID  uint64
+type UIState struct {
+	imagePath          string
+	imageInfos         []dism.ImageMeta
+	imageParseErr      string
+	partitionRows      []PartitionRow
+	bootRows           []PartitionRow
+	partitionError     string
+	bootTargets        []BootTargetOption
+	partitionLoading   bool
+	partitionLoadID    uint64
+	driverGUIDOptions  []manualDriverGUIDOption
+	driverGUIDSelected map[string]bool
+	driverINFPatterns  string
 }
 
-// manualPartitionRow 是手动模式里展示分区/卷信息的行模型。
+// PartitionRow 是手动模式里展示分区/卷信息的行模型。
 //
 // 其中 Ref 是 UI 列表项的 Value：
 // - 对“已挂载卷”通常是类似 `C:\` 的根路径；
 // - 对“未挂载/引导候选分区”通常是 `diskNumber:partitionNumber`。
-type manualPartitionRow struct {
+type PartitionRow struct {
 	DiskNumber       int
 	PartitionNumber  int
 	PartitionType    string
@@ -70,8 +73,8 @@ type manualPartitionRow struct {
 	Detail           string
 }
 
-// manualBootTargetOption 是“引导分区”下拉框的候选项。
-type manualBootTargetOption struct {
+// BootTargetOption 是“引导分区”下拉框的候选项。
+type BootTargetOption struct {
 	Ref  string
 	Text string
 }
@@ -87,12 +90,12 @@ const (
 	manualBootRepairBIOS = "bios"
 )
 
-var manual manualUIState
+var manual UIState
 
 // destroyManualMode 释放手动模式的内存缓存。
 // 当页面销毁/切换时可调用，避免残留旧数据影响下一次进入。
 func destroyManualMode() {
-	manual = manualUIState{}
+	manual = UIState{}
 }
 
 // UiShowManualMode 切换到“手动模式”页面，并异步加载分区列表。
@@ -104,7 +107,7 @@ func UiShowManualMode() {
 	show := func() {
 		applyMode(modeManual)
 		if ui.app != nil {
-			manualRefreshPartitionsAsync()
+			RefreshPartitionsAsync()
 		}
 	}
 	if ui.app == nil || ui.app.IsUIThread() {
@@ -114,60 +117,65 @@ func UiShowManualMode() {
 	_ = ui.app.Post(show)
 }
 
-// manualHandleImageIndexChange 处理“镜像索引”变更。
+// HandleIndexChange 处理“镜像索引”变更。
 // 这里会更新 Store，并联动刷新：引导分区候选、详情文本、底部汇总说明。
-func manualHandleImageIndexChange(value string) {
+func HandleIndexChange(value string) {
 	manualSetState("manual.image.selected", strings.TrimSpace(value))
-	manualRefreshBootTargets()
+	RefreshBootTargets()
 	manualUpdateDetail()
 	manualUpdateSummary()
 }
 
-// manualHandlePartitionChange 处理“目标分区”变更。
-func manualHandlePartitionChange(ref string) {
-	manualApplyPartitionSelection(ref)
+// HandlePartitionChange 处理“目标分区”变更。
+func HandlePartitionChange(ref string) {
+	ApplyPartitionSelection(ref)
 }
 
-// manualHandleAutoPEChange 处理“自动处理 PE”开关。
-func manualHandleAutoPEChange(checked bool) {
+// HandleAutoPEChange 处理“自动处理 PE”开关。
+func HandleAutoPEChange(checked bool) {
 	manualSetState("manual.options.autoPE", checked)
 	manualUpdatePEInputState()
 	manualUpdateSummary()
 }
 
-// manualHandlePEPathChange 处理“PE WIM 路径”输入变更。
-func manualHandlePEPathChange(path string) {
+// HandlePEPathChange 处理“PE WIM 路径”输入变更。
+func HandlePEPathChange(path string) {
 	manualSetState("manual.options.pePath", strings.TrimSpace(path))
 	manualUpdateSummary()
 }
 
-// manualHandleBootModeChange 处理“引导修复模式”变更。
-func manualHandleBootModeChange(value string) {
+// HandleBootModeChange 处理“引导修复模式”变更。
+func HandleBootModeChange(value string) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		value = manualBootRepairAuto
 	}
 	manualSetState("manual.boot.mode", value)
-	manualRefreshBootTargets()
+	RefreshBootTargets()
 	manualUpdateSummary()
 }
 
-// manualHandleBootTargetChange 处理“引导分区”下拉框变更。
-func manualHandleBootTargetChange(value string) {
+// HandleBootTargetChange 处理“引导分区”下拉框变更。
+func HandleBootTargetChange(value string) {
 	manualSetState("manual.boot.target", strings.TrimSpace(value))
 	manualUpdateSummary()
 }
 
-// manualHandleOptionChange 处理通用的布尔选项变更（格式化/备份驱动/无人值守/自动重启等）。
-func manualHandleOptionChange(path string, checked bool) {
+// HandleOptionChange 处理通用的布尔选项变更（格式化/备份驱动/无人值守/自动重启等）。
+func HandleOptionChange(path string, checked bool) {
 	manualSetState(path, checked)
 	manualUpdateSummary()
 }
 
-// manualHandleStart 点击“开始重装”。
+// HandleStart 点击“开始重装”。
 // 这里仅做校验与二次确认，然后切到进度页并在后台调用 StartManualInstall。
-func manualHandleStart() {
+func HandleStart() {
 	text, err := manualBuildJSON()
+	if err != nil {
+		UiShowError("", err.Error())
+		return
+	}
+	exportPath, err := ExportInstallJSON(text)
 	if err != nil {
 		UiShowError("", err.Error())
 		return
@@ -176,7 +184,7 @@ func manualHandleStart() {
 		return
 	}
 	applyMode(modeProgress)
-	go StartManualInstall(text)
+	go StartManualInstall(exportPath)
 }
 
 // manualLoadImage 处理“安装镜像路径”变更：解析镜像并刷新索引列表。
@@ -196,7 +204,7 @@ func manualLoadImage(path string) {
 		"manual.image.indexPlaceholder": T("manual.image.indexPlaceholder"),
 	})
 	if path == "" {
-		manualRefreshBootTargets()
+		RefreshBootTargets()
 		manualUpdateDetail()
 		manualUpdateSummary()
 		return
@@ -206,7 +214,7 @@ func manualLoadImage(path string) {
 	if err != nil {
 		manual.imageParseErr = fmt.Sprintf(T("manual.image.parseFailed"), err)
 		manualSetState("manual.image.indexPlaceholder", T("manual.image.parseFailedShort"))
-		manualRefreshBootTargets()
+		RefreshBootTargets()
 		manualUpdateDetail()
 		manualUpdateSummary()
 		return
@@ -238,16 +246,16 @@ func manualLoadImage(path string) {
 		"manual.image.selected":         selectedValue,
 		"manual.image.indexPlaceholder": placeholder,
 	})
-	manualRefreshBootTargets()
+	RefreshBootTargets()
 	manualUpdateDetail()
 	manualUpdateSummary()
 }
 
-// manualRefreshPartitionsAsync 异步扫描分区/卷信息。
+// RefreshPartitionsAsync 异步扫描分区/卷信息。
 //
 // 由于扫描可能耗时且会触发外部命令/系统 API，因此放到后台 goroutine。
 // partitionLoadID 用作“加载代号”：当多次触发刷新时，旧请求完成后会被丢弃，避免覆盖新结果。
-func manualRefreshPartitionsAsync() {
+func RefreshPartitionsAsync() {
 	if ui.app == nil {
 		return
 	}
@@ -266,7 +274,7 @@ func manualRefreshPartitionsAsync() {
 			if loadID != manual.partitionLoadID {
 				return
 			}
-			manualApplyPartitionRows(prevRef, rows, bootRows, err)
+			ApplyPartitionRows(prevRef, rows, bootRows, err)
 		})
 	}(prevRef, loadID)
 }
@@ -292,14 +300,14 @@ func manualSetLoading(loading bool, text string) {
 	}
 	manualPatchState(patch)
 	manualUpdatePEInputState()
-	manualUpdateBootTargetState()
+	UpdateBootTargetState()
 	manualUpdateSummary()
 }
 
-// manualApplyPartitionRows 将扫描结果写入内存缓存与 Store。
+// ApplyPartitionRows 将扫描结果写入内存缓存与 Store。
 // - 成功：填充分区列表 items，并尽量保持上一次选择（prevRef）；否则选择一个默认分区。
 // - 失败：清空列表并提示错误信息。
-func manualApplyPartitionRows(prevRef string, rows, bootRows []manualPartitionRow, err error) {
+func ApplyPartitionRows(prevRef string, rows, bootRows []PartitionRow, err error) {
 	manual.partitionRows = rows
 	manual.bootRows = bootRows
 	manual.partitionError = ""
@@ -313,7 +321,7 @@ func manualApplyPartitionRows(prevRef string, rows, bootRows []manualPartitionRo
 			"manual.partitions.selected": "",
 			"manual.partitions.detail":   T("manual.partitions.readFailed"),
 		})
-		manualRefreshBootTargets()
+		RefreshBootTargets()
 		manualUpdatePEInputState()
 		manualUpdateSummary()
 		return
@@ -336,31 +344,31 @@ func manualApplyPartitionRows(prevRef string, rows, bootRows []manualPartitionRo
 		"manual.partitions.selected": selectedRef,
 	})
 	if selectedRef != "" {
-		manualApplyPartitionSelection(selectedRef)
+		ApplyPartitionSelection(selectedRef)
 		return
 	}
 	manualSetState("manual.partitions.detail", T("manual.partitions.none"))
-	manualRefreshBootTargets()
+	RefreshBootTargets()
 	manualUpdatePEInputState()
 	manualUpdateSummary()
 }
 
-// manualApplyPartitionSelection 应用用户选择的目标分区，并刷新详情/引导候选/汇总。
-func manualApplyPartitionSelection(ref string) {
+// ApplyPartitionSelection 应用用户选择的目标分区，并刷新详情/引导候选/汇总。
+func ApplyPartitionSelection(ref string) {
 	ref = strings.TrimSpace(ref)
 	if manualFindPartitionIndex(ref) < 0 {
 		manualPatchState(map[string]any{
 			"manual.partitions.selected": "",
 			"manual.partitions.detail":   T("manual.detail.default"),
 		})
-		manualRefreshBootTargets()
+		RefreshBootTargets()
 		manualUpdatePEInputState()
 		manualUpdateSummary()
 		return
 	}
 	manualSetState("manual.partitions.selected", ref)
 	manualUpdateDetail()
-	manualRefreshBootTargets()
+	RefreshBootTargets()
 	manualUpdatePEInputState()
 	manualUpdateSummary()
 }

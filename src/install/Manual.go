@@ -184,7 +184,7 @@ func runManualPrepareFlow(ctx *InstallContext) error {
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(20)
 				ui.UiSetStatus(ui.Tr("install.auto.handleBitLocker"))
-				return handleBitLockerBeforeEnterPE(ctx)
+				return handleBitLocker(ctx)
 			},
 		},
 		{
@@ -206,7 +206,7 @@ func runManualPrepareFlow(ctx *InstallContext) error {
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(65)
 				ui.UiSetStatus(ui.Tr("install.manual.preparePE"))
-				return prepareSelectedPEEnvironment(ctx)
+				return preparePEEnvir(ctx)
 			},
 		},
 		{
@@ -417,7 +417,7 @@ func runManualPEFlow(ctx *InstallContext) error {
 	return RunStages(ctx, stages)
 }
 
-func prepareSelectedPEEnvironment(ctx *InstallContext) error {
+func preparePEEnvir(ctx *InstallContext) error {
 	if ctx == nil || ctx.Plan == nil {
 		return fmt.Errorf("install context is nil")
 	}

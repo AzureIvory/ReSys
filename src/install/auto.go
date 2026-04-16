@@ -109,7 +109,7 @@ func runAutoPrepareFlow(ctx *InstallContext) error {
 			Run: func(ctx *InstallContext) error {
 				ui.UiSetProgress(50)
 				ui.UiSetStatus(ui.Tr("install.auto.handleBitLocker"))
-				return handleBitLockerBeforeEnterPE(ctx)
+				return handleBitLocker(ctx)
 			},
 		},
 		{

@@ -359,6 +359,7 @@
                 "text": { "bind": "i18n.manual.option.autoPE", "default": "自动处理 PE" },
                 "checked": { "bind": "manual.options.autoPE", "default": true },
                 "enabled": { "bind": "manual.options.autoPEEnabled", "default": false },
+                "style": { "indicatorStyle": "check" },
                 "onChange": "manual-auto-pe-change",
                 "frame": { "x": 300, "y": 252, "r": 14, "h": 28 }
               },
@@ -426,6 +427,7 @@
                 "id": "manual-format-target",
                 "text": { "bind": "i18n.manual.option.formatTarget", "default": "格式化目标分区" },
                 "checked": { "bind": "manual.options.formatTarget", "default": true },
+                "style": { "indicatorStyle": "check" },
                 "onChange": "manual-format-change",
                 "frame": { "x": 14, "y": "winH-42", "w": "(winW-172)/4", "h": 28 }
               },
@@ -434,6 +436,7 @@
                 "id": "manual-backup-drivers",
                 "text": { "bind": "i18n.manual.option.backupDrivers", "default": "备份驱动" },
                 "checked": { "bind": "manual.options.backupDrivers", "default": false },
+                "style": { "indicatorStyle": "check" },
                 "onChange": "manual-backup-change",
                 "frame": { "x": "22+((winW-172)/4)", "y": "winH-42", "w": "(winW-172)/4", "h": 28 }
               },
@@ -442,6 +445,7 @@
                 "id": "manual-auto-deploy",
                 "text": { "bind": "i18n.manual.option.autoDeploy", "default": "无人值守" },
                 "checked": { "bind": "manual.options.autoDeploy", "default": true },
+                "style": { "indicatorStyle": "check" },
                 "onChange": "manual-deploy-change",
                 "frame": { "x": "30+(((winW-172)/4)*2)", "y": "winH-42", "w": "(winW-172)/4", "h": 28 }
               },
@@ -450,6 +454,7 @@
                 "id": "manual-auto-reboot",
                 "text": { "bind": "i18n.manual.option.autoReboot", "default": "自动重启" },
                 "checked": { "bind": "manual.options.autoReboot", "default": true },
+                "style": { "indicatorStyle": "check" },
                 "onChange": "manual-reboot-change",
                 "frame": { "x": "38+(((winW-172)/4)*3)", "y": "winH-42", "w": "(winW-172)/4", "h": 28 }
               },
@@ -474,6 +479,170 @@
                 },
                 "onClick": "manual-start",
                 "frame": { "x": "winW-122", "y": "winH-44", "w": 108, "h": 32 }
+              }
+            ]
+          },
+          {
+            "type": "modal",
+            "id": "manual-driver-modal",
+            "_comment_zh": "页面：驱动备份规则选择弹层。",
+            "visible": { "bind": "manual.driver.visible", "default": false },
+            "onDismiss": "manual-driver-cancel",
+            "backdrop": {
+              "color": "#0f172a",
+              "opacity": 112,
+              "blur": 0,
+              "dismissOnClick": true
+            },
+            "children": [
+              {
+                "type": "panel",
+                "id": "manual-driver-card",
+                "style": {
+                  "bg": "#ffffff",
+                  "border": "#cbd5e1",
+                  "borderW": 1,
+                  "radius": 14
+                },
+                "frame": { "x": "50%-290", "y": "50%-180", "w": 580, "h": 360 },
+                "children": [
+                  {
+                    "type": "label",
+                    "id": "manual-driver-title",
+                    "text": { "bind": "i18n.manual.driver.title", "default": "备份驱动规则" },
+                    "style": {
+                      "font": "Microsoft YaHei UI",
+                      "size": 18,
+                      "weight": 700,
+                      "fg": "#0f172a",
+                      "align": "start"
+                    },
+                    "frame": { "x": 20, "y": 16, "r": 20, "h": 28 }
+                  },
+                  {
+                    "type": "label",
+                    "id": "manual-driver-tip",
+                    "text": { "bind": "i18n.manual.driver.tip", "default": "支持按 INF 通配符和设备类 GUID 选择驱动备份范围。" },
+                    "multiline": true,
+                    "wordWrap": true,
+                    "style": {
+                      "font": "Microsoft YaHei UI",
+                      "size": 12,
+                      "fg": "#475569",
+                      "align": "start"
+                    },
+                    "frame": { "x": 20, "y": 46, "r": 20, "h": 34 }
+                  },
+                  {
+                    "type": "label",
+                    "id": "manual-driver-pattern-label",
+                    "text": { "bind": "i18n.manual.driver.patternLabel", "default": "INF 通配符（逗号/分号/换行分隔）" },
+                    "style": {
+                      "font": "Microsoft YaHei UI",
+                      "size": 12,
+                      "weight": 700,
+                      "fg": "#334155",
+                      "align": "start"
+                    },
+                    "frame": { "x": 20, "y": 88, "r": 20, "h": 22 }
+                  },
+                  {
+                    "type": "input",
+                    "id": "manual-driver-pattern-input",
+                    "value": { "bind": "manual.driver.infPatterns", "default": "" },
+                    "placeholder": { "bind": "i18n.manual.driver.patternPlaceholder", "default": "例如：oem*.inf, net*.inf" },
+                    "onChange": "manual-driver-pattern-change",
+                    "frame": { "x": 20, "y": 112, "r": 20, "h": 32 }
+                  },
+                  {
+                    "type": "label",
+                    "id": "manual-driver-guid-label",
+                    "text": { "bind": "i18n.manual.driver.guidLabel", "default": "按设备类 GUID 选择" },
+                    "style": {
+                      "font": "Microsoft YaHei UI",
+                      "size": 12,
+                      "weight": 700,
+                      "fg": "#334155",
+                      "align": "start"
+                    },
+                    "frame": { "x": 20, "y": 150, "r": 20, "h": 22 }
+                  },
+                  {
+                    "type": "scrollview",
+                    "id": "manual-driver-guid-scroll",
+                    "style": {
+                      "bg": "#ffffff",
+                      "border": "#cbd5e1",
+                      "borderW": 1,
+                      "radius": 10
+                    },
+                    "frame": { "x": 20, "y": 174, "r": 20, "h": 126 },
+                    "children": [
+                      {
+                        "type": "panel",
+                        "id": "manual-driver-guid-list",
+                        "layout": { "type": "col", "gap": 6, "pad": 8 },
+                        "frame": { "x": 0, "y": 0, "r": 0, "b": 0 }
+                      }
+                    ]
+                  },
+                  {
+                    "type": "label",
+                    "id": "manual-driver-summary",
+                    "text": { "bind": "manual.driver.summary", "default": "未选择任何规则，将取消备份驱动勾选。" },
+                    "multiline": true,
+                    "wordWrap": true,
+                    "style": {
+                      "font": "Microsoft YaHei UI",
+                      "size": 12,
+                      "fg": "#475569",
+                      "align": "start"
+                    },
+                    "frame": { "x": 20, "y": 304, "r": 20, "h": 34 }
+                  },
+                  {
+                    "type": "button",
+                    "id": "manual-driver-confirm",
+                    "text": { "bind": "i18n.manual.driver.confirm", "default": "确定" },
+                    "style": {
+                      "font": "Microsoft YaHei UI",
+                      "size": 14,
+                      "weight": 700,
+                      "fg": "#ffffff",
+                      "downFg": "#ffffff",
+                      "disabledFg": "#bfdbfe",
+                      "bg": "#2563eb",
+                      "hoverBg": "#1d4ed8",
+                      "pressedBg": "#1e40af",
+                      "disabledBg": "#60a5fa",
+                      "radius": 10,
+                      "pad": 12
+                    },
+                    "onClick": "manual-driver-confirm",
+                    "frame": { "x": 364, "y": 320, "w": 88, "h": 30 }
+                  },
+                  {
+                    "type": "button",
+                    "id": "manual-driver-cancel",
+                    "text": { "bind": "i18n.manual.driver.cancel", "default": "取消" },
+                    "style": {
+                      "font": "Microsoft YaHei",
+                      "size": 14,
+                      "weight": 400,
+                      "fg": "#475569",
+                      "downFg": "#ffffff",
+                      "bg": "#ffffff",
+                      "hoverBg": "#f8fafc",
+                      "pressedBg": "#0f172a",
+                      "disabledBg": "#f1f5f9",
+                      "border": "#e2e8f0",
+                      "radius": 10,
+                      "pad": 12
+                    },
+                    "onClick": "manual-driver-cancel",
+                    "frame": { "x": 464, "y": 320, "w": 88, "h": 30 }
+                  }
+                ]
               }
             ]
           },

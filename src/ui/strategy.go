@@ -31,10 +31,10 @@ func manualUpdateDetail() {
 		row, ok := manualSelectedPartition()
 		if ok {
 			detail = row.Detail
-			if info, ok := manualSelectedImageInfo(); ok {
+			if info, ok := mSelectedImageInfo(); ok {
 				detail += fmt.Sprintf(
 					T("manual.detail.imageLine"),
-					manualFriendlyTarget(manualSelectedTargetOS()),
+					FriendlyTarget(mSelectedTargetOS()),
 					info.Index,
 					manualFriendlyArch(utils.NormalizeArch(info.Arch)),
 				)
@@ -44,12 +44,12 @@ func manualUpdateDetail() {
 	manualSetState("manual.partitions.detail", detail)
 }
 
-// manualRefreshBootTargets 根据目标分区与引导修复模式，刷新“引导分区”下拉候选项。
+// RefreshBootTargets 根据目标分区与引导修复模式，刷新“引导分区”下拉候选项。
 //
 // 注意：
 // - 自动模式下不需要用户选择引导分区，因此这里会清空 targets，只更新 placeholder 文案。
 // - 手动模式下会从 manual.bootRows 中筛选 EFI/BIOS 候选分区，并按“同盘优先”排序。
-func manualRefreshBootTargets() {
+func RefreshBootTargets() {
 	if manual.partitionLoading {
 		manual.bootTargets = nil
 		manualPatchState(map[string]any{
@@ -58,7 +58,7 @@ func manualRefreshBootTargets() {
 			"manual.boot.placeholder":   T("manual.loading.disks"),
 			"manual.boot.targetEnabled": false,
 		})
-		manualUpdateBootTargetState()
+		UpdateBootTargetState()
 		return
 	}
 
@@ -71,7 +71,7 @@ func manualRefreshBootTargets() {
 			"manual.boot.target":      "",
 			"manual.boot.placeholder": T("manual.boot.placeholder.selectTarget"),
 		})
-		manualUpdateBootTargetState()
+		UpdateBootTargetState()
 		return
 	}
 
@@ -82,7 +82,7 @@ func manualRefreshBootTargets() {
 			"manual.boot.target":      "",
 			"manual.boot.placeholder": T("manual.boot.placeholder.disabled"),
 		})
-		manualUpdateBootTargetState()
+		UpdateBootTargetState()
 		return
 	}
 
@@ -97,7 +97,7 @@ func manualRefreshBootTargets() {
 			"manual.boot.target":      "",
 			"manual.boot.placeholder": placeholder,
 		})
-		manualUpdateBootTargetState()
+		UpdateBootTargetState()
 		return
 	}
 
@@ -127,7 +127,7 @@ func manualRefreshBootTargets() {
 		"manual.boot.target":      selectedRef,
 		"manual.boot.placeholder": placeholder,
 	})
-	manualUpdateBootTargetState()
+	UpdateBootTargetState()
 }
 
 // manualUpdatePEInputState 控制“自动处理 PE”与“手动 PE WIM 路径”的可用性。
@@ -149,9 +149,9 @@ func manualUpdatePEInputState() {
 	})
 }
 
-// manualUpdateBootTargetState 根据当前模式与候选数量，决定下拉框是否可操作。
+// UpdateBootTargetState 根据当前模式与候选数量，决定下拉框是否可操作。
 // 同时会联动更新“开始重装”按钮是否可点（manualUpdateActionState）。
-func manualUpdateBootTargetState() {
+func UpdateBootTargetState() {
 	manualSetState(
 		"manual.boot.targetEnabled",
 		!manual.partitionLoading && manualUsesBootTarget() && len(manual.bootTargets) > 0,
@@ -186,10 +186,10 @@ func manualUpdateSummary() {
 		parts = append(parts, T("manual.summary.noImage"))
 	} else if manual.imageParseErr != "" {
 		parts = append(parts, manual.imageParseErr)
-	} else if info, ok := manualSelectedImageInfo(); ok {
+	} else if info, ok := mSelectedImageInfo(); ok {
 		parts = append(parts, fmt.Sprintf(
 			T("manual.summary.image"),
-			manualFriendlyTarget(manualSelectedTargetOS()),
+			FriendlyTarget(mSelectedTargetOS()),
 			info.Index,
 			manualFriendlyArch(utils.NormalizeArch(info.Arch)),
 		))
@@ -254,7 +254,7 @@ func manualBuildJSON() (string, error) {
 	}
 
 	row, _ := manualSelectedPartition()
-	info, _ := manualSelectedImageInfo()
+	info, _ := mSelectedImageInfo()
 	partition := strings.TrimRight(strings.TrimSpace(row.TargetRoot), `\`)
 	peWIM := ""
 	if row.CurrentSystem && !manualOptionAutoPE() {
@@ -268,9 +268,13 @@ func manualBuildJSON() (string, error) {
 
 	fileRules := []string{}
 	guidRules := []string{}
-	if manualOptionBackupDrivers() {
-		fileRules = []string{"oem*.inf"}
-		guidRules = []string{"{88BAE032-5A81-49F0-BC3D-A4FF138216D6}"}
+	backupDrivers := manualOptionBackupDrivers()
+	if backupDrivers {
+		fileRules = SelectedDriverFileRules()
+		guidRules = SelectedDriverGUIDs()
+		if len(fileRules) == 0 && len(guidRules) == 0 {
+			backupDrivers = false
+		}
 	}
 
 	cfg := config.Config{
@@ -288,7 +292,7 @@ func manualBuildJSON() (string, error) {
 			File:  config.Auto,
 		},
 		BackupDriver: config.BackupDriver{
-			State: manualOptionBackupDrivers(),
+			State: backupDrivers,
 			File:  fileRules,
 			GUID:  guidRules,
 		},
@@ -303,8 +307,8 @@ func manualBuildJSON() (string, error) {
 	return config.Marshal(cfg)
 }
 
-// manualSelectedImageInfo 从缓存的 imageInfos 中按 Store 里选中的索引找出对应镜像元信息。
-func manualSelectedImageInfo() (dism.ImageMeta, bool) {
+// mSelectedImageInfo 从缓存的 imageInfos 中按 Store 里选中的索引找出对应镜像元信息。
+func mSelectedImageInfo() (dism.ImageMeta, bool) {
 	selected := manualStoreString("manual.image.selected", "")
 	if selected == "" {
 		return dism.ImageMeta{}, false
@@ -318,17 +322,17 @@ func manualSelectedImageInfo() (dism.ImageMeta, bool) {
 }
 
 // manualSelectedPartition 根据 Store 中选中的 Ref，返回对应的分区行模型。
-func manualSelectedPartition() (manualPartitionRow, bool) {
+func manualSelectedPartition() (PartitionRow, bool) {
 	ref := manualSelectedPartitionRef()
 	if ref == "" {
-		return manualPartitionRow{}, false
+		return PartitionRow{}, false
 	}
 	for _, row := range manual.partitionRows {
 		if strings.EqualFold(row.Ref, ref) {
 			return row, true
 		}
 	}
-	return manualPartitionRow{}, false
+	return PartitionRow{}, false
 }
 
 // manualSelectedPartitionRef 返回 Store 中当前选择的目标分区 Ref。
@@ -388,13 +392,13 @@ func manualSelectedBootTargetRef() string {
 	return manualStoreString("manual.boot.target", "")
 }
 
-// manualSelectedTargetOS 尝试从镜像信息推断目标系统（Win7/10/11）。
+// mSelectedTargetOS 尝试从镜像信息推断目标系统（Win7/10/11）。
 // 优先使用 image 服务的 DetectTargetFromInfos；否则再做简单的字符串包含匹配。
-func manualSelectedTargetOS() string {
+func mSelectedTargetOS() string {
 	if target := imgsvc.DetectTargetFromInfos(manual.imageInfos); target != "" {
 		return target
 	}
-	info, ok := manualSelectedImageInfo()
+	info, ok := mSelectedImageInfo()
 	if !ok {
 		return ""
 	}
@@ -415,7 +419,7 @@ func manualValidationReason() string {
 	if manual.imageParseErr != "" {
 		return manual.imageParseErr
 	}
-	info, ok := manualSelectedImageInfo()
+	info, ok := mSelectedImageInfo()
 	if !ok || info.Index <= 0 {
 		return T("manual.validation.selectIndex")
 	}

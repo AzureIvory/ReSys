@@ -8,7 +8,11 @@ import (
 	"strings"
 )
 
-func handleBitLockerBeforeEnterPE(ctx *InstallContext) error {
+// 处理 BitLocker 相关逻辑：
+// - 在进入 PE 前，检查目标系统盘是否被 BitLocker 加密，如果是则尝试解锁并删除保护器（PE 环境不支持 BitLocker）。
+// - 解锁时优先尝试自动恢复密钥，如果失败则提示用户输入密码或恢复密钥。
+// - 相关状态和错误信息通过 UI 提示用户，并记录日志。
+func handleBitLocker(ctx *InstallContext) error {
 	if ctx == nil || ctx.Plan == nil {
 		return fmt.Errorf("install context is nil")
 	}
@@ -18,24 +22,24 @@ func handleBitLockerBeforeEnterPE(ctx *InstallContext) error {
 
 	manager := bl.New()
 	if !manager.IsAvailable() {
-		log.LogWrite(0, "[handleBitLockerBeforeEnterPE] BitLocker manager unavailable, skip")
+		log.LogWrite(0, "[handleBitLocker] BitLocker manager unavailable, skip")
 		return nil
 	}
 
 	vols := manager.GetEncryptedVolumes()
 	if len(vols) == 0 {
-		log.LogWrite(0, "[handleBitLockerBeforeEnterPE] no encrypted fixed volumes found")
+		log.LogWrite(0, "[handleBitLocker] no encrypted fixed volumes found")
 		return nil
 	}
 
-	log.LogWrite(0, "[handleBitLockerBeforeEnterPE] encrypted volumes=%s", formatBitLockerVolumes(vols))
+	log.LogWrite(0, "[handleBitLocker] encrypted volumes=%s", formatBitLockerVolumes(vols))
 	ui.UiSetStatus(ui.Tr("install.bitlocker.checkPartitions"))
 
 	if err := prepareBitLockerVolumesForPE(manager, vols); err != nil {
 		return err
 	}
 
-	log.LogWrite(0, "[handleBitLockerBeforeEnterPE] BitLocker handling completed")
+	log.LogWrite(0, "[handleBitLocker] BitLocker handling completed")
 	return nil
 }
 
@@ -116,7 +120,7 @@ func unlockBitLockerVolume(manager *bl.BitLockerManager, vol bl.BitLockerVolumeI
 	}
 
 	for {
-		credential, useRecoveryKey, canceled, err := ui.UiPromptBitLockerUnlock(ui.Tr("prompt.title"), buildBitLockerPromptText(vol, lastErr))
+		credential, useRecoveryKey, canceled, err := ui.UiBitLockerUnlock(ui.Tr("prompt.title"), buildBitLockerPromptText(vol, lastErr))
 		if err != nil {
 			return err
 		}

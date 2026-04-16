@@ -6,7 +6,7 @@
 // 1) “目标分区列表”：通常来自已挂载卷（有盘符），用户用它来选择安装目标。
 // 2) “引导分区候选”：来自物理磁盘分区（可能无盘符），用于 UEFI/BIOS 引导修复的选择。
 //
-// 本文件把来自 disk 包/bitlocker 包的原始信息整理为 manualPartitionRow，便于 JSONUI 绑定：
+// 本文件把来自 disk 包/bitlocker 包的原始信息整理为 PartitionRow，便于 JSONUI 绑定：
 // - Summary：列表里展示的一行摘要
 // - Detail：右侧详情框多行文本
 // - Ref：UI 列表项 Value，用于后续在 Store 中保存/恢复选择
@@ -28,7 +28,7 @@ import (
 // - bootRows：用于“引导分区”候选（包含无盘符的 EFI/MSR/恢复分区等）。
 //
 // 返回的 rows 会按“当前系统优先 -> 盘符 -> 磁盘号 -> 分区号”排序。
-func manualCollectPartitionRows() ([]manualPartitionRow, []manualPartitionRow, error) {
+func manualCollectPartitionRows() ([]PartitionRow, []PartitionRow, error) {
 	volumes, err := disk.ListVolumes()
 	if err != nil {
 		return nil, nil, err
@@ -90,8 +90,8 @@ func manualCollectPartitionRows() ([]manualPartitionRow, []manualPartitionRow, e
 		manager,
 		bitlockerReady,
 	)
-	partByGUID := make(map[string]manualPartitionRow, len(bootRows))
-	partByLetter := make(map[string]manualPartitionRow, len(bootRows))
+	partByGUID := make(map[string]PartitionRow, len(bootRows))
+	partByLetter := make(map[string]PartitionRow, len(bootRows))
 	for _, row := range bootRows {
 		if key := manualNormalizeGUID(row.VolumeGuidPath); key != "" {
 			partByGUID[key] = row
@@ -101,7 +101,7 @@ func manualCollectPartitionRows() ([]manualPartitionRow, []manualPartitionRow, e
 		}
 	}
 
-	rows := make([]manualPartitionRow, 0, len(volumes))
+	rows := make([]PartitionRow, 0, len(volumes))
 	for _, vol := range volumes {
 		letter := manualNormalizeDriveLetter(vol.DriveLetter)
 		if letter == "" {
@@ -112,7 +112,7 @@ func manualCollectPartitionRows() ([]manualPartitionRow, []manualPartitionRow, e
 			continue
 		}
 
-		row := manualPartitionRow{
+		row := PartitionRow{
 			DiskNumber:     vol.DiskNumber,
 			PartitionType:  T("manual.partition.unknown"),
 			DiskStyle:      strings.TrimSpace(diskStyleByDisk[vol.DiskNumber]),
@@ -209,7 +209,7 @@ func manualBuildBootRows(
 	kindByDisk map[int]string,
 	manager *bl.BitLockerManager,
 	bitlockerReady bool,
-) []manualPartitionRow {
+) []PartitionRow {
 	volByGUID := map[string]disk.VolumeInfo{}
 	volByLetter := map[string]disk.VolumeInfo{}
 	for _, vol := range volumes {
@@ -221,14 +221,14 @@ func manualBuildBootRows(
 		}
 	}
 
-	rows := make([]manualPartitionRow, 0, len(orderedDisks)*4)
+	rows := make([]PartitionRow, 0, len(orderedDisks)*4)
 	for _, diskNumber := range orderedDisks {
 		parts, err := disk.ListDiskPartitions(diskNumber)
 		if err != nil {
 			continue
 		}
 		for _, part := range parts {
-			row := manualPartitionRow{
+			row := PartitionRow{
 				DiskNumber:      diskNumber,
 				PartitionNumber: part.PartitionNumber,
 				PartitionType:   utils.FirstNonEmpty(strings.TrimSpace(part.Type), T("manual.partition.unknown")),
@@ -301,8 +301,8 @@ func manualBuildBootRows(
 
 // manualCollectBootTargets 按引导类型（UEFI/BIOS）从 bootRows 中筛选候选分区。
 // 排序策略为“同盘优先”，避免用户误选到其它磁盘的引导分区。
-func manualCollectBootTargets(target manualPartitionRow, mode string) []manualBootTargetOption {
-	rows := make([]manualPartitionRow, 0, 4)
+func manualCollectBootTargets(target PartitionRow, mode string) []BootTargetOption {
+	rows := make([]PartitionRow, 0, 4)
 	if utils.BootType(mode, target.DiskStyle) == "UEFI" {
 		for _, row := range manual.bootRows {
 			if !manualIsUEFIBootPartition(row) {
@@ -356,10 +356,10 @@ func manualCollectBootTargets(target manualPartitionRow, mode string) []manualBo
 //
 // 这里保留 `row.Ref` 作为稳定值，显示文本则继续复用现有的人类可读摘要，
 // 从而保证 UI 展示不变，但实际提交给安装流程的是新的统一分区引用。
-func manualBootTargetOptions(rows []manualPartitionRow) []manualBootTargetOption {
-	options := make([]manualBootTargetOption, 0, len(rows))
+func manualBootTargetOptions(rows []PartitionRow) []BootTargetOption {
+	options := make([]BootTargetOption, 0, len(rows))
 	for _, row := range rows {
-		options = append(options, manualBootTargetOption{
+		options = append(options, BootTargetOption{
 			Ref:  row.Ref,
 			Text: manualBootTargetText(row),
 		})
@@ -369,7 +369,7 @@ func manualBootTargetOptions(rows []manualPartitionRow) []manualBootTargetOption
 
 // manualIsUEFIBootPartition 判断分区是否可能是 EFI 系统分区（ESP）。
 // 这里用 “GPT + (类型为 EFI 或 FAT32 + 标签包含 efi/esp 或小容量且不可作为安装目标)” 的启发式规则。
-func manualIsUEFIBootPartition(row manualPartitionRow) bool {
+func manualIsUEFIBootPartition(row PartitionRow) bool {
 	if !strings.EqualFold(strings.TrimSpace(row.DiskStyle), "GPT") {
 		return false
 	}
@@ -389,7 +389,7 @@ func manualIsUEFIBootPartition(row manualPartitionRow) bool {
 
 // manualIsBIOSBootPartition 判断分区是否可能用于 BIOS 引导修复。
 // 这里主要筛选 MBR 磁盘上“可访问且不是 EFI/MSR”的分区作为候选。
-func manualIsBIOSBootPartition(row manualPartitionRow) bool {
+func manualIsBIOSBootPartition(row PartitionRow) bool {
 	if !strings.EqualFold(strings.TrimSpace(row.DiskStyle), "MBR") {
 		return false
 	}
@@ -438,7 +438,7 @@ func manualFindPartitionIndex(ref string) int {
 
 // manualIsInstallTarget 判断一个分区是否可作为安装目标。
 // 规则偏保守：排除 X:\、EFI/MSR/Recovery、FAT32 等明显不适合作为系统安装分区的项。
-func manualIsInstallTarget(row manualPartitionRow) bool {
+func manualIsInstallTarget(row PartitionRow) bool {
 	if strings.TrimSpace(row.TargetRoot) == "" || strings.EqualFold(row.TargetRoot, "X:\\") {
 		return false
 	}
@@ -493,7 +493,7 @@ func manualImageInfoText(info dism.ImageMeta) string {
 }
 
 // manualPartitionSummary 构建“目标分区列表”中的单行摘要文本。
-func manualPartitionSummary(row manualPartitionRow) string {
+func manualPartitionSummary(row PartitionRow) string {
 	parts := make([]string, 0, 5)
 	if drive := strings.TrimRight(strings.TrimSpace(row.TargetRoot), `\`); drive != "" {
 		parts = append(parts, drive)
@@ -517,7 +517,7 @@ func manualPartitionSummary(row manualPartitionRow) string {
 
 // manualPartitionDetail 构建右侧“分区详情”多行文本。
 // 文案会包含容量、文件系统、磁盘/分区编号、分区类型、磁盘类型、BitLocker、是否当前系统等信息。
-func manualPartitionDetail(row manualPartitionRow) string {
+func manualPartitionDetail(row PartitionRow) string {
 	modeText := T("manual.partition.detail.selectable")
 	if !row.TargetSelectable {
 		modeText = T("manual.partition.detail.viewOnly")
@@ -544,7 +544,7 @@ func manualPartitionDetail(row manualPartitionRow) string {
 }
 
 // manualPartitionDisplayName 构建用于列表显示的分区名称（盘符/标签优先）。
-func manualPartitionDisplayName(row manualPartitionRow) string {
+func manualPartitionDisplayName(row PartitionRow) string {
 	base := strings.TrimRight(row.TargetRoot, `\`)
 	if base == "" {
 		base = fmt.Sprintf(T("manual.partition.diskPartition"), row.DiskNumber, row.PartitionNumber)
@@ -556,7 +556,7 @@ func manualPartitionDisplayName(row manualPartitionRow) string {
 }
 
 // manualBootTargetText 构建“引导分区”下拉框的候选项显示文本。
-func manualBootTargetText(row manualPartitionRow) string {
+func manualBootTargetText(row PartitionRow) string {
 	name := strings.TrimRight(strings.TrimSpace(row.TargetRoot), `\`)
 	if name == "" {
 		name = fmt.Sprintf(T("manual.partition.diskPartitionCompact"), row.DiskNumber, row.PartitionNumber)
@@ -567,8 +567,8 @@ func manualBootTargetText(row manualPartitionRow) string {
 	return fmt.Sprintf(T("manual.boot.targetFormat"), name, row.DiskNumber, row.PartitionNumber)
 }
 
-// manualFriendlyTarget 将内部目标系统标识转为用户可读文本。
-func manualFriendlyTarget(target string) string {
+// FriendlyTarget 将内部目标系统标识转为用户可读文本。
+func FriendlyTarget(target string) string {
 	switch strings.ToLower(strings.TrimSpace(target)) {
 	case targetWin7:
 		return "Windows 7"

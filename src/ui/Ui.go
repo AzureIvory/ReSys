@@ -165,7 +165,7 @@ func onCreate(app *core.App, scene *widgets.Scene) error {
 	ui.mode = modeSelect
 	ui.store = newUIStore()
 
-	doc, err := loadUIDocument(ui.store)
+	doc, err := loadUIJSON(ui.store)
 	if err != nil {
 		return err
 	}
@@ -184,6 +184,7 @@ func onCreate(app *core.App, scene *widgets.Scene) error {
 	}
 
 	applyMode(modeSelect)
+	EnsureDriverDialogInit()
 	return nil
 }
 
@@ -209,7 +210,7 @@ func onDPIChanged(_ *core.App, _ *widgets.Scene, _ core.DPIInfo) {
 
 // onDestroy 清理 UI 相关引用与可能挂起的弹窗。
 func onDestroy(_ *core.App, _ *widgets.Scene) {
-	closePendingBitLockerPrompt()
+	bitlockerClean()
 	destroyManualMode()
 	ui.scene = nil
 	ui.store = nil

@@ -98,6 +98,19 @@
       "placeholder": "When automatic PE handling is off, specify a PE WIM manually",
       "dialogTitle": "Select PE WIM"
     },
+    "driver": {
+      "title": "Driver Backup Rules",
+      "tip": "Select driver backup scope by INF wildcard patterns and device class GUIDs.",
+      "patternLabel": "INF wildcard patterns (comma/semicolon/newline separated)",
+      "patternPlaceholder": "Example: oem*.inf, net*.inf",
+      "guidLabel": "Select by device class GUID",
+      "summary": {
+        "empty": "No rules selected. The driver backup checkbox will be cleared.",
+        "selected": "Selected rules: INF %d, GUID %d."
+      },
+      "confirm": "OK",
+      "cancel": "Cancel"
+    },
     "start": "Start Reinstall",
     "summary": {
       "default": "Select a local installation image and a target partition.",

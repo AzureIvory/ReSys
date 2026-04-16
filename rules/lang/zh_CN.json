@@ -98,6 +98,19 @@
       "placeholder": "自动处理 PE 关闭后，可手动指定 PE WIM",
       "dialogTitle": "选择 PE WIM"
     },
+    "driver": {
+      "title": "备份驱动规则",
+      "tip": "支持按 INF 通配符和设备类 GUID 选择驱动备份范围。",
+      "patternLabel": "INF 通配符（逗号/分号/换行分隔）",
+      "patternPlaceholder": "例如：oem*.inf, net*.inf",
+      "guidLabel": "按设备类 GUID 选择",
+      "summary": {
+        "empty": "未选择任何规则，将取消备份驱动勾选。",
+        "selected": "已选择规则：INF %d 项，GUID %d 项。"
+      },
+      "confirm": "确定",
+      "cancel": "取消"
+    },
     "start": "开始重装",
     "summary": {
       "default": "请选择本地安装镜像和目标分区。",
