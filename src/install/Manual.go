@@ -457,27 +457,45 @@ func repairInstallBootManual(plan *InstallPlan) error {
 	if plan == nil {
 		return fmt.Errorf("install plan is nil")
 	}
-	part, err := findBootPartition(plan.BootPartRef)
-	if err != nil {
-		return err
-	}
 
 	targetRoot, err := utils.NormalizeDrive(plan.TargetRoot, 0)
 	if err != nil || targetRoot == "" {
 		return fmt.Errorf("invalid install target root: %s", plan.TargetRoot)
 	}
+
+	manualUEFI := false
 	switch plan.BootRepair {
 	case BootRepairModeUEFI:
-		return repairInstallBootManualUEFI(targetRoot, part)
+		manualUEFI = true
 	case BootRepairModeBIOS:
-		return repairInstallBootManualBIOS(targetRoot, part)
+		manualUEFI = false
+	default:
+		style, _, err := disk.GetDiskInfo(targetRoot)
+		if err != nil {
+			return fmt.Errorf("GetDiskInfo: %w", err)
+		}
+		manualUEFI = utils.BootType(string(plan.BootRepair), style) == "UEFI"
 	}
 
-	style, _, err := disk.GetDiskInfo(targetRoot)
-	if err != nil {
-		return fmt.Errorf("GetDiskInfo: %w", err)
+	var part disk.PartitionInfo
+	if manualUEFI {
+		if markerPart, markerErr := findBootPartitionByMarker(plan); markerErr == nil {
+			part = markerPart
+		} else {
+			log.LogWrite(0, "[repairInstallBootManual] marker not found, fallback to boot_part_ref: %v", markerErr)
+			part, err = findBootPartition(plan.BootPartRef)
+			if err != nil {
+				return err
+			}
+		}
+	} else {
+		part, err = findBootPartition(plan.BootPartRef)
+		if err != nil {
+			return err
+		}
 	}
-	if utils.BootType(string(plan.BootRepair), style) == "UEFI" {
+
+	if manualUEFI {
 		return repairInstallBootManualUEFI(targetRoot, part)
 	}
 	return repairInstallBootManualBIOS(targetRoot, part)

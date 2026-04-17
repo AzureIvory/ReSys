@@ -19,6 +19,12 @@ import (
 	"time"
 )
 
+const (
+	installPlanFileName = "restall_win.dat"
+	imageHintFileName   = "restall_img.dat"
+	espFixMarkerFile    = "ESP_FIX_WIN.DAT"
+)
+
 // ===== 领域类型 =====
 
 type ReinstallMode string
@@ -55,7 +61,6 @@ type InstallPlan struct {
 	TargetRoot    string
 	TargetPartRef string
 	DiskPath      string
-	VolumeGUID    string
 	DiskUniqueID  string
 	ImageRel      string
 	AutoPE        bool
@@ -305,13 +310,21 @@ func SaveInstallPlan(plan *InstallPlan) error {
 		return err
 	}
 
-	if err := os.WriteFile(installPlanPath(), []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+	planPath := installPlanPathForPlan(plan)
+	if planPath == "" {
+		return fmt.Errorf("install plan path is empty")
+	}
+	if err := os.WriteFile(planPath, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		return err
+	}
+	cleanupInstallPlanFiles(planPath)
+	if err := prepareBootFixMarker(plan); err != nil {
 		return err
 	}
 
 	imageRoot, _ := utils.NormalizeDrive(plan.ImagePath, 2)
 	if plan.DiskPath == "" && imageRoot != "" {
-		imgDat := filepath.Join(imageRoot, "restall_img.dat")
+		imgDat := filepath.Join(imageRoot, imageHintFileName)
 		_ = os.WriteFile(imgDat, []byte("image="+plan.ImagePath+"\n"), 0o644)
 	}
 
@@ -329,23 +342,19 @@ func formatInstallPlanLines(plan *InstallPlan) ([]string, error) {
 	if strings.TrimSpace(plan.ImagePath) == "" {
 		return nil, fmt.Errorf("install image path is empty")
 	}
-	if strings.TrimSpace(plan.TargetPartRef) == "" {
-		return nil, fmt.Errorf("install target partition ref is empty")
-	}
 
 	lines := []string{
 		fmt.Sprintf("mode=%s", plan.Mode),
 		fmt.Sprintf("image=%s", plan.ImagePath),
-		fmt.Sprintf("target_part_ref=%s", plan.TargetPartRef),
+	}
+	if strings.TrimSpace(plan.TargetPartRef) != "" {
+		lines = append(lines, fmt.Sprintf("target_part_ref=%s", plan.TargetPartRef))
 	}
 	if plan.TargetRoot != "" {
 		lines = append(lines, fmt.Sprintf("target_root=%s", plan.TargetRoot))
 	}
 	if plan.DiskPath != "" {
 		lines = append(lines, fmt.Sprintf("disk=%s", plan.DiskPath))
-	}
-	if plan.VolumeGUID != "" {
-		lines = append(lines, fmt.Sprintf("volume_guid=%s", plan.VolumeGUID))
 	}
 	if plan.DiskUniqueID != "" {
 		lines = append(lines, fmt.Sprintf("disk_unique_id=%s", plan.DiskUniqueID))
@@ -412,7 +421,7 @@ func formatInstallPlanLines(plan *InstallPlan) ([]string, error) {
 // installPlanPath 返回当前系统卷上的安装计划文件路径。
 //
 // 安装计划始终放在当前系统卷根目录，便于重启进 PE 后重新扫描并恢复。
-func installPlanPath() string {
+func installPlanFallbackPath() string {
 	systemDrive := os.Getenv("SystemDrive")
 	if systemDrive == "" {
 		systemDrive = "C:"
@@ -421,7 +430,156 @@ func installPlanPath() string {
 	if sysRoot == "" {
 		sysRoot = systemDrive + `\`
 	}
-	return filepath.Join(sysRoot, "restall_win.dat")
+	return filepath.Join(sysRoot, installPlanFileName)
+}
+
+func installPlanPathForTargetRoot(targetRoot string) string {
+	root, err := utils.NormalizeDrive(targetRoot, 0)
+	if err != nil || root == "" {
+		return ""
+	}
+	return filepath.Join(root, installPlanFileName)
+}
+
+func installPlanPathForPlan(plan *InstallPlan) string {
+	if plan != nil {
+		if path := installPlanPathForTargetRoot(plan.TargetRoot); path != "" {
+			return path
+		}
+	}
+	return installPlanFallbackPath()
+}
+
+func cleanupInstallPlanFiles(activePath string) {
+	activePath = strings.TrimSpace(activePath)
+	if activePath == "" {
+		return
+	}
+
+	drives, err := disk.ListDrive()
+	if err != nil {
+		return
+	}
+	for _, d := range drives {
+		root, _ := utils.NormalizeDrive(d, 0)
+		if root == "" || strings.HasPrefix(strings.ToUpper(root), "X:") {
+			continue
+		}
+		path := filepath.Join(root, installPlanFileName)
+		if strings.EqualFold(path, activePath) {
+			continue
+		}
+		_ = os.Remove(path)
+	}
+}
+
+func prepareBootFixMarker(plan *InstallPlan) error {
+	if plan == nil || strings.TrimSpace(plan.BootPartRef) == "" {
+		return nil
+	}
+
+	part, err := findBootPartition(plan.BootPartRef)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(strings.TrimSpace(part.Type), "EFI") {
+		return nil
+	}
+
+	clearAllESPFixMarkers()
+
+	espRoot, cleanup, err := disk.EnsureESPRoot(part)
+	if err != nil {
+		return fmt.Errorf("mount EFI partition for marker failed: %w", err)
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
+
+	markerPath := filepath.Join(espRoot, espFixMarkerFile)
+	if err := os.WriteFile(markerPath, []byte("marker=esp_fix_win\n"), 0o644); err != nil {
+		return fmt.Errorf("write %s failed: %w", markerPath, err)
+	}
+	return nil
+}
+
+func clearAllESPFixMarkers() {
+	disks, err := disk.ListPhysicalDisks()
+	if err != nil {
+		return
+	}
+
+	for _, d := range disks {
+		parts, err := disk.ListDiskPartitions(d.DiskNumber)
+		if err != nil {
+			continue
+		}
+		for _, part := range parts {
+			if !strings.EqualFold(strings.TrimSpace(part.Type), "EFI") {
+				continue
+			}
+			espRoot, cleanup, err := disk.EnsureESPRoot(part)
+			if err != nil {
+				continue
+			}
+			_ = os.Remove(filepath.Join(espRoot, espFixMarkerFile))
+			if cleanup != nil {
+				cleanup()
+			}
+		}
+	}
+}
+
+func findBootPartitionByMarker(plan *InstallPlan) (disk.PartitionInfo, error) {
+	disks, err := disk.ListPhysicalDisks()
+	if err != nil {
+		return disk.PartitionInfo{}, err
+	}
+
+	targetDisk := -1
+	if plan != nil {
+		if root, err := utils.NormalizeDrive(plan.TargetRoot, 0); err == nil && root != "" {
+			if num, err := disk.GetDiskNum(root); err == nil {
+				targetDisk = int(num)
+			}
+		}
+	}
+
+	candidates := make([]disk.PartitionInfo, 0, 2)
+	for _, d := range disks {
+		parts, err := disk.ListDiskPartitions(d.DiskNumber)
+		if err != nil {
+			continue
+		}
+		for _, part := range parts {
+			if !strings.EqualFold(strings.TrimSpace(part.Type), "EFI") {
+				continue
+			}
+
+			espRoot, cleanup, err := disk.EnsureESPRoot(part)
+			if err != nil {
+				continue
+			}
+			_, statErr := os.Stat(filepath.Join(espRoot, espFixMarkerFile))
+			if cleanup != nil {
+				cleanup()
+			}
+			if statErr == nil {
+				candidates = append(candidates, part)
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return disk.PartitionInfo{}, fmt.Errorf("%s not found", espFixMarkerFile)
+	}
+	if targetDisk >= 0 {
+		for _, part := range candidates {
+			if part.DiskNumber == targetDisk {
+				return part, nil
+			}
+		}
+	}
+	return candidates[0], nil
 }
 
 // captureInstallImageLocation 记录镜像所在磁盘与卷的元数据。
@@ -431,7 +589,6 @@ func captureInstallImageLocation(plan *InstallPlan) error {
 	}
 
 	plan.DiskPath = ""
-	plan.VolumeGUID = ""
 	plan.DiskUniqueID = ""
 	plan.ImageRel = ""
 
@@ -457,16 +614,6 @@ func captureInstallImageLocation(plan *InstallPlan) error {
 		}
 	}
 
-	if vols, err := disk.ListVolumes(); err == nil {
-		for _, v := range vols {
-			vRoot, _ := utils.NormalizeDrive(v.RootPath, 0)
-			if strings.EqualFold(vRoot, imageRoot) {
-				plan.VolumeGUID = strings.TrimSpace(v.VolumeGuidPath)
-				break
-			}
-		}
-	}
-
 	return nil
 }
 
@@ -481,6 +628,7 @@ func LoadInstallPlan() (*InstallPlan, error) {
 		root  string
 		path  string
 		score int
+		modAt time.Time
 	}
 
 	var hits []hit
@@ -490,8 +638,9 @@ func LoadInstallPlan() (*InstallPlan, error) {
 			continue
 		}
 
-		cand := filepath.Join(root, "restall_win.dat")
-		if _, err := os.Stat(cand); err != nil {
+		cand := filepath.Join(root, installPlanFileName)
+		info, err := os.Stat(cand)
+		if err != nil {
 			continue
 		}
 
@@ -508,11 +657,12 @@ func LoadInstallPlan() (*InstallPlan, error) {
 		case "Removable":
 			score -= 50
 		}
-		if _, werr := windows.DetectWin(root); werr == nil {
-			score += 100
-		}
-
-		hits = append(hits, hit{root: root, path: cand, score: score})
+		hits = append(hits, hit{
+			root:  root,
+			path:  cand,
+			score: score,
+			modAt: info.ModTime(),
+		})
 	}
 
 	if len(hits) == 0 {
@@ -521,9 +671,13 @@ func LoadInstallPlan() (*InstallPlan, error) {
 
 	for len(hits) > 0 {
 		bestIdx := -1
+		var bestMod time.Time
 		bestScore := -1
 		for i := range hits {
-			if hits[i].score > bestScore {
+			if bestIdx < 0 ||
+				hits[i].modAt.After(bestMod) ||
+				(hits[i].modAt.Equal(bestMod) && hits[i].score > bestScore) {
+				bestMod = hits[i].modAt
 				bestScore = hits[i].score
 				bestIdx = i
 			}
@@ -600,8 +754,6 @@ func parseInstallPlanData(data string, defaultTargetRoot string) (*InstallPlan, 
 			plan.DiskPath = val
 		case "image":
 			plan.ImagePath = val
-		case "volume_guid":
-			plan.VolumeGUID = val
 		case "disk_unique_id":
 			plan.DiskUniqueID = val
 		case "image_rel":
@@ -652,9 +804,6 @@ func parseInstallPlanData(data string, defaultTargetRoot string) (*InstallPlan, 
 			plan.Flags.NeedCopyXMLAfterBoot = parsePlanBool(val)
 		}
 	}
-	if strings.TrimSpace(plan.TargetPartRef) == "" {
-		return nil, fmt.Errorf("target_part_ref is required")
-	}
 	return plan, nil
 }
 
@@ -679,17 +828,17 @@ func ResolveInstallTarget(plan *InstallPlan) error {
 		return fmt.Errorf("install plan is nil")
 	}
 
-	if strings.TrimSpace(plan.TargetPartRef) != "" {
+	if strings.TrimSpace(plan.TargetPartRef) != "" && strings.TrimSpace(plan.TargetRoot) == "" {
 		_, part, err := disk.FindPartitionByRef(plan.TargetPartRef)
 		if err != nil {
-			return err
+			log.LogWrite(0, "[ResolveInstallTarget] ignore invalid target_part_ref=%s err=%v", plan.TargetPartRef, err)
+		} else {
+			root, err := partitionRootFromInfo(part)
+			if err != nil {
+				return err
+			}
+			plan.TargetRoot = root
 		}
-		root, err := partitionRootFromInfo(part)
-		if err != nil {
-			return err
-		}
-		plan.TargetRoot = root
-		return EnsureInstallImageOutsideTarget(plan)
 	}
 
 	if root, err := utils.NormalizeDrive(plan.TargetRoot, 0); err == nil {
@@ -700,10 +849,6 @@ func ResolveInstallTarget(plan *InstallPlan) error {
 	}
 	if strings.TrimSpace(plan.TargetRoot) == "" {
 		return fmt.Errorf("未找到可用系统分区")
-	}
-
-	if err := captureInstallTargetLocation(plan); err != nil {
-		return err
 	}
 
 	return EnsureInstallImageOutsideTarget(plan)
@@ -774,6 +919,16 @@ func FormatTargetPartition(plan *InstallPlan) error {
 func chooseInstallTargetRoot() string {
 	parts := disk.Findpart()
 	if len(parts) > 0 {
+		for idx, part := range parts {
+			root, _ := utils.NormalizeDrive(part, 0)
+			log.LogWrite(
+				0,
+				"[chooseInstallTargetRoot] candidate partition[%d]=%s normalized=%s",
+				idx,
+				part,
+				root,
+			)
+		}
 		log.LogWrite(0, "[chooseInstallTargetRoot] selected uninstalled system partition: %s", parts[0])
 		root, _ := utils.NormalizeDrive(parts[0], 0)
 		return root
@@ -782,14 +937,18 @@ func chooseInstallTargetRoot() string {
 	drives, _ := disk.ListDrive()
 	for _, d := range drives {
 		if strings.HasPrefix(strings.ToUpper(d), "X:") {
+			log.LogWrite(0, "[chooseInstallTargetRoot] skip PE ramdisk: %s", d)
 			continue
 		}
-		if disk.GetDriveType(d) == 3 {
+		driveType := disk.GetDriveType(d)
+		log.LogWrite(0, "[chooseInstallTargetRoot] probe fallback drive=%s type=%d", d, driveType)
+		if driveType == 3 {
 			log.LogWrite(0, "[chooseInstallTargetRoot] fallback selected fixed drive partition: %s", d)
 			root, _ := utils.NormalizeDrive(d, 0)
 			return root
 		}
 	}
+	log.LogWrite(0, "[chooseInstallTargetRoot] no suitable partition found")
 	return ""
 }
 
@@ -1111,19 +1270,17 @@ func WriteResFile(imagePath string, target, arch string, index int) error {
 }
 
 // LoadResData 保留旧读取入口并展开安装计划字段。
-func LoadResData() (targetRoot string, diskPath string, imagePath string, volumeGuid string, diskUniqueID string, imageRel string, targetOS string, arch string, index int, err error) {
+func LoadResData() (targetRoot string, diskPath string, imagePath string, diskUniqueID string, imageRel string, targetOS string, arch string, index int, err error) {
 	plan, err := LoadInstallPlan()
 	if err != nil {
-		return "", "", "", "", "", "", "", "", 0, err
+		return "", "", "", "", "", "", "", 0, err
 	}
-	return plan.TargetRoot, plan.DiskPath, plan.ImagePath, plan.VolumeGUID, plan.DiskUniqueID, plan.ImageRel, plan.TargetOS, plan.ImageArch, plan.ImageIndex, nil
+	return plan.TargetRoot, plan.DiskPath, plan.ImagePath, plan.DiskUniqueID, plan.ImageRel, plan.TargetOS, plan.ImageArch, plan.ImageIndex, nil
 }
 
-// ResolveImagePath 保留旧入口并恢复镜像路径。
-func ResolveImagePath(diskPath, volumeGuid, diskUniqueID, imagePath, imageRel string) (string, error) {
+func ResolveImagePath(diskPath, diskUniqueID, imagePath, imageRel string) (string, error) {
 	return RecoverInstallImagePath(&InstallPlan{
 		DiskPath:     diskPath,
-		VolumeGUID:   volumeGuid,
 		DiskUniqueID: diskUniqueID,
 		ImagePath:    imagePath,
 		ImageRel:     imageRel,

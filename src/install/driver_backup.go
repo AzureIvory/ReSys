@@ -136,14 +136,33 @@ func ensureDriverBackupWorkspace(plan *InstallPlan) error {
 		return nil
 	}
 
-	if freeBytes, err := disk.GetFreeSize(imageRoot); err == nil && freeBytes >= driverBackupReserveBytes {
-		return nil
+	if freeBytes, err := disk.GetFreeSize(imageRoot); err == nil {
+		log.LogWrite(
+			0,
+			"[ensureDriverBackupWorkspace] imageRoot=%s free=%d(%.2fGiB) reserve=%d(%.2fGiB)",
+			imageRoot,
+			freeBytes,
+			float64(freeBytes)/1024/1024/1024,
+			driverBackupReserveBytes,
+			float64(driverBackupReserveBytes)/1024/1024/1024,
+		)
+		if freeBytes >= driverBackupReserveBytes {
+			return nil
+		}
+	} else {
+		log.LogWrite(0, "[ensureDriverBackupWorkspace] read free size failed: root=%s err=%v", imageRoot, err)
 	}
 
 	needBytes, err := fileSize(imagePath)
 	if err != nil {
 		return err
 	}
+	log.LogWrite(
+		0,
+		"[ensureDriverBackupWorkspace] image size=%d(%.2fGiB), start relocation",
+		needBytes,
+		float64(needBytes)/1024/1024/1024,
+	)
 
 	if movedPath, moved, err := moveImageToDisk(imagePath, imageRoot, needBytes); err != nil {
 		return err

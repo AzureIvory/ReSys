@@ -65,7 +65,7 @@ func findInstallImage(plan *InstallPlan) (string, error) {
 
 // RecoverInstallImagePath 根据安装计划中持久化的信息恢复镜像路径。
 //
-// 它会依次尝试绝对路径、相对路径、卷 GUID、磁盘标识和恢复记录。
+// 它会依次尝试绝对路径、相对路径、磁盘标识和恢复记录。
 func RecoverInstallImagePath(plan *InstallPlan) (string, error) {
 	if plan == nil {
 		return "", fmt.Errorf("安装计划为空")
@@ -116,27 +116,6 @@ func RecoverInstallImagePath(plan *InstallPlan) (string, error) {
 		return "", false
 	}
 
-	if volumeGUID := strings.TrimSpace(plan.VolumeGUID); volumeGUID != "" {
-		if vols, err := disk.ListVolumes(); err == nil {
-			for _, v := range vols {
-				if strings.EqualFold(strings.TrimRight(v.VolumeGuidPath, `\`), strings.TrimRight(volumeGUID, `\`)) {
-					root := v.RootPath
-					if root == "" {
-						root = v.VolumeGuidPath
-					}
-					if cand, ok := tryRoot(root); ok {
-						plan.ImagePath = cand
-						return cand, nil
-					}
-					log.LogWrite(0, "[RecoverInstallImagePath] volume guid matched but image missing: %s", volumeGUID)
-					break
-				}
-			}
-		} else {
-			log.LogWrite(0, "[RecoverInstallImagePath] list volumes failed: %v", err)
-		}
-	}
-
 	if diskUniqueID := strings.TrimSpace(plan.DiskUniqueID); diskUniqueID != "" {
 		if disks, err := disk.ListPhysicalDisks(); err == nil {
 			for _, d := range disks {
@@ -176,7 +155,7 @@ func RecoverInstallImagePath(plan *InstallPlan) (string, error) {
 
 	roots, _ := disk.ListDrive()
 	for _, root := range roots {
-		imgDat := filepath.Join(root, "restall_img.dat")
+		imgDat := filepath.Join(root, imageHintFileName)
 		if _, err := os.Stat(imgDat); err != nil {
 			continue
 		}
@@ -288,26 +267,52 @@ func EnsureInstallImageOutsideTarget(plan *InstallPlan) error {
 // moveImageToDisk 尝试把镜像迁移到其他固定数据盘。
 func moveImageToDisk(imgPath, systemRoot string, needBytes uint64) (string, bool, error) {
 	extraBytes := uint64(512*1024*1024) + driverBackupWorkspaceReserveBytes()
+	requiredBytes := needBytes + extraBytes
 
 	var (
 		bestRoot string
 		bestFree uint64
 	)
 
+	log.LogWrite(
+		0,
+		"[moveImageToDisk] evaluate candidates: image=%s exclude=%s need=%d(%.2fGiB) extra=%d(%.2fGiB) required=%d(%.2fGiB)",
+		imgPath,
+		systemRoot,
+		needBytes,
+		float64(needBytes)/1024/1024/1024,
+		extraBytes,
+		float64(extraBytes)/1024/1024/1024,
+		requiredBytes,
+		float64(requiredBytes)/1024/1024/1024,
+	)
+
 	for _, root := range getotherVolumes(systemRoot) {
 		freeBytes, err := disk.GetFreeSize(root)
 		if err != nil {
+			log.LogWrite(0, "[moveImageToDisk] read free size failed: root=%s err=%v", root, err)
 			continue
 		}
-		if freeBytes >= needBytes+extraBytes && freeBytes > bestFree {
+		log.LogWrite(
+			0,
+			"[moveImageToDisk] candidate root=%s free=%d(%.2fGiB) required=%d(%.2fGiB)",
+			root,
+			freeBytes,
+			float64(freeBytes)/1024/1024/1024,
+			requiredBytes,
+			float64(requiredBytes)/1024/1024/1024,
+		)
+		if freeBytes >= requiredBytes && freeBytes > bestFree {
 			bestRoot = root
 			bestFree = freeBytes
 		}
 	}
 
 	if bestRoot == "" {
+		log.LogWrite(0, "[moveImageToDisk] no fixed volume satisfies required=%d(%.2fGiB)", requiredBytes, float64(requiredBytes)/1024/1024/1024)
 		return "", false, nil
 	}
+	log.LogWrite(0, "[moveImageToDisk] choose destination root=%s free=%d(%.2fGiB)", bestRoot, bestFree, float64(bestFree)/1024/1024/1024)
 
 	ui.UiSetStatus(ui.Tr("install.image.moveToOtherDisk"))
 	movedPath, err := moveImageFile(imgPath, bestRoot, "tempimg")
