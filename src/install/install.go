@@ -828,6 +828,11 @@ func ResolveInstallTarget(plan *InstallPlan) error {
 		return fmt.Errorf("install plan is nil")
 	}
 
+	if plan.Mode == ReinstallModeAuto && !windows.IsWinPE() {
+		plan.TargetRoot = `C:\`
+		log.LogWrite(0, "[ResolveInstallTarget] auto mode on Windows, force target root: %s", plan.TargetRoot)
+	}
+
 	if strings.TrimSpace(plan.TargetPartRef) != "" && strings.TrimSpace(plan.TargetRoot) == "" {
 		_, part, err := disk.FindPartitionByRef(plan.TargetPartRef)
 		if err != nil {

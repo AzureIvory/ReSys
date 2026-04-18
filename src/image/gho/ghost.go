@@ -138,7 +138,7 @@ func (g *Ghost) GetImageInfo(path string) (ImageInfo, error) {
 	return info, nil
 }
 
-// RestoreImage 涓殑 diskNumber/partitionNumber 鏄紶缁欑粰 Ghost CLI 鐨?1-based 缂栧彿銆?
+// RestoreImage keeps diskNumber/partitionNumber as 1-based values for Ghost CLI.
 func (g *Ghost) RestoreImage(ctx context.Context, ghoFile string, diskNumber uint32, partitionNumber uint32, progress chan<- Progress) error {
 	if err := g.ensureReady(ghoFile); err != nil {
 		return err
@@ -153,7 +153,7 @@ func (g *Ghost) RestoreImage(ctx context.Context, ghoFile string, diskNumber uin
 	return g.runOperation(ctx, status, info.EstimatedRestoreBytes, progress, args...)
 }
 
-// RestoreImageToLetter 鎶?Windows 0-based 磁盘号杞垚 Ghost 1-based 磁盘号锛涘垎鍖哄彿鏈韩灏辨槸 1-based锛屽洜姝や笉鍋氬亸绉汇€?
+// RestoreImageToLetter maps Windows 0-based disk numbers to Ghost 1-based numbers; partition numbers are already 1-based, so no offset is applied.
 func (g *Ghost) RestoreImageToLetter(ctx context.Context, ghoFile string, letter string, partitions []Partition, progress chan<- Progress) error {
 	target, err := normalizeLetter(letter)
 	if err != nil {

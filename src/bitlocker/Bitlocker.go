@@ -1143,12 +1143,8 @@ func looksLikeKeyProtectorsPresent(output string) bool {
 
 	l := strings.ToLower(output)
 	if strings.Contains(l, "no key protectors found") ||
-		strings.Contains(l, "bitlocker drive encryption is not enabled") { /*
-			strings.Contains(output, "鏈惎鐢?) ||
-			strings.Contains(output, "鏈姝ら┍鍔ㄥ櫒鍚敤") ||
-			strings.Contains(output, "鏈壘鍒板瘑閽ヤ繚鎶ゅ櫒") ||
-			strings.Contains(output, "娌℃湁瀵嗛挜淇濇姢鍣?") {
-		*/return false
+		strings.Contains(l, "bitlocker drive encryption is not enabled") {
+		return false
 	}
 
 	idPattern := regexp.MustCompile(`(?im)^\s*id\s*:\s*\{[0-9a-f-]+\}\s*$`)

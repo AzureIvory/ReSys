@@ -59,7 +59,7 @@ var passwordLayouts = []passwordLayout{
 	{Name: "V3", FlagOffset: 0x28, LengthOffset: 0x29, DataOffset: 0x2C, Keys: []byte{0xAA, 0x55, 0xFF, 0x5A, 0xA5, 0x00}},
 }
 
-// ReadPasswordInfo 鎸夊涓凡鐭ュ亸绉诲拰澶囩敤鍖哄煙鍚彂寮忚В鏋?GHO/GHS 鍙兘鐨勫瘑鐮佸瓧娈点€?
+// ReadPasswordInfo heuristically parses password fields in GHO/GHS using known offsets and fallback regions.
 func ReadPasswordInfo(path string) PasswordInfo {
 	header, err := InspectImage(path)
 	if err != nil {

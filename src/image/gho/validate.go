@@ -38,13 +38,13 @@ type ImageHeader struct {
 	Warnings      []string
 }
 
-// ValidateImage 鍙仛闀滃儚鍩虹鏍￠獙锛氭枃浠跺瓨鍦ㄣ€佸ぇ灏忋€佹墿灞曞悕銆佸凡鐭ョ殑 Ghost 绛惧悕銆?
+// ValidateImage only performs basic image checks: existence, size, extension, and known Ghost signatures.
 func ValidateImage(path string) error {
 	_, err := InspectImage(path)
 	return err
 }
 
-// InspectImage 鎵嬪伐鎸夊浐瀹氬亸绉昏В鏋?GHO/GHS 鏂囦欢澶达紝涓嶄娇鐢?packed struct 鏄犲皠銆?
+// InspectImage manually parses the fixed-offset GHO/GHS header without using packed struct mapping.
 func InspectImage(path string) (ImageHeader, error) {
 	filePath, size, ext, err := validateImagePath(path)
 	if err != nil {

@@ -132,17 +132,17 @@ type pathToken struct {
 func ParseRuleFile(rulePath string) (*RuleParseResult, error) {
 	rulePath = strings.TrimSpace(rulePath)
 	if rulePath == "" {
-		return nil, fmt.Errorf("瑙勫垯鏂囦欢璺緞涓嶈兘涓虹┖")
+		return nil, fmt.Errorf("规则文件路径不能为空")
 	}
 
 	b, err := os.ReadFile(rulePath)
 	if err != nil {
-		return nil, fmt.Errorf("璇诲彇瑙勫垯鏂囦欢澶辫触: %w", err)
+		return nil, fmt.Errorf("读取规则文件失败: %w", err)
 	}
 
 	var rf ruleFile
 	if err := json.Unmarshal(b, &rf); err != nil {
-		return nil, fmt.Errorf("瑙ｆ瀽瑙勫垯鏂囦欢澶辫触: %w", err)
+		return nil, fmt.Errorf("解析规则文件失败: %w", err)
 	}
 
 	rf.Method = strings.ToLower(strings.TrimSpace(rf.Method))
@@ -172,7 +172,7 @@ func ParseRuleFile(rulePath string) (*RuleParseResult, error) {
 		case "section_kv_group_v1":
 			res.Items, err = parseSectionKVGroupRule(rf)
 		default:
-			err = fmt.Errorf("涓嶆敮鎸佺殑 parser: %s", rf.Parser)
+			err = fmt.Errorf("不支持的 parser: %s", rf.Parser)
 		}
 	case len(rf.Items) > 0:
 		res.Mode = "items"
@@ -181,7 +181,7 @@ func ParseRuleFile(rulePath string) (*RuleParseResult, error) {
 		res.Mode = "rules"
 		res.Items, err = parseRuleRules(rf)
 	default:
-		err = fmt.Errorf("瑙勫垯鏂囦欢涓棦娌℃湁 items 涔熸病鏈?rules")
+		err = fmt.Errorf("规则文件中既没有 items 也没有 rules")
 	}
 	if err != nil {
 		return nil, err
@@ -275,7 +275,7 @@ func parseRuleItems(rf ruleFile) ([]RuleItem, error) {
 	for _, key := range keys {
 		rawMap, ok := rf.Items[key].(map[string]any)
 		if !ok {
-			return nil, fmt.Errorf("items.%s 涓嶆槸瀵硅薄", key)
+			return nil, fmt.Errorf("items.%s 不是对象", key)
 		}
 		it, err := buildRuleItemFromMap(key, rawMap, rf.System, rf.SizeUnit)
 		if err != nil {
@@ -290,7 +290,7 @@ func parseRuleItems(rf ruleFile) ([]RuleItem, error) {
 func parseRuleRules(rf ruleFile) ([]RuleItem, error) {
 	urls := sortedStringMapValues(rf.URL)
 	if len(urls) == 0 {
-		return nil, fmt.Errorf("rules 妯″紡缂哄皯 url")
+		return nil, fmt.Errorf("rules 模式缺少 url")
 	}
 
 	var out []RuleItem
@@ -324,15 +324,15 @@ func parseRuleRules(rf ruleFile) ([]RuleItem, error) {
 		return out, nil
 	}
 	if len(errs) == 0 {
-		return nil, fmt.Errorf("瑙勫垯鏈В鏋愬嚭浠讳綍缁撴灉")
+		return nil, fmt.Errorf("规则未解析出任何结果")
 	}
-	return nil, fmt.Errorf("瑙勫垯瑙ｆ瀽澶辫触: %s", strings.Join(errs, " | "))
+	return nil, fmt.Errorf("规则解析失败: %s", strings.Join(errs, " | "))
 }
 
 func parseSectionKVGroupRule(rf ruleFile) ([]RuleItem, error) {
 	urls := sortedStringMapValues(rf.URL)
 	if len(urls) == 0 {
-		return nil, fmt.Errorf("section_kv_group_v1 妯″紡缂哄皯 url")
+		return nil, fmt.Errorf("section_kv_group_v1 模式缺少 url")
 	}
 
 	var out []RuleItem
@@ -366,9 +366,9 @@ func parseSectionKVGroupRule(rf ruleFile) ([]RuleItem, error) {
 		return out, nil
 	}
 	if len(errs) == 0 {
-		return nil, fmt.Errorf("瑙勫垯鏈В鏋愬嚭浠讳綍缁撴灉")
+		return nil, fmt.Errorf("规则未解析出任何结果")
 	}
-	return nil, fmt.Errorf("瑙勫垯瑙ｆ瀽澶辫触: %s", strings.Join(errs, " | "))
+	return nil, fmt.Errorf("规则解析失败: %s", strings.Join(errs, " | "))
 }
 
 func parseSectionKVGroupText(rf ruleFile, text string, sourceURL string) ([]RuleItem, error) {
@@ -420,7 +420,7 @@ func parseSectionKVGroupText(rf ruleFile, text string, sourceURL string) ([]Rule
 	}
 
 	if len(out) == 0 {
-		return nil, fmt.Errorf("鏈В鏋愬嚭浠讳綍鍒嗙粍缁撴灉")
+		return nil, fmt.Errorf("未解析出任何分组结果")
 	}
 	return out, nil
 }
@@ -428,7 +428,7 @@ func parseSectionKVGroupText(rf ruleFile, text string, sourceURL string) ([]Rule
 func fetchRuleBytes(rf ruleFile, rawURL string) ([]byte, error) {
 	rawURL = strings.TrimSpace(rawURL)
 	if rawURL == "" {
-		return nil, fmt.Errorf("url 涓虹┖")
+		return nil, fmt.Errorf("url 为空")
 	}
 
 	b, err := doRuleRequest(rf, rawURL, "")
@@ -474,14 +474,14 @@ func doRuleRequest(rf ruleFile, rawURL string, extraCookie string) ([]byte, erro
 		if method == http.MethodPost && len(rf.Data) > 0 {
 			b, err := json.Marshal(rf.Data)
 			if err != nil {
-				return nil, fmt.Errorf("搴忓垪鍖?post 鏁版嵁澶辫触: %w", err)
+				return nil, fmt.Errorf("序列化 POST 数据失败: %w", err)
 			}
 			body = bytes.NewReader(b)
 		}
 
 		req, err := http.NewRequest(method, rawURL, body)
 		if err != nil {
-			return nil, fmt.Errorf("鍒涘缓璇锋眰澶辫触: %w", err)
+			return nil, fmt.Errorf("创建请求失败: %w", err)
 		}
 
 		for k, v := range rf.Headers {
@@ -522,7 +522,7 @@ func doRuleRequest(rf ruleFile, rawURL string, extraCookie string) ([]byte, erro
 		time.Sleep(300 * time.Millisecond)
 	}
 	if lastErr == nil {
-		lastErr = fmt.Errorf("璇锋眰澶辫触")
+		lastErr = fmt.Errorf("请求失败")
 	}
 	return nil, lastErr
 }
@@ -558,7 +558,7 @@ func mergeCookieHeader(existing string, extra string) string {
 
 func fetchRuleBytesViaPowerShell(rf ruleFile, rawURL string, extraCookie string) ([]byte, error) {
 	if runtime.GOOS != "windows" {
-		return nil, fmt.Errorf("powershell 鍥為€€浠呮敮鎸?windows")
+		return nil, fmt.Errorf("PowerShell 回退仅支持 Windows")
 	}
 
 	method := strings.ToUpper(strings.TrimSpace(rf.Method))
@@ -584,7 +584,7 @@ func fetchRuleBytesViaPowerShell(rf ruleFile, rawURL string, extraCookie string)
 	if method == http.MethodPost && len(rf.Data) > 0 {
 		b, err := json.Marshal(rf.Data)
 		if err != nil {
-			return nil, fmt.Errorf("搴忓垪鍖?post 鏁版嵁澶辫触: %w", err)
+				return nil, fmt.Errorf("序列化 POST 数据失败: %w", err)
 		}
 		body = string(b)
 	}
@@ -602,7 +602,7 @@ func fetchRuleBytesViaPowerShell(rf ruleFile, rawURL string, extraCookie string)
 	}
 
 	if exitErr, ok := err.(*exec.ExitError); ok && len(exitErr.Stderr) > 0 {
-		return nil, fmt.Errorf("powershell 璇锋眰澶辫触: %s", strings.TrimSpace(string(exitErr.Stderr)))
+		return nil, fmt.Errorf("PowerShell 请求失败: %s", strings.TrimSpace(string(exitErr.Stderr)))
 	}
 	return nil, err
 }
@@ -663,7 +663,7 @@ func fetchRuleJSON(rf ruleFile, rawURL string) (any, error) {
 
 	var root any
 	if err := json.Unmarshal(b, &root); err != nil {
-		return nil, fmt.Errorf("瑙ｆ瀽鍝嶅簲 JSON 澶辫触: %w", err)
+		return nil, fmt.Errorf("解析响应 JSON 失败: %w", err)
 	}
 	return root, nil
 }
@@ -863,20 +863,20 @@ func resolveStaticPath(root any, expr string) (any, error) {
 		case "field":
 			m, ok := cur.(map[string]any)
 			if !ok {
-				return nil, fmt.Errorf("璺緞 %s 涓嶆槸瀵硅薄", expr)
+				return nil, fmt.Errorf("路径 %s 不是对象", expr)
 			}
 			cur = m[tk.field]
 		case "index":
 			arr, ok := cur.([]any)
 			if !ok {
-				return nil, fmt.Errorf("璺緞 %s 涓嶆槸鏁扮粍", expr)
+				return nil, fmt.Errorf("路径 %s 不是数组", expr)
 			}
 			if tk.index < 0 || tk.index >= len(arr) {
-				return nil, fmt.Errorf("璺緞 %s 涓嬫爣瓒婄晫", expr)
+				return nil, fmt.Errorf("路径 %s 下标越界", expr)
 			}
 			cur = arr[tk.index]
 		default:
-			return nil, fmt.Errorf("璺緞 %s 鍖呭惈鍔ㄦ€佸崰浣嶇", expr)
+			return nil, fmt.Errorf("路径 %s 包含动态占位符", expr)
 		}
 	}
 	return cur, nil
@@ -963,7 +963,7 @@ func parsePath(expr string) ([]pathToken, error) {
 		return nil, nil
 	}
 	if !strings.HasPrefix(expr, "$") {
-		return nil, fmt.Errorf("闈炴硶璺緞: %s", expr)
+		return nil, fmt.Errorf("非法路径: %s", expr)
 	}
 
 	var tokens []pathToken
@@ -976,13 +976,13 @@ func parsePath(expr string) ([]pathToken, error) {
 				i++
 			}
 			if start == i {
-				return nil, fmt.Errorf("闈炴硶璺緞: %s", expr)
+				return nil, fmt.Errorf("非法路径: %s", expr)
 			}
 			tokens = append(tokens, pathToken{kind: "field", field: expr[start:i]})
 		case '[':
 			end := strings.IndexByte(expr[i:], ']')
 			if end < 0 {
-				return nil, fmt.Errorf("闈炴硶璺緞: %s", expr)
+				return nil, fmt.Errorf("非法路径: %s", expr)
 			}
 			end += i
 			part := strings.TrimSpace(expr[i+1 : end])
@@ -994,13 +994,13 @@ func parsePath(expr string) ([]pathToken, error) {
 			default:
 				n, err := strconv.Atoi(part)
 				if err != nil {
-					return nil, fmt.Errorf("闈炴硶涓嬫爣: %s", part)
+					return nil, fmt.Errorf("非法下标: %s", part)
 				}
 				tokens = append(tokens, pathToken{kind: "index", index: n})
 			}
 			i = end + 1
 		default:
-			return nil, fmt.Errorf("闈炴硶璺緞: %s", expr)
+			return nil, fmt.Errorf("非法路径: %s", expr)
 		}
 	}
 	return tokens, nil
@@ -1160,7 +1160,7 @@ func compileGroupRegex(pattern string) (*regexp.Regexp, error) {
 	}
 	rx, err := regexp.Compile(pattern)
 	if err != nil {
-		return nil, fmt.Errorf("group.key_regex 鏃犳晥: %w", err)
+		return nil, fmt.Errorf("group.key_regex 无效: %w", err)
 	}
 	return rx, nil
 }
@@ -1316,7 +1316,7 @@ func buildSectionRuleItem(
 
 		value, err := captureByRegex(sourceValue, extractRule.Regex)
 		if err != nil {
-			return RuleItem{}, false, fmt.Errorf("%s.%s 鎻愬彇澶辫触: %w", sectionName, key, err)
+			return RuleItem{}, false, fmt.Errorf("%s.%s 提取失败: %w", sectionName, key, err)
 		}
 		if strings.TrimSpace(value) == "" {
 			continue

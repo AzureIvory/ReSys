@@ -271,7 +271,7 @@ func legacyRunCmd(bin string, input []byte, onLine func(string), dir string, arg
 	return out, nil
 }
 
-// RunCmdContext 鍦?RunCmd 鐨勫熀纭€涓婂鍔犱簡 context 鎺у埗锛屽苟鍙戣鍙?stdout/stderr锛屽疄鏃剁粰鍥炶皟銆?
+// RunCmdContext adds context control on top of RunCmd and streams stdout/stderr in real time.
 func RunCmdContext(ctx context.Context, bin string, input []byte, onLine func(string), dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
@@ -353,7 +353,7 @@ func RunCmdContext(ctx context.Context, bin string, input []byte, onLine func(st
 		return out, fmt.Errorf("read command output failed: %w", pipeErr)
 	}
 	if waitErr != nil {
-		log.LogWrite(0, "[runCmd]runCmd 鎵ц澶辫触: bin=%s args=%v err=%v", bin, args, waitErr)
+		log.LogWrite(0, "[runCmd]runCmd 执行失败: bin=%s args=%v err=%v", bin, args, waitErr)
 		return out, fmt.Errorf("%s %v failed: %w\n%s", bin, args, waitErr, out)
 	}
 	return out, nil

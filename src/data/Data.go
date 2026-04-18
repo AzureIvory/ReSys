@@ -15,10 +15,10 @@ import (
 	"strings"
 )
 
-// WinPEImg 琛ㄧず宸茬粡瀹屾垚鑱氬悎鍜岃鑼冨寲鐨?WinPE 涓嬭浇椤广€?
+// WinPEImg represents a normalized WinPE download item.
 //
-// PE 涓嬭浇娴佺▼浠嶇劧闇€瑕佷繚鐣欏亸绉婚噺銆佸垎缁勫悕鍜屾牎楠屼俊鎭紝
-// 杩欎簺瀛楁涓嶉€傚悎鐩存帴鎸傚湪閫氱敤鐨?RuleItem 涓娿€?
+// WinPE downloads still need offsets, group names, and checksums,
+// so those fields stay off the generic RuleItem.
 type WinPEImg struct {
 	Name        string
 	Arch        string
@@ -31,10 +31,9 @@ type WinPEImg struct {
 	OffsetEnd   int64
 }
 
-// ruleItemsSource 琛ㄧず鍗曚釜瑙勫垯鏂囦欢瑙ｆ瀽鍚庣殑鑱氬悎缁撴灉銆?
-//
-// Source銆丷ank 鍜?RulePath 灞炰簬瑙勫垯鏂囦欢绾у厓鏁版嵁锛?
-// Items 鍒欐槸璇ヨ鍒欐枃浠朵骇鍑虹殑缁熶竴鏉＄洰鍒楄〃銆?
+// ruleItemsSource represents the aggregated result of one parsed rule file.
+// Source, Rank, and RulePath are file-level metadata,
+// Items is the unified item list produced by that file.
 type ruleItemsSource struct {
 	RulePath string
 	Source   string
@@ -42,10 +41,9 @@ type ruleItemsSource struct {
 	Items    []RuleItem
 }
 
-// imageRuleCandidate 琛ㄧず瑙勮寖鍖栧悗鐨勯暅鍍忚鍒欓」鍙婂叾鏉ユ簮淇℃伅銆?
-//
-// 杩欓噷棰濆淇濈暀瑙勫垯鏂囦欢璺緞銆佹潵婧愬悕鍜?Rank锛?
-// 渚夸簬鑱氬悎鍚庡仛绋冲畾鎺掑簭鍜岃法鏂囦欢鍘婚噸銆?
+// imageRuleCandidate represents a normalized image rule item and its origin.
+// We keep the rule file path, source name, and Rank so aggregation can sort
+// and deduplicate across files consistently.
 type imageRuleCandidate struct {
 	Item     RuleItem
 	RulePath string
@@ -53,7 +51,7 @@ type imageRuleCandidate struct {
 	Rank     int
 }
 
-// peRuleCandidate 琛ㄧず瑙勮寖鍖栧悗鐨?PE 鍊欓€夐」鍙婂叾鏉ユ簮淇℃伅銆?
+// peRuleCandidate represents a normalized PE candidate and its origin.
 type peRuleCandidate struct {
 	Item     WinPEImg
 	RulePath string
@@ -61,10 +59,10 @@ type peRuleCandidate struct {
 	Rank     int
 }
 
-// GetInstallImageItems 鎵弿鎸囧畾绯荤粺鐩綍涓嬬殑鍏ㄩ儴闀滃儚瑙勫垯銆?
+// GetInstallImageItems scans all image rules under the target system directory.
 //
-// 璇ュ嚱鏁颁細瀹屾垚瑙勮寖鍖栥€佸幓閲嶅拰鎺掑簭锛屾渶缁堣繑鍥炲彲鐩存帴鐢ㄤ簬涓嬭浇鐨?RuleItem 鍒楄〃銆?
-// 鏂拌鍒欏彧瑕佹斁杩涘搴旂郴缁熺洰褰曞苟閫氳繃瑙ｆ瀽锛屽氨浼氳嚜鍔ㄥ弬涓庣粨鏋滆仛鍚堛€?
+// It normalizes, deduplicates, and sorts the result before returning the
+// final RuleItem list that can be used directly for downloads.
 func GetInstallImageItems(system string) ([]RuleItem, error) {
 	systemCode, err := normalizeSystemCode(system)
 	if err != nil {
@@ -78,7 +76,7 @@ func GetInstallImageItems(system string) ([]RuleItem, error) {
 
 	sources, err := loadRules(dir)
 	if err != nil {
-		log.LogWrite(0, "[GetInstallImageItems] 鍔犺浇闀滃儚瑙勫垯澶辫触: system=%s err=%v", systemCode, err)
+		log.LogWrite(0, "[GetInstallImageItems] 加载镜像规则失败: system=%s err=%v", systemCode, err)
 		return nil, err
 	}
 
@@ -112,18 +110,18 @@ func GetInstallImageItems(system string) ([]RuleItem, error) {
 		out = append(out, cand.Item)
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("鏈壘鍒板彲鐢ㄧ殑闀滃儚瑙勫垯缁撴灉")
+		return nil, fmt.Errorf("未找到可用的镜像规则结果")
 	}
 	return out, nil
 }
 
-// RuleItemFileName 杩斿洖瑙勫垯椤瑰缓璁娇鐢ㄧ殑鏂囦欢鍚嶃€?
+// RuleItemFileName returns the recommended filename for a rule item.
 //
-// 浼樺厛绾у涓嬶細
-// 1. 瑙勫垯閲屾樉寮忕粰鍑虹殑 FileName
-// 2. 浠庝笅杞介摼鎺ラ噷鎺ㄥ鍑虹殑 basename
-// 3. 浠呰兘鎷垮埌鎵╁睍鍚嶆椂鍥為€€涓?windows_image.<ext>
-// 4. 鏈€缁堝厹搴曚负 windows_image.iso
+// Priority:
+// 1. Explicit FileName from the rule
+// 2. basename derived from the download URL
+// 3. windows_image.<ext> when only an extension is available
+// 4. fallback to windows_image.iso
 func RuleItemFileName(it RuleItem, ln string) string {
 	if strings.TrimSpace(it.FileName) != "" {
 		return it.FileName
@@ -140,11 +138,11 @@ func RuleItemFileName(it RuleItem, ln string) string {
 	return "windows_image.iso"
 }
 
-// GetWinPE 鎵弿鍏ㄩ儴 PE 瑙勫垯骞惰繑鍥炴帓搴忓悗鐨?PE 鍒楄〃銆?
+// GetWinPE scans all PE rules and returns the sorted PE list.
 func GetWinPE() ([]WinPEImg, error) {
 	candidates, err := loadPERules()
 	if err != nil {
-		log.LogWrite(0, "[GetWinPE] 鍔犺浇 PE 瑙勫垯澶辫触: err=%v", err)
+		log.LogWrite(0, "[GetWinPE] 加载 PE 规则失败: err=%v", err)
 		return nil, err
 	}
 
@@ -153,12 +151,12 @@ func GetWinPE() ([]WinPEImg, error) {
 		out = append(out, cand.Item)
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("鏈壘鍒板彲鐢ㄧ殑 PE 瑙勫垯缁撴灉")
+		return nil, fmt.Errorf("未找到可用的 PE 规则结果")
 	}
 	return out, nil
 }
 
-// splitPipeList 鎶婂舰濡?"a | b" 鎴?"a|b" 鐨勬枃鏈媶鎴愬瓧绗︿覆鍒楄〃銆?
+// splitPipeList splits text like "a | b" or "a|b" into a string slice.
 func splitPipeList(s string) []string {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -176,9 +174,10 @@ func splitPipeList(s string) []string {
 	return out
 }
 
-// parseOffset 瑙ｆ瀽 "璧峰 | 缁撴潫" 褰㈠紡鐨勫亸绉诲尯闂淬€?
+// parseOffset parses a "start | end" offset range.
 //
-// 瀛楁涓虹┖鎴栨牸寮忎笉瀹屾暣鏃惰繑鍥?ok=false锛屼笉鐩存帴瑙嗕负閿欒銆?
+// Empty or incomplete values return ok=false instead of being treated as
+// hard errors.
 func parseOffset(s string) (start, end int64, ok bool, err error) {
 	parts := splitPipeList(s)
 	if len(parts) < 2 {
@@ -196,9 +195,10 @@ func parseOffset(s string) (start, end int64, ok bool, err error) {
 	return start, end, true, nil
 }
 
-// PELnk 杩斿洖褰撳墠绯荤粺鎺ㄨ崘浣跨敤鐨?PE 涓嬭浇淇℃伅銆?
+// PELnk returns the recommended PE download info for the current system.
 //
-// 瑙勫垯浼氬厛鎸?Rank 鍜岀増鏈彿鎺掑簭锛屽啀缁撳悎褰撳墠绯荤粺鏋舵瀯浼樺厛閫夋嫨鍚屾灦鏋勯」銆?
+// Rules are sorted by Rank and version first, then we prefer the matching
+// architecture for the current machine.
 func PELnk() (string, float64, []string, error) {
 	arch := winos.SystemArch()
 	candidates, err := loadPERules()
@@ -213,9 +213,10 @@ func PELnk() (string, float64, []string, error) {
 	return best.Item.Name, best.Item.Sz, append([]string(nil), best.Item.Links...), nil
 }
 
-// loadPERules 閫掑綊鎵弿 pe-sources 鐩綍锛屽苟鎶婅鍒欑粨鏋滆浆鎹㈡垚 WinPEImg銆?
+// loadPERules recursively scans pe-sources and converts the result to WinPEImg.
 //
-// 杩欓噷浼氶澶栧鐞?offset銆佸垎缁勫悕鍜屽幓閲嶆帓搴忥紝渚?GetWinPE 鍜?PELnk 鍏辩敤銆?
+// It also handles offset, group names, and deduped ordering for GetWinPE and
+// PELnk.
 func loadPERules() ([]peRuleCandidate, error) {
 	root, err := peRulesDir()
 	if err != nil {
@@ -293,14 +294,11 @@ func loadPERules() ([]peRuleCandidate, error) {
 
 	sortPE(out)
 	if len(out) == 0 {
-		return nil, fmt.Errorf("鏈壘鍒板彲鐢ㄧ殑 PE 瑙勫垯缁撴灉")
+		return nil, fmt.Errorf("未找到可用的 PE 规则结果")
 	}
 	return out, nil
 }
 
-// selectPE 鍦ㄥ凡鎺掑簭鐨勫€欓€夊垪琛ㄤ腑閫夋嫨鏈€閫傚悎褰撳墠鏋舵瀯鐨勪竴椤广€?
-//
-// 鍏堟壘鍚屾灦鏋勶紝鎵句笉鍒板氨鍥為€€鍒扮涓€椤广€?
 func selectPE(candidates []peRuleCandidate, arch string) (peRuleCandidate, bool) {
 	if len(candidates) == 0 {
 		return peRuleCandidate{}, false
@@ -315,17 +313,18 @@ func selectPE(candidates []peRuleCandidate, arch string) (peRuleCandidate, bool)
 	return candidates[0], true
 }
 
-// loadRules 閫掑綊鎵弿鐩綍涓殑鍏ㄩ儴 json 瑙勫垯鏂囦欢锛屽苟杩囨护鎺夌鐢ㄩ」銆?
+// loadRules recursively scans all JSON rule files under a directory and skips
+// disabled entries.
 //
-// parser.go 璐熻矗瑙ｆ瀽鍗曚釜瑙勫垯鏂囦欢锛岃繖閲屽彧璐熻矗鐩綍鑱氬悎銆佸閿欏拰鎺掑簭銆?
-// 鍙湁褰撴暣涓洰褰曢兘娌℃湁浠讳綍鍙敤缁撴灉鏃讹紝鎵嶈繑鍥為敊璇€?
+// parser.go parses one rule file; this layer only handles directory
+// aggregation, error tolerance, and sorting.
 func loadRules(dir string) ([]ruleItemsSource, error) {
 	files, err := collectJSON(dir)
 	if err != nil {
 		return nil, err
 	}
 	if len(files) == 0 {
-		return nil, fmt.Errorf("瑙勫垯鐩綍涓嬫病鏈夋壘鍒?json 鏂囦欢: %s", dir)
+		return nil, fmt.Errorf("规则目录下没有找到 json 文件: %s", dir)
 	}
 
 	out := make([]ruleItemsSource, 0, len(files))
@@ -333,12 +332,12 @@ func loadRules(dir string) ([]ruleItemsSource, error) {
 	for _, file := range files {
 		res, err := ParseRuleFile(file)
 		if err != nil {
-			log.LogWrite(0, "[loadRules] 瑙ｆ瀽瑙勫垯鏂囦欢澶辫触: file=%s err=%v", file, err)
+			log.LogWrite(0, "[loadRules] 解析规则文件失败: file=%s err=%v", file, err)
 			errs = append(errs, fmt.Sprintf("%s: %v", file, err))
 			continue
 		}
 		if !res.Enabled {
-			log.LogWrite(0, "[loadRules] 璺宠繃宸茬鐢ㄨ鍒? file=%s source=%s", file, res.Source)
+			log.LogWrite(0, "[loadRules] 跳过已禁用规则: file=%s source=%s", file, res.Source)
 			continue
 		}
 		if len(res.Items) == 0 {
@@ -358,12 +357,12 @@ func loadRules(dir string) ([]ruleItemsSource, error) {
 		return out, nil
 	}
 	if len(errs) > 0 {
-		return nil, fmt.Errorf("瑙勫垯鐩綍娌℃湁鎴愬姛鍔犺浇浠讳綍鍙敤瑙勫垯: %s", strings.Join(errs, " | "))
+		return nil, fmt.Errorf("规则目录没有成功加载任何可用规则: %s", strings.Join(errs, " | "))
 	}
-	return nil, fmt.Errorf("瑙勫垯鐩綍涓嬫病鏈夊彲鐢ㄨ鍒欑粨鏋? %s", dir)
+	return nil, fmt.Errorf("规则目录下没有可用规则结果: %s", dir)
 }
 
-// imageRulesDir 杩斿洖鎸囧畾绯荤粺瀵瑰簲鐨勯暅鍍忚鍒欑洰褰曘€?
+// imageRulesDir returns the image rule directory for the selected system.
 func imageRulesDir(system string) (string, error) {
 	root, err := utils.ProjectDir("rules", "core")
 	if err != nil {
@@ -374,10 +373,10 @@ func imageRulesDir(system string) (string, error) {
 	if st, err := os.Stat(dir); err == nil && st.IsDir() {
 		return dir, nil
 	}
-	return "", fmt.Errorf("闀滃儚瑙勫垯鐩綍涓嶅瓨鍦? %s", dir)
+	return "", fmt.Errorf("镜像规则目录不存在: %s", dir)
 }
 
-// peRulesDir 杩斿洖 PE 瑙勫垯鏍圭洰褰曘€?
+// peRulesDir returns the PE rule root directory.
 func peRulesDir() (string, error) {
 	root, err := utils.ProjectDir("rules", "core")
 	if err != nil {
@@ -388,7 +387,7 @@ func peRulesDir() (string, error) {
 	if st, err := os.Stat(dir); err == nil && st.IsDir() {
 		return dir, nil
 	}
-	return "", fmt.Errorf("PE 瑙勫垯鐩綍涓嶅瓨鍦? %s", dir)
+	return "", fmt.Errorf("PE 规则目录不存在: %s", dir)
 }
 
 // collectJSON 递归收集目录下的全部 json 文件，并按路径排序。
@@ -412,7 +411,8 @@ func collectJSON(dir string) ([]string, error) {
 	return out, nil
 }
 
-// normalizeSystemCode 鎶婁笉鍚屽啓娉曠殑绯荤粺鍚嶅綊涓€鎴愯鍒欑洰褰曚娇鐢ㄧ殑鏁板瓧浠ｅ彿銆?
+// normalizeSystemCode normalizes system aliases into the numeric code used by
+// rule directories.
 func normalizeSystemCode(system string) (string, error) {
 	system = strings.ToLower(strings.TrimSpace(system))
 	system = strings.TrimPrefix(system, "windows")
@@ -426,11 +426,11 @@ func normalizeSystemCode(system string) (string, error) {
 	case "7", "8", "10", "11":
 		return system, nil
 	default:
-		return "", fmt.Errorf("涓嶆敮鎸佺殑绯荤粺浠ｅ彿: %s", system)
+		return "", fmt.Errorf("不支持的系统代号: %s", system)
 	}
 }
 
-// normalizeImageRuleItem 鍙暣鐞嗕細褰卞搷绛涢€夈€佹帓搴忓拰鏍￠獙鐨勫瓧娈点€?
+// normalizeImageRuleItem
 func normalizeImageRuleItem(item RuleItem) RuleItem {
 	item.System = strings.TrimSpace(item.System)
 	item.Name = strings.TrimSpace(item.Name)
@@ -445,7 +445,7 @@ func normalizeImageRuleItem(item RuleItem) RuleItem {
 	return item
 }
 
-// buildImageRuleKey 鐢熸垚闀滃儚瑙勫垯鐨勭ǔ瀹氬幓閲嶉敭銆?
+// buildImageRuleKey builds a stable deduplication key for image rules.
 func buildImageRuleKey(it RuleItem) string {
 	return strings.Join([]string{
 		strings.TrimSpace(it.Arch),
@@ -457,7 +457,7 @@ func buildImageRuleKey(it RuleItem) string {
 	}, "|")
 }
 
-// buildWinPEKey 鐢熸垚 WinPE 鍊欓€夐」鐨勭ǔ瀹氬幓閲嶉敭銆?
+// buildWinPEKey builds a stable deduplication key for PE candidates.
 func buildWinPEKey(it WinPEImg) string {
 	return strings.Join([]string{
 		strings.TrimSpace(it.Name),
@@ -469,7 +469,7 @@ func buildWinPEKey(it WinPEImg) string {
 	}, "|")
 }
 
-// sortRuleSources 鎸?Rank銆佹潵婧愬悕鍜岃鍒欒矾寰勫瑙勫垯缁撴灉鍋氱ǔ瀹氭帓搴忋€?
+// sortRuleSources sorts rule results by Rank, source name, and rule path.
 func sortRuleSources(items []ruleItemsSource) {
 	sort.SliceStable(items, func(i, j int) bool {
 		if items[i].Rank != items[j].Rank {
@@ -482,10 +482,10 @@ func sortRuleSources(items []ruleItemsSource) {
 	})
 }
 
-// sortImageRuleCandidates 瀵归暅鍍忓€欓€夐」鍋氭渶缁堟帓搴忋€?
+// sortImageRuleCandidates performs the final ordering for image candidates.
 //
-// 鏇撮珮 Rank 鐨勬潵婧愭帓鍦ㄥ墠闈紱鍚?Rank 涓嬩紭鍏?URL锛?
-// 鍐嶆寜 index銆佹枃浠跺悕鍜屾潵婧愬悕淇濇寔椤哄簭绋冲畾銆?
+// Higher Rank sources come first; within the same Rank we prefer URL, then
+// index, filename, and source name for stable ordering.
 func sortImageRuleCandidates(items []imageRuleCandidate) {
 	sort.SliceStable(items, func(i, j int) bool {
 		if items[i].Rank != items[j].Rank {
@@ -507,9 +507,10 @@ func sortImageRuleCandidates(items []imageRuleCandidate) {
 	})
 }
 
-// sortPE 瀵?PE 鍊欓€夐」鍋氱ǔ瀹氭帓搴忋€?
+// sortPE performs stable ordering for PE candidates.
 //
-// 鍏堢湅 Rank锛屽啀鐪嬪彲姣旇緝鐨勭増鏈彿锛屾渶鍚庡洖閫€鍒板悕绉板拰鏉ユ簮鍚嶃€?
+// We compare Rank first, then the best comparable version, then fall back
+// to name and source.
 func sortPE(items []peRuleCandidate) {
 	sort.SliceStable(items, func(i, j int) bool {
 		if items[i].Rank != items[j].Rank {
@@ -530,17 +531,18 @@ func sortPE(items []peRuleCandidate) {
 	})
 }
 
-// hasImageRuleValue 鍒ゆ柇闀滃儚瑙勫垯鏄惁鑷冲皯鍏峰鏂囦欢鍚嶆垨涓嬭浇閾炬帴銆?
+// hasImageRuleValue reports whether an image rule has at least a filename or
+// download link.
 func hasImageRuleValue(it RuleItem) bool {
 	return strings.TrimSpace(it.FileName) != "" || len(it.Link.Links) > 0
 }
 
-// hasWinPEValue 鍒ゆ柇 PE 瑙勫垯鏄惁鑷冲皯鍏峰鍚嶇О鍜屼笅杞介摼鎺ャ€?
+// hasWinPEValue reports whether a PE rule has at least a name and links.
 func hasWinPEValue(it WinPEImg) bool {
 	return strings.TrimSpace(it.Name) != "" && len(it.Links) > 0
 }
 
-// compactRuleLinks 鍘绘帀绌洪摼鎺ュ苟鎸夐娆″嚭鐜伴『搴忓幓閲嶃€?
+// compactRuleLinks drops empty links and deduplicates by first occurrence.
 func compactRuleLinks(links []string) []string {
 	if len(links) == 0 {
 		return nil
@@ -562,7 +564,7 @@ func compactRuleLinks(links []string) []string {
 	return out
 }
 
-// normalizeArch 鎶婂父瑙佹灦鏋勫埆鍚嶆槧灏勬垚缁熶竴鍊笺€?
+// normalizeArch maps common architecture aliases into a canonical value.
 func normalizeArch(arch string) string {
 	arch = strings.ToLower(strings.TrimSpace(arch))
 	switch {
@@ -577,9 +579,9 @@ func normalizeArch(arch string) string {
 	}
 }
 
-// peGroupFromRule 鏍规嵁瑙勫垯鏂囦欢鐨勭浉瀵硅矾寰勬帹瀵煎垎缁勫悕銆?
+// peGroupFromRule derives the group name from a rule file path.
 //
-// 渚嬪锛?
+// Example:
 // - pe-sources/direct/a.json -> direct
 // - pe-sources/easyrc.json   -> easyrc
 func peGroupFromRule(rulePath, root string) string {
@@ -602,9 +604,8 @@ func peGroupFromRule(rulePath, root string) string {
 
 var versionPattern = regexp.MustCompile(`(\d+(?:\.\d+)?)`)
 
-// ruleVerScore 浠庣増鏈彿鎴栧悕绉伴噷鎻愬彇绗竴涓彲姣旇緝鐨勬暟瀛楃増鏈€?
-//
-// 杩欓噷鍙仛绠€鍗曟帓搴忚緟鍔╋紝涓嶈拷姹傚鏉傝涔夊寲鐗堟湰姣旇緝銆?
+// ruleVerScore extracts the first comparable numeric version from a version
+// string or name.
 func ruleVerScore(values ...string) float64 {
 	for _, value := range values {
 		matches := versionPattern.FindStringSubmatch(strings.TrimSpace(value))

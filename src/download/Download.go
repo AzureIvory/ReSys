@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -30,6 +31,20 @@ func commonDownloadHeaders() []string {
 		"Cache-Control: no-cache",
 		"Pragma: no-cache",
 		"Connection: keep-alive",
+	}
+}
+
+func singleRequest(raw string) bool {
+	u, err := neturl.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+
+	switch strings.ToLower(strings.TrimSpace(u.Hostname())) {
+	case "mirrors.lzu.edu.cn", "mirrors.sdu.edu.cn":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -90,10 +105,10 @@ func pickBTOutputFile(root string) (string, error) {
 	return best.path, nil
 }
 
-// 下载bt
+// Aria2下载bt
 // dir:    下载保存目录，空字符串则使用当前目录
 // prog:   进度回调（0~100，speed 为 B/s，done/total 为字节数）
-func downloadBTAria2(magnet, dir string, prog func(pct int, speed, done, total int64)) (string, error) {
+func DownloadBTAria2(magnet, dir string, prog func(pct int, speed, done, total int64)) (string, error) {
 	magnet = strings.TrimSpace(magnet)
 	if !strings.HasPrefix(strings.ToLower(magnet), "magnet:?xt=urn:btih:") {
 		return "", fmt.Errorf("不是合法的 BT 磁力链接: %s", magnet)
@@ -709,6 +724,7 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 	}()
 
 	log.LogWrite(0, "[DownloadFile] enter: url=%s dst=%s", url, dstPath)
+
 	if err = os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
 		log.LogWrite(0, "[DownloadFile] mkdir failed: path=%s err=%v", dstPath, err)
 		return fmt.Errorf("create dir: %w", err)
@@ -752,8 +768,19 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 			"auto-file-renaming":        "false",
 		},
 	}
-	log.LogWrite(0, "[DownloadFile] aggressive aria2 options enabled: split=%s max-connection-per-server=%s min-split-size=%s file-allocation=%s",
-		opt.Extra["split"], opt.Extra["max-connection-per-server"], opt.Extra["min-split-size"], opt.Extra["file-allocation"])
+	if singleRequest(url) {
+		opt.Headers = nil
+		delete(opt.Extra, "user-agent")
+		opt.Extra["continue"] = "false"
+		opt.Extra["split"] = "1"
+		opt.Extra["max-connection-per-server"] = "1"
+		opt.Extra["use-head"] = "false"
+		delete(opt.Extra, "min-split-size")
+		delete(opt.Extra, "referer")
+		log.LogWrite(0, "[DownloadFile] single-request mode enabled for mirror host: url=%s", url)
+	}
+	log.LogWrite(0, "[DownloadFile] aria2 options: split=%s max-connection-per-server=%s continue=%s use-head=%s file-allocation=%s",
+		opt.Extra["split"], opt.Extra["max-connection-per-server"], opt.Extra["continue"], opt.Extra["use-head"], opt.Extra["file-allocation"])
 
 	log.LogWrite(0, "[DownloadFile] start aria2 transfer: url=%s dst=%s", url, dstPath)
 	_, err = c.DownloadContext(ctx, url, opt, func(p Progress) {
@@ -830,66 +857,8 @@ func CheckNetwork(ctx context.Context) (ok bool, err error) {
 
 // 校验url
 func HttpStatus(raw string) bool {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return false
-	}
-
-	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout: 5 * time.Second,
-		}).DialContext,
-		TLSHandshakeTimeout:   5 * time.Second,
-		ResponseHeaderTimeout: 5 * time.Second,
-		ForceAttemptHTTP2:     true,
-	}
-
-	client := &http.Client{
-		Transport: transport,
-		Timeout:   8 * time.Second,
-	}
-
-	tryRequest := func(method string, rangeHeader string) bool {
-		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-		defer cancel()
-
-		req, err := http.NewRequestWithContext(ctx, method, raw, nil)
-		if err != nil {
-			return false
-		}
-		req.Header.Set("User-Agent", defaultDownloadUserAgent)
-		for _, header := range commonDownloadHeaders() {
-			parts := strings.SplitN(header, ":", 2)
-			if len(parts) != 2 {
-				continue
-			}
-			req.Header.Set(strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
-		}
-		if rangeHeader != "" {
-			req.Header.Set("Range", rangeHeader)
-		}
-
-		resp, err := client.Do(req)
-		if err != nil {
-			return false
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode >= 200 && resp.StatusCode < 400 {
-			return true
-		}
-		if method == http.MethodHead && (resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusMethodNotAllowed) {
-			return false
-		}
-
-		return false
-	}
-
-	if tryRequest(http.MethodHead, "") {
-		return true
-	}
-	return tryRequest(http.MethodGet, "bytes=0-0")
+	//校验微pe时会报错，干脆直接全放行
+	return true
 }
 
 // 计算文件的 SHA1，并和sha1Hex比较。

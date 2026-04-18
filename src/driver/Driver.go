@@ -536,7 +536,7 @@ func (m *DriverManager) ExportDrivers(destination string, oemOnly bool) (int, er
 // - 再不行返回空，让上层去 Windows\INF 回退。
 func (m *DriverManager) ExportDriversByClassGUID(destination string, classGUID string) (int, error) {
 	if err := os.MkdirAll(destination, 0755); err != nil {
-		log.LogWrite(-2, "[ExportDriversByClassGUID]鍒涘缓鐩綍澶辫触: dir=%s err=%v", destination, err)
+		log.LogWrite(-2, "[ExportDriversByClassGUID] 创建目录失败: dir=%s err=%v", destination, err)
 		return 0, err
 	}
 

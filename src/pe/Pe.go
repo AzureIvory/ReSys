@@ -530,19 +530,6 @@ func applyPEBoot(best peCand) error {
 	if _, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/bootsequence", "{"+gd2+"}"); err != nil {
 		return err
 	}
-	/* misplaced patch removed
-		legacy check removed
-			**
-			return fmt.Errorf("鏍￠獙ini澶辫触: 鏃ф棫鍚姩椤逛粛瀛樺湪")
-			**
-			return fmt.Errorf("verify ini failed: legacy launch entry still exists")
-		}
-	**
-	/*
-		legacy check removed
-			return fmt.Errorf("鏍￠獙ini澶辫触: 鏃ф棫鍚姩椤逛粛瀛樺湪")
-		}
-	*/
 	return nil
 }
 
@@ -841,20 +828,6 @@ func removeExecLines(b []byte, lines ...string) ([]byte, error) {
 	return appendExecLine(b, "", lines...)
 }
 
-func findPecmdININame(dirOutput string) (string, bool) {
-	for _, ln := range strings.Split(dirOutput, "\n") {
-		f := strings.Fields(strings.TrimSpace(ln))
-		if len(f) == 0 {
-			continue
-		}
-		name := strings.TrimRight(f[len(f)-1], `\/`)
-		if strings.EqualFold(name, "Pecmd.ini") {
-			return name, true
-		}
-	}
-	return "", false
-}
-
 func decodeTextMaybeUTF16LE(b []byte) string {
 	if len(b) >= 2 && b[0] == 0xFF && b[1] == 0xFE {
 		raw := b[2:]
@@ -939,12 +912,7 @@ func Patwim(wim string) error {
 	if wim == "" {
 		return fmt.Errorf("wim为空")
 	}
-	wimAbs, err := filepath.Abs(wim)
-	if err != nil {
-		log.LogWrite(0, "[Patwim]Patwim 获取绝对路径失败: wim=%s err=%v", wim, err)
-		return err
-	}
-	wim = wimAbs
+	log.LogWrite(0, "[Patwim]Patwim 绝对路径: wim=%s,wimdir=%v", wim, utils.DirExists(wim))
 	if err := ensureWimWritable(wim); err != nil {
 		log.LogWrite(0, "[Patwim]Patwim ensureWimWritable失败: wim=%s err=%v", wim, err)
 		return err
@@ -975,17 +943,14 @@ func Patwim(wim string) error {
 
 	resList := []wimRes{
 		{src: selfExe, dst: peRuntimeDirInWim + `\` + selfName, isDir: false},
-		{src: filepath.Join(dir, "disk.dll"), dst: peRuntimeDirInWim + `\disk.dll`, isDir: false},
 		{src: filepath.Join(dir, "tools"), dst: peRuntimeDirInWim + `\tools`, isDir: true},
+		{src: filepath.Join(dir, "rules"), dst: peRuntimeDirInWim + `\rules`, isDir: true},
 	}
 	legacyResList := []wimRes{
 		{dst: peRuntimeDirInWim, isDir: true},
 		{dst: `\Windows\` + selfName, isDir: false},
-		{dst: `\Windows\Windows.json`, isDir: false},
-		{dst: `\Windows\WinPE.json`, isDir: false},
-		{dst: `\Windows\disk.dll`, isDir: false},
-		{dst: `\Windows\trackers.txt`, isDir: false},
 		{dst: `\Windows\tools`, isDir: true},
+		{dst: `\Windows\rules`, isDir: true},
 	}
 
 	keep := make([]wimRes, 0, len(resList))
@@ -1093,16 +1058,7 @@ func Patwim(wim string) error {
 	}
 
 	for _, idx := range idxs {
-		dout, de := runCmdWithTimeout(wimlib, []string{"dir", wim, strconv.Itoa(idx), `--path=\Windows`}, "", 2*time.Minute)
-		if de != nil {
-			log.LogWrite(0, "[Patwim]Patwim dir失败: wim=%s idx=%d err=%v", wim, idx, de)
-			return fmt.Errorf("dir失败 idx=%d: %v\n%s", idx, de, dout)
-		}
-
-		pecmdActual, ok := findPecmdININame(dout)
-		if !ok {
-			return fmt.Errorf("WIM镜像 idx=%d 缺少 \\Windows\\Pecmd.ini", idx)
-		}
+		iniName := "Pecmd.ini"
 
 		cmdLines := make([]string, 0, len(legacyResList)+len(resList))
 		for _, r := range legacyResList {
@@ -1122,8 +1078,6 @@ func Patwim(wim string) error {
 			log.LogWrite(0, "[Patwim]Patwim update失败: wim=%s idx=%d err=%v", wim, idx, ue)
 			return fmt.Errorf("写入资源失败 idx=%d: %v\n%s", idx, ue, uout)
 		}
-
-		iniName := pecmdActual
 
 		tmp, _ := os.MkdirTemp("", "wim_")
 		_, err = runCmdWithTimeout(wimlib,
@@ -1250,12 +1204,6 @@ func Unpatwim(wim string) error {
 	if wim == "" {
 		return fmt.Errorf("wim为空")
 	}
-	wimAbs, err := filepath.Abs(wim)
-	if err != nil {
-		log.LogWrite(0, "[Unpatwim]Unpatwim 获取绝对路径失败: wim=%s err=%v", wim, err)
-		return err
-	}
-	wim = wimAbs
 	if err := ensureWimWritable(wim); err != nil {
 		log.LogWrite(0, "[Unpatwim]Unpatwim ensureWimWritable失败: wim=%s err=%v", wim, err)
 		return err
@@ -1361,35 +1309,26 @@ func Unpatwim(wim string) error {
 			return fmt.Errorf("删除ReSys_PE失败 idx=%d: %v\n%s", idx, ue, uout)
 		}
 
-		dout, de := runCmdWithTimeout(wimlib, []string{"dir", wim, strconv.Itoa(idx), `--path=\Windows`}, "", 2*time.Minute)
-		if de != nil {
-			log.LogWrite(0, "[Unpatwim]Unpatwim dir失败: wim=%s idx=%d err=%v", wim, idx, de)
-			return fmt.Errorf("dir失败 idx=%d: %v\n%s", idx, de, dout)
-		}
+		iniName := "Pecmd.ini"
 
-		pecmdActual, ok := findPecmdININame(dout)
-		if !ok {
+		tmp, _ := os.MkdirTemp("", "wim_unpatch_")
+		_, err = runCmdWithTimeout(wimlib,
+			[]string{"extract", wim, strconv.Itoa(idx), `\Windows\` + iniName, "--dest-dir=" + tmp},
+			"",
+			5*time.Minute,
+		)
+		if err != nil {
+			log.LogWrite(0, "[Unpatwim]Unpatwim extract Pecmd.ini failed (ignored): wim=%s idx=%d err=%v", wim, idx, err)
+			_ = file.Remove(tmp, true, false)
 			if err := verifyUnpatwimWrite(wimlib, wim, idx, cleanupList, removeLines...); err != nil {
-				log.LogWrite(0, "[Unpatwim]Unpatwim 校验失败: wim=%s idx=%d err=%v", wim, idx, err)
+				log.LogWrite(0, "[Unpatwim]Unpatwim verify failed: wim=%s idx=%d err=%v", wim, idx, err)
 				return err
 			}
 			continue
 		}
 
-		tmp, _ := os.MkdirTemp("", "wim_unpatch_")
-		_, err = runCmdWithTimeout(wimlib,
-			[]string{"extract", wim, strconv.Itoa(idx), `\Windows\` + pecmdActual, "--dest-dir=" + tmp},
-			"",
-			5*time.Minute,
-		)
-		if err != nil {
-			log.LogWrite(0, "[Unpatwim]Unpatwim extract失败: wim=%s idx=%d err=%v", wim, idx, err)
-			_ = file.Remove(tmp, true, false)
-			return fmt.Errorf("提取ini失败 idx=%d: %w", idx, err)
-		}
-
-		p1 := filepath.Join(tmp, "Windows", pecmdActual)
-		p2 := filepath.Join(tmp, pecmdActual)
+		p1 := filepath.Join(tmp, "Windows", iniName)
+		p2 := filepath.Join(tmp, iniName)
 		inip := p1
 		if _, e1 := os.Stat(p1); e1 != nil {
 			inip = p2
@@ -1409,7 +1348,7 @@ func Unpatwim(wim string) error {
 			return fmt.Errorf("写入ini失败 idx=%d: %w", idx, err)
 		}
 
-		iniDst := `\Windows\` + pecmdActual
+		iniDst := `\Windows\` + iniName
 		iniScript := strings.Join([]string{
 			"delete --force " + qCmdArg(iniDst),
 			"add " + qCmdArg(inip) + " " + qCmdArg(iniDst),
