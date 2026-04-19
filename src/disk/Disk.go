@@ -581,7 +581,7 @@ func NewTempVolume(needBytes uint64) (string, error) {
 
 	//拆分系统盘
 	// 尝试先清理一下，增加 shrink 成功率
-	//_ = ClearPartition("C")
+	//windows.ClearPartition()
 
 	sizeMB64 := (needBytes + 1024*1024 - 1) / (1024 * 1024)
 	sizeMB := int(sizeMB64)

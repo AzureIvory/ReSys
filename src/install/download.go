@@ -11,12 +11,124 @@ import (
 	"ReSys/src/utils"
 	"ReSys/src/windows"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 )
+
+const (
+	imageLanguageConfigPath = "rules/config/app.json"
+	defaultImageLanguage    = "zh-cn"
+)
+
+type appLanguageConfig struct {
+	Language struct {
+		ImageDefaultLanguage string `json:"image_default_language"`
+	} `json:"language"`
+}
+
+func normLanguageCode(lang string) string {
+	lang = strings.TrimSpace(lang)
+	if lang == "" {
+		return ""
+	}
+	lang = strings.ToLower(strings.ReplaceAll(lang, "_", "-"))
+	return lang
+}
+
+func loadImageDefaultLanguage() (string, error) {
+	path, err := utils.ProjectFile(imageLanguageConfigPath)
+	if err != nil {
+		return "", err
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+
+	var cfg appLanguageConfig
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return "", err
+	}
+
+	return normLanguageCode(cfg.Language.ImageDefaultLanguage), nil
+}
+
+func preferredImageLanguage() string {
+	langs, err := windows.GetUserPreferredUILanguages()
+	if err == nil {
+		for _, lang := range langs {
+			norm := normLanguageCode(lang)
+			if norm == "" {
+				continue
+			}
+			log.LogWrite(0, "[downloadImage] preferred image language from system UI: %s", norm)
+			return norm
+		}
+		log.LogWrite(0, "[downloadImage] system UI language list is empty, fallback to config")
+	} else {
+		log.LogWrite(0, "[downloadImage] get system UI language failed: %v, fallback to config", err)
+	}
+
+	cfgLang, cfgErr := loadImageDefaultLanguage()
+	if cfgErr == nil && cfgLang != "" {
+		log.LogWrite(0, "[downloadImage] preferred image language from config: %s", cfgLang)
+		return cfgLang
+	}
+	if cfgErr != nil {
+		log.LogWrite(0, "[downloadImage] load image default language from config failed: %v", cfgErr)
+	}
+
+	log.LogWrite(0, "[downloadImage] preferred image language fallback to hardcoded default: %s", defaultImageLanguage)
+	return defaultImageLanguage
+}
+
+func isMSImageSource(source string) bool {
+	source = strings.ToLower(strings.TrimSpace(source))
+	return source == "win10-ms" || source == "win11-ms"
+}
+
+func filterMSCandidatesByLanguage(candidates []data.RuleItem, preferredLang string) []data.RuleItem {
+	preferredLang = normLanguageCode(preferredLang)
+	if preferredLang == "" {
+		return candidates
+	}
+
+	out := make([]data.RuleItem, 0, len(candidates))
+	msTotal := 0
+	msMatched := 0
+	for _, it := range candidates {
+		if !isMSImageSource(it.Source) {
+			out = append(out, it)
+			continue
+		}
+
+		msTotal++
+		if normLanguageCode(it.Language) == preferredLang {
+			out = append(out, it)
+			msMatched++
+		}
+	}
+
+	if msTotal > 0 {
+		log.LogWrite(
+			0,
+			"[downloadImage] MS source language filter: preferred=%s total=%d matched=%d",
+			preferredLang,
+			msTotal,
+			msMatched,
+		)
+	}
+	if msTotal > 0 && msMatched == 0 {
+		log.LogWrite(0, "[downloadImage] no MS candidates matched preferred language, keep original candidates")
+		return candidates
+	}
+	return out
+}
 
 // downloadFileWithRetry 下载单个 HTTP/HTTPS 链接，并在检测到本地冲突时清理后重试一次。
 func downloadFileWithRetry(link, dstPath string, progress func(float64, int64)) error {
@@ -99,6 +211,8 @@ func DownloadImage(target, arch string) (string, error) {
 	if len(candidates) == 0 {
 		candidates = ent
 	}
+	preferredLang := preferredImageLanguage()
+	candidates = filterMSCandidatesByLanguage(candidates, preferredLang)
 	log.LogWrite(0, "[downloadImage] available image count: %d", len(candidates))
 
 	root := chooseDownloadRoot()

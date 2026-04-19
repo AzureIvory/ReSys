@@ -16,16 +16,20 @@ import (
 	"syscall"
 	"unsafe"
 
+	win "golang.org/x/sys/windows"
+
 	reg "golang.org/x/sys/windows/registry"
 )
 
 var (
-	version                    = syscall.NewLazyDLL("version.dll")
-	Shell32                    = syscall.NewLazyDLL("shell32.dll")
-	procGetFileVersionInfoSize = version.NewProc("GetFileVersionInfoSizeW")
-	procGetFileVersionInfo     = version.NewProc("GetFileVersionInfoW")
-	procVerQueryValue          = version.NewProc("VerQueryValueW")
-	procSHEmptyRecycleBinW     = Shell32.NewProc("SHEmptyRecycleBinW")
+	version                         = syscall.NewLazyDLL("version.dll")
+	Shell32                         = syscall.NewLazyDLL("shell32.dll")
+	kernel32                        = win.NewLazySystemDLL("kernel32.dll")
+	procGetUserPreferredUILanguages = kernel32.NewProc("GetUserPreferredUILanguages")
+	procGetFileVersionInfoSize      = version.NewProc("GetFileVersionInfoSizeW")
+	procGetFileVersionInfo          = version.NewProc("GetFileVersionInfoW")
+	procVerQueryValue               = version.NewProc("VerQueryValueW")
+	procSHEmptyRecycleBinW          = Shell32.NewProc("SHEmptyRecycleBinW")
 )
 
 // 清空回收站标志
@@ -715,4 +719,68 @@ func ClearPartition() {
 	file.Remove(filepath.Join(winDir, "cache"), true, true)
 	//清理日志
 	file.Remove(filepath.Join(systemRoot, "Logs"), true, true)
+}
+
+const (
+	MUI_LANGUAGE_ID   = 0x4
+	MUI_LANGUAGE_NAME = 0x8
+)
+
+// GetUserPreferredUILanguages 获取用户首选的 UI 语言列表，返回如 ["zh-CN", "en-US"] 的字符串切片。
+func GetUserPreferredUILanguages() ([]string, error) {
+
+	var numLanguages uint32
+	var bufSize uint32
+
+	// 第一次调用：查询所需缓冲区大小
+	r1, _, e1 := procGetUserPreferredUILanguages.Call(
+		uintptr(MUI_LANGUAGE_NAME),
+		uintptr(unsafe.Pointer(&numLanguages)),
+		0,
+		uintptr(unsafe.Pointer(&bufSize)),
+	)
+	if r1 == 0 {
+		// 有些 Win32 API 这里会返回 ERROR_INSUFFICIENT_BUFFER，这是正常现象
+		if e1 != syscall.ERROR_INSUFFICIENT_BUFFER && e1 != win.ERROR_INSUFFICIENT_BUFFER {
+			return nil, e1
+		}
+	}
+
+	if bufSize == 0 {
+		return nil, fmt.Errorf("buffer size is 0")
+	}
+
+	buf := make([]uint16, bufSize)
+
+	// 第二次调用：真正取值
+	r1, _, e1 = procGetUserPreferredUILanguages.Call(
+		uintptr(MUI_LANGUAGE_NAME),
+		uintptr(unsafe.Pointer(&numLanguages)),
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(unsafe.Pointer(&bufSize)),
+	)
+	if r1 == 0 {
+		return nil, e1
+	}
+
+	// buf 是 "zh-CN\0en-US\0...\0\0" 这种格式
+	raw := win.UTF16ToString(buf)
+
+	// UTF16ToString 会在第一个 \0 处截断，所以不能直接用它解析整个多字符串。
+	// 要手动解析：
+	var langs []string
+	start := 0
+	for i, v := range buf {
+		if v == 0 {
+			if i == start {
+				// 双 \0 结束
+				break
+			}
+			langs = append(langs, syscall.UTF16ToString(buf[start:i]))
+			start = i + 1
+		}
+	}
+
+	_ = raw // 避免误用，实际解析以上面的循环为准
+	return langs, nil
 }
