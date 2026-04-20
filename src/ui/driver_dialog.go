@@ -14,13 +14,9 @@ import (
 	"github.com/AzureIvory/winui/widgets"
 )
 
-const (
-	driverGUIDDocRelativePath = "docs/driver-guid.md"
-	manualInstallExportName   = "manual.generated.json"
-)
+const manualInstallExportName = "manual.generated.json"
 
 var (
-	driverGUIDMatchExpr = regexp.MustCompile(`(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
 	driverGUIDExactExpr = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 )
 
@@ -28,53 +24,6 @@ type manualDriverGUIDOption struct {
 	Name    string
 	GUID    string
 	CheckID string
-}
-
-func parseDriverGUID(markdown string) ([]manualDriverGUIDOption, error) {
-	lines := strings.Split(markdown, "\n")
-	items := make([]manualDriverGUIDOption, 0, len(lines))
-	seen := map[string]struct{}{}
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" || !strings.HasPrefix(line, "|") {
-			continue
-		}
-
-		cells := markdownCells(line)
-		if len(cells) == 0 || isMarkdownSeparatorRow(cells) {
-			continue
-		}
-
-		match := driverGUIDMatchExpr.FindString(line)
-		guid, ok := normalizeDriverGUID(match)
-		if !ok {
-			continue
-		}
-		if _, exists := seen[guid]; exists {
-			continue
-		}
-
-		name := strings.TrimSpace(cells[0])
-		if name == "" && len(cells) > 1 {
-			name = strings.TrimSpace(cells[1])
-		}
-		if name == "" {
-			name = guid
-		}
-
-		seen[guid] = struct{}{}
-		items = append(items, manualDriverGUIDOption{
-			Name:    name,
-			GUID:    guid,
-			CheckID: driverGUIDCheckID(guid),
-		})
-	}
-
-	if len(items) == 0 {
-		return nil, fmt.Errorf("no valid driver GUID found in %s", driverGUIDDocRelativePath)
-	}
-	return items, nil
 }
 
 func parseDriverFilePatterns(raw string) []string {
@@ -98,34 +47,6 @@ func parseDriverFilePatterns(raw string) []string {
 	return out
 }
 
-func markdownCells(line string) []string {
-	trimmed := strings.TrimSpace(line)
-	trimmed = strings.TrimPrefix(trimmed, "|")
-	trimmed = strings.TrimSuffix(trimmed, "|")
-	if strings.TrimSpace(trimmed) == "" {
-		return nil
-	}
-
-	parts := strings.Split(trimmed, "|")
-	out := make([]string, 0, len(parts))
-	for _, part := range parts {
-		out = append(out, strings.TrimSpace(part))
-	}
-	return out
-}
-
-func isMarkdownSeparatorRow(cells []string) bool {
-	if len(cells) == 0 {
-		return true
-	}
-	for _, cell := range cells {
-		if strings.Trim(cell, "-: ") != "" {
-			return false
-		}
-	}
-	return true
-}
-
 func normalizeDriverGUID(raw string) (string, bool) {
 	text := strings.TrimSpace(strings.Trim(raw, "{}"))
 	if !driverGUIDExactExpr.MatchString(text) {
@@ -139,34 +60,15 @@ func driverGUIDCheckID(guid string) string {
 	return "manual-driver-guid-" + strings.ToLower(replacer.Replace(guid))
 }
 
-func loadDriverGUIDOptions() ([]manualDriverGUIDOption, error) {
-	path, err := utils.ProjectFile(driverGUIDDocRelativePath)
-	if err != nil {
-		return nil, err
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	return parseDriverGUID(string(data))
-}
-
 func EnsureDriverDialogInit() {
 	if manual.driverGUIDSelected == nil {
 		manual.driverGUIDSelected = map[string]bool{}
 	}
 	if len(manual.driverGUIDOptions) == 0 {
 		items, err := loadDriverGUIDOptions()
-		if err != nil {
-			if guid, ok := normalizeDriverGUID("88BAE032-5A81-49F0-BC3D-A4FF138216D6"); ok {
-				items = []manualDriverGUIDOption{{
-					Name:    "USBDevice",
-					GUID:    guid,
-					CheckID: driverGUIDCheckID(guid),
-				}}
-			}
+		if err == nil {
+			manual.driverGUIDOptions = items
 		}
-		manual.driverGUIDOptions = items
 	}
 	manualSetState("manual.driver.infPatterns", manual.driverINFPatterns)
 	RenderDriverGUIDOptions()

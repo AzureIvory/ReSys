@@ -2,6 +2,7 @@ package download
 
 import (
 	"ReSys/src/log"
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -323,8 +324,10 @@ func (c *Client) ensureRPCReady() error {
 
 	cmd := exec.Command(aria2Path, args...)
 	cmd.Dir = exeDir
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
+	if err := attachProcessLogs(cmd); err != nil {
+		log.LogWrite(-2, "[ensureRPCReady] attach aria2 output log failed: err=%v", err)
+		return fmt.Errorf("attach aria2 output log failed: %w", err)
+	}
 
 	if runtime.GOOS == "windows" {
 		cmd.SysProcAttr = &syscall.SysProcAttr{
@@ -363,6 +366,50 @@ func (c *Client) ensureRPCReady() error {
 	_ = c.Close()
 	log.LogWrite(-2, "[ensureRPCReady]RPC未就绪: lastErr=%v", lastErr)
 	return fmt.Errorf("aria2 rpc not ready on 127.0.0.1:6800 (maybe port occupied). last=%v", lastErr)
+}
+
+func streamCommandOutput(reader io.Reader, emit func(string)) {
+	if reader == nil || emit == nil {
+		return
+	}
+
+	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimRight(scanner.Text(), "\r")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		emit(line)
+	}
+
+	if err := scanner.Err(); err != nil {
+		emit(fmt.Sprintf("read output failed: %v", err))
+	}
+}
+
+func attachProcessLogs(cmd *exec.Cmd) error {
+	if cmd == nil {
+		return nil
+	}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("stdout pipe: %w", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("stderr pipe: %w", err)
+	}
+
+	go streamCommandOutput(stdout, func(line string) {
+		log.LogWrite(0, "[aria2 stdout] %s", line)
+	})
+	go streamCommandOutput(stderr, func(line string) {
+		log.LogWrite(-1, "[aria2 stderr] %s", line)
+	})
+
+	return nil
 }
 
 // pingOnce 使用短超时调用 aria2.getVersion，用于探测 RPC 是否可达。

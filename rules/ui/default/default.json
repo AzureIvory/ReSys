@@ -1,804 +1,2081 @@
 {
-  "wins": [
-    {
-      "id": "main",
-      "_comment_zh": "主窗口：包含选择页、进度页、手动模式页和 BitLocker 解锁弹层。",
-      "title": { "bind": "window.title", "default": "ReSys-一键重装" },
-      "image": "icon.png",
-      "imageSizeDP": 48,
-      "w": 760,
-      "h": 460,
-      "root": {
-        "type": "panel",
-        "id": "root",
-        "layout": "abs",
-        "children": [
-          {
-            "type": "panel",
-            "id": "page-select",
-            "_comment_zh": "页面：主页面（系统版本选择）。",
-            "visible": { "bind": "pages.selectVisible", "default": true },
-            "frame": { "x": 0, "y": 0, "r": 0, "b": 0 },
-            "children": [
-              {
-                "type": "label",
-                "id": "select-title",
-                "text": { "bind": "i18n.select.title", "default": "请选择要安装的操作系统" },
-                "style": {
-                  "font": "Microsoft YaHei UI",
-                  "size": 20,
-                  "weight": 700,
-                  "fg": "#0f172a",
-                  "align": "center"
-                },
-                "frame": { "x": 0, "y": "50%-120", "w": "winW", "h": 40 }
-              },
-              {
-                "type": "button",
-                "id": "btn-win7",
-                "text": { "bind": "i18n.select.win7", "default": "重装 Win7" },
-                "image": "win7.png",
-                "imageSizeDP": 48,
-                "imagePos": "top",
-                "style": {
-                  "pressedBg": "#43cd80"
-                },
-                "onClick": "install-win7",
-                "frame": { "x": "(winW-(120*3+48*2))/2", "y": "50%-40", "w": 120, "h": 120 }
-              },
-              {
-                "type": "button",
-                "id": "btn-win10",
-                "text": { "bind": "i18n.select.win10", "default": "重装 Win10" },
-                "image": "win10.png",
-                "imageSizeDP": 48,
-                "imagePos": "top",
-                "onClick": "install-win10",
-                "frame": { "x": "(winW-(120*3+48*2))/2+120+48", "y": "50%-40", "w": 120, "h": 120 }
-              },
-              {
-                "type": "button",
-                "id": "btn-win11",
-                "text": { "bind": "i18n.select.win11", "default": "重装 Win11" },
-                "image": "win11.png",
-                "imageSizeDP": 48,
-                "imagePos": "top",
-                "style": {
-                  "pressedBg": "#00bfff"
-                },
-                "onClick": "install-win11",
-                "frame": { "x": "(winW-(120*3+48*2))/2+(120+48)*2", "y": "50%-40", "w": 120, "h": 120 }
-              },
-              {
-                "type": "button",
-                "id": "btn-advanced",
-                "text": { "bind": "i18n.select.advanced", "default": "高级模式" },
-                "style": {
-                  "font": "Microsoft YaHei",
-                  "size": 14,
-                  "weight": 400,
-                  "fg": "#475569",
-                  "downFg": "#ffffff",
-                  "bg": "#ffffff",
-                  "hoverBg": "#f8fafc",
-                  "pressedBg": "#0f172a",
-                  "disabledBg": "#f1f5f9",
-                  "border": "#e2e8f0",
-                  "radius": 10,
-                  "pad": 12
-                },
-                "onClick": "open-manual",
-                "frame": { "x": "winW-116", "y": 20, "w": 96, "h": 36 }
-              }
-            ]
-          },
-          {
-            "type": "panel",
-            "id": "page-progress",
-            "_comment_zh": "页面：安装进度页面。",
-            "visible": { "bind": "pages.progressVisible", "default": false },
-            "frame": { "x": 0, "y": 0, "r": 0, "b": 0 },
-            "children": [
-              {
-                "type": "animimg",
-                "id": "progress-spinner",
-                "src": "wait.gif",
-                "fit": "contain",
-                "autoplay": { "bind": "progress.spinnerPlaying", "default": false },
-                "frame": { "x": "50%-44", "y": "50%-84", "w": 88, "h": 88 }
-              },
-              {
-                "type": "label",
-                "id": "progress-status",
-                "text": { "bind": "progress.status", "default": "正在准备..." },
-                "style": {
-                  "font": "Microsoft YaHei UI",
-                  "size": 18,
-                  "weight": 700,
-                  "fg": "#0f172a",
-                  "align": "center"
-                },
-                "frame": { "x": 20, "y": "50%+24", "r": 20, "h": 30 }
-              },
-              {
-                "type": "progress",
-                "id": "progress-bar",
-                "value": { "bind": "progress.value", "default": 0 },
-                "style": {
-                  "font": "Microsoft YaHei UI",
-                  "size": 14,
-                  "weight": 700,
-                  "fg": "#ffffff",
-                  "track": "#f3f4f6",
-                  "fill": "#22c55e",
-                  "bubble": "#16a34a",
-                  "radius": 12,
-                  "showPct": true
-                },
-                "frame": { "x": "15%", "y": "50%+102", "w": "70%", "h": 12 }
-              }
-            ]
-          },
-          {
-            "type": "panel",
-            "id": "page-manual",
-            "_comment_zh": "页面：高级/手动模式页面。",
-            "visible": { "bind": "pages.manualVisible", "default": false },
-            "frame": { "x": 0, "y": 0, "r": 0, "b": 0 },
-            "children": [
-              {
-                "type": "button",
-                "id": "manual-back",
-                "text": { "bind": "i18n.manual.back", "default": "返回" },
-                "style": {
-                  "font": "Microsoft YaHei",
-                  "size": 14,
-                  "weight": 400,
-                  "fg": "#475569",
-                  "downFg": "#ffffff",
-                  "bg": "#ffffff",
-                  "hoverBg": "#f8fafc",
-                  "pressedBg": "#0f172a",
-                  "disabledBg": "#f1f5f9",
-                  "border": "#e2e8f0",
-                  "radius": 10,
-                  "pad": 12
-                },
-                "onClick": "manual-back",
-                "frame": { "x": 14, "y": 14, "w": 70, "h": 30 }
-              },
-              {
-                "type": "label",
-                "id": "manual-title",
-                "text": { "bind": "i18n.manual.title", "default": "手动重装" },
-                "style": {
-                  "font": "Microsoft YaHei UI",
-                  "size": 18,
-                  "weight": 700,
-                  "fg": "#0f172a",
-                  "align": "start"
-                },
-                "frame": { "x": 96, "y": 14, "r": 14, "h": 30 }
-              },
-              {
-                "type": "label",
-                "id": "manual-image-label",
-                "text": { "bind": "i18n.manual.image.label", "default": "镜像" },
-                "style": {
-                  "font": "Microsoft YaHei UI",
-                  "size": 13,
-                  "weight": 700,
-                  "fg": "#334155",
-                  "align": "start"
-                },
-                "frame": { "x": 14, "y": 52, "w": 42, "h": 28 }
-              },
-              {
-                "type": "file",
-                "id": "manual-image-picker",
-                "value": { "bind": "manual.image.path", "default": "" },
-                "placeholder": { "bind": "manual.image.placeholder", "default": "选择本地 ISO / WIM / ESD 镜像" },
-                "buttonText": { "bind": "i18n.common.browse", "default": "浏览" },
-                "dialogTitle": { "bind": "i18n.manual.image.dialogTitle", "default": "选择安装镜像" },
-                "accept": ["*.iso", "*.wim", "*.esd"],
-                "style": {
-                  "btn": {
-                    "font": "Microsoft YaHei",
-                    "size": 14,
-                    "weight": 400,
-                    "fg": "#475569",
-                    "downFg": "#ffffff",
-                    "bg": "#ffffff",
-                    "hoverBg": "#f8fafc",
-                    "pressedBg": "#0f172a",
-                    "disabledBg": "#f1f5f9",
-                    "border": "#e2e8f0",
-                    "radius": 10,
-                    "pad": 12
-                  }
-                },
-                "onChange": "manual-image-change",
-                "frame": { "x": 62, "y": 52, "r": 14, "h": 28 }
-              },
-              {
-                "type": "label",
-                "id": "manual-index-label",
-                "text": { "bind": "i18n.manual.image.indexLabel", "default": "索引" },
-                "style": {
-                  "font": "Microsoft YaHei UI",
-                  "size": 13,
-                  "weight": 700,
-                  "fg": "#334155",
-                  "align": "start"
-                },
-                "frame": { "x": 14, "y": 86, "w": 42, "h": 28 }
-              },
-              {
-                "type": "select",
-                "id": "manual-index-select",
-                "items": { "bind": "manual.image.items", "default": [] },
-                "sel": { "bind": "manual.image.selected", "default": "" },
-                "placeholder": { "bind": "manual.image.indexPlaceholder", "default": "先选择镜像" },
-                "onChange": "manual-index-change",
-                "frame": { "x": 62, "y": 86, "w": 250, "h": 28 }
-              },
-              {
-                "type": "label",
-                "id": "manual-summary",
-                "text": { "bind": "manual.summary", "default": "请选择本地安装镜像和目标分区。" },
-                "style": {
-                  "font": "Microsoft YaHei UI",
-                  "size": 12,
-                  "fg": "#475569",
-                  "align": "start"
-                },
-                "frame": { "x": 322, "y": 86, "r": 14, "h": 28 }
-              },
-              {
-                "type": "label",
-                "id": "manual-target-label",
-                "text": { "bind": "i18n.manual.target.label", "default": "安装分区" },
-                "style": {
-                  "font": "Microsoft YaHei UI",
-                  "size": 13,
-                  "weight": 700,
-                  "fg": "#334155",
-                  "align": "start"
-                },
-                "frame": { "x": 14, "y": 120, "w": 274, "h": 20 }
-              },
-              {
-                "type": "label",
-                "id": "manual-detail-label",
-                "text": { "bind": "i18n.manual.detail.label", "default": "分区详情" },
-                "style": {
-                  "font": "Microsoft YaHei UI",
-                  "size": 13,
-                  "weight": 700,
-                  "fg": "#334155",
-                  "align": "start"
-                },
-                "frame": { "x": 300, "y": 120, "r": 14, "h": 20 }
-              },
-              {
-                "type": "listbox",
-                "id": "manual-partition-list",
-                "items": { "bind": "manual.partitions.items", "default": [] },
-                "sel": { "bind": "manual.partitions.selected", "default": "" },
-                "enabled": { "bind": "manual.partitions.listEnabled", "default": true },
-                "onChange": "manual-partition-change",
-                "frame": { "x": 14, "y": 142, "w": 274, "h": "winH-194" }
-              },
-              {
-                "type": "panel",
-                "id": "manual-loading-panel",
-                "visible": { "bind": "manual.partitions.loading", "default": false },
-                "style": {
-                  "bg": "#ffffff",
-                  "border": "#cbd5e1",
-                  "borderW": 1,
-                  "radius": 12
-                },
-                "frame": { "x": 14, "y": 142, "w": 274, "h": "winH-194" },
+    "wins": [
+        {
+            "_comment_zh": "主窗口：包含选择页、进度页、手动模式页和 BitLocker 解锁弹层。",
+            "h": 460,
+            "id": "main",
+            "image": "icon.png",
+            "imageSizeDP": 48,
+            "root": {
                 "children": [
-                  {
-                    "type": "animimg",
-                    "id": "manual-loading-spinner",
-                    "src": "wait.gif",
-                    "fit": "contain",
-                    "visible": { "bind": "manual.partitions.loading", "default": false },
-                    "autoplay": { "bind": "manual.partitions.loading", "default": false },
-                    "frame": { "x": "(parentW-68)/2", "y": "(parentH-68)/2-18", "w": 68, "h": 68 }
-                  },
-                  {
-                    "type": "label",
-                    "id": "manual-loading-text",
-                    "text": { "bind": "manual.partitions.loadingText", "default": "正在检测硬盘中..." },
-                    "visible": { "bind": "manual.partitions.loading", "default": false },
-                    "style": {
-                      "font": "Microsoft YaHei UI",
-                      "size": 12,
-                      "weight": 700,
-                      "fg": "#475569",
-                      "align": "center"
-                    },
-                    "frame": { "x": 12, "y": "parentH/2+20", "r": 12, "h": 28 }
-                  }
-                ]
-              },
-              {
-                "type": "panel",
-                "id": "manual-detail-panel",
-                "style": {
-                  "bg": "#ffffff",
-                  "border": "#cbd5e1",
-                  "borderW": 1,
-                  "radius": 12
-                },
-                "frame": { "x": 300, "y": 142, "r": 14, "h": 104 },
-                "children": [
-                  {
-                    "type": "label",
-                    "id": "manual-detail-text",
-                    "text": { "bind": "manual.partitions.detail", "default": "请选择一个分区查看详情。" },
-                    "multiline": true,
-                    "wordWrap": true,
-                    "style": {
-                      "font": "Microsoft YaHei UI",
-                      "size": 12,
-                      "fg": "#1e293b",
-                      "align": "start"
-                    },
-                    "frame": { "x": 10, "y": 10, "r": 10, "b": 10 }
-                  }
-                ]
-              },
-              {
-                "type": "checkbox",
-                "id": "manual-auto-pe",
-                "text": { "bind": "i18n.manual.option.autoPE", "default": "自动处理 PE" },
-                "checked": { "bind": "manual.options.autoPE", "default": true },
-                "enabled": { "bind": "manual.options.autoPEEnabled", "default": false },
-                "style": { "indicatorStyle": "check" },
-                "onChange": "manual-auto-pe-change",
-                "frame": { "x": 300, "y": 252, "r": 14, "h": 28 }
-              },
-              {
-                "type": "file",
-                "id": "manual-pe-picker",
-                "value": { "bind": "manual.options.pePath", "default": "" },
-                "placeholder": { "bind": "i18n.manual.pe.placeholder", "default": "自动处理 PE 关闭后，可手动指定 PE WIM" },
-                "buttonText": { "bind": "i18n.common.browse", "default": "浏览" },
-                "dialogTitle": { "bind": "i18n.manual.pe.dialogTitle", "default": "选择 PE WIM" },
-                "accept": ["*.wim"],
-                "enabled": { "bind": "manual.options.peEnabled", "default": false },
-                "style": {
-                  "btn": {
-                    "font": "Microsoft YaHei",
-                    "size": 14,
-                    "weight": 400,
-                    "fg": "#475569",
-                    "downFg": "#ffffff",
-                    "bg": "#ffffff",
-                    "hoverBg": "#f8fafc",
-                    "pressedBg": "#0f172a",
-                    "disabledBg": "#f1f5f9",
-                    "border": "#e2e8f0",
-                    "radius": 10,
-                    "pad": 12
-                  }
-                },
-                "onChange": "manual-pe-change",
-                "frame": { "x": 300, "y": 284, "r": 14, "h": 28 }
-              },
-              {
-                "type": "label",
-                "id": "manual-boot-label",
-                "text": { "bind": "i18n.manual.boot.label", "default": "修复引导" },
-                "style": {
-                  "font": "Microsoft YaHei UI",
-                  "size": 13,
-                  "weight": 700,
-                  "fg": "#334155",
-                  "align": "start"
-                },
-                "frame": { "x": 300, "y": 318, "w": 64, "h": 28 }
-              },
-              {
-                "type": "select",
-                "id": "manual-boot-mode",
-                "items": { "bind": "manual.boot.modeItems", "default": [] },
-                "sel": { "bind": "manual.boot.mode", "default": "auto" },
-                "onChange": "manual-boot-mode-change",
-                "frame": { "x": 370, "y": 318, "w": 132, "h": 28 }
-              },
-              {
-                "type": "select",
-                "id": "manual-boot-target",
-                "items": { "bind": "manual.boot.targets", "default": [] },
-                "sel": { "bind": "manual.boot.target", "default": "" },
-                "placeholder": { "bind": "manual.boot.placeholder", "default": "引导分区将随目标分区自动更新" },
-                "enabled": { "bind": "manual.boot.targetEnabled", "default": false },
-                "onChange": "manual-boot-target-change",
-                "frame": { "x": 508, "y": 318, "r": 14, "h": 28 }
-              },
-              {
-                "type": "checkbox",
-                "id": "manual-format-target",
-                "text": { "bind": "i18n.manual.option.formatTarget", "default": "格式化目标分区" },
-                "checked": { "bind": "manual.options.formatTarget", "default": true },
-                "style": { "indicatorStyle": "check" },
-                "onChange": "manual-format-change",
-                "frame": { "x": 14, "y": "winH-42", "w": "(winW-172)/4", "h": 28 }
-              },
-              {
-                "type": "checkbox",
-                "id": "manual-backup-drivers",
-                "text": { "bind": "i18n.manual.option.backupDrivers", "default": "备份驱动" },
-                "checked": { "bind": "manual.options.backupDrivers", "default": false },
-                "style": { "indicatorStyle": "check" },
-                "onChange": "manual-backup-change",
-                "frame": { "x": "22+((winW-172)/4)", "y": "winH-42", "w": "(winW-172)/4", "h": 28 }
-              },
-              {
-                "type": "checkbox",
-                "id": "manual-auto-deploy",
-                "text": { "bind": "i18n.manual.option.autoDeploy", "default": "无人值守" },
-                "checked": { "bind": "manual.options.autoDeploy", "default": true },
-                "style": { "indicatorStyle": "check" },
-                "onChange": "manual-deploy-change",
-                "frame": { "x": "30+(((winW-172)/4)*2)", "y": "winH-42", "w": "(winW-172)/4", "h": 28 }
-              },
-              {
-                "type": "checkbox",
-                "id": "manual-auto-reboot",
-                "text": { "bind": "i18n.manual.option.autoReboot", "default": "自动重启" },
-                "checked": { "bind": "manual.options.autoReboot", "default": true },
-                "style": { "indicatorStyle": "check" },
-                "onChange": "manual-reboot-change",
-                "frame": { "x": "38+(((winW-172)/4)*3)", "y": "winH-42", "w": "(winW-172)/4", "h": 28 }
-              },
-              {
-                "type": "button",
-                "id": "manual-start",
-                "text": { "bind": "i18n.manual.start", "default": "开始重装" },
-                "enabled": { "bind": "manual.options.startEnabled", "default": false },
-                "style": {
-                  "font": "Microsoft YaHei UI",
-                  "size": 14,
-                  "weight": 700,
-                  "fg": "#ffffff",
-                  "downFg": "#ffffff",
-                  "disabledFg": "#bfdbfe",
-                  "bg": "#2563eb",
-                  "hoverBg": "#1d4ed8",
-                  "pressedBg": "#1e40af",
-                  "disabledBg": "#60a5fa",
-                  "radius": 10,
-                  "pad": 12
-                },
-                "onClick": "manual-start",
-                "frame": { "x": "winW-122", "y": "winH-44", "w": 108, "h": 32 }
-              }
-            ]
-          },
-          {
-            "type": "modal",
-            "id": "manual-driver-modal",
-            "_comment_zh": "页面：驱动备份规则选择弹层。",
-            "visible": { "bind": "manual.driver.visible", "default": false },
-            "onDismiss": "manual-driver-cancel",
-            "backdrop": {
-              "color": "#0f172a",
-              "opacity": 112,
-              "blur": 0,
-              "dismissOnClick": true
-            },
-            "children": [
-              {
-                "type": "panel",
-                "id": "manual-driver-card",
-                "style": {
-                  "bg": "#ffffff",
-                  "border": "#cbd5e1",
-                  "borderW": 1,
-                  "radius": 14
-                },
-                "frame": { "x": "50%-290", "y": "50%-180", "w": 580, "h": 360 },
-                "children": [
-                  {
-                    "type": "label",
-                    "id": "manual-driver-title",
-                    "text": { "bind": "i18n.manual.driver.title", "default": "备份驱动规则" },
-                    "style": {
-                      "font": "Microsoft YaHei UI",
-                      "size": 18,
-                      "weight": 700,
-                      "fg": "#0f172a",
-                      "align": "start"
-                    },
-                    "frame": { "x": 20, "y": 16, "r": 20, "h": 28 }
-                  },
-                  {
-                    "type": "label",
-                    "id": "manual-driver-tip",
-                    "text": { "bind": "i18n.manual.driver.tip", "default": "支持按 INF 通配符和设备类 GUID 选择驱动备份范围。" },
-                    "multiline": true,
-                    "wordWrap": true,
-                    "style": {
-                      "font": "Microsoft YaHei UI",
-                      "size": 12,
-                      "fg": "#475569",
-                      "align": "start"
-                    },
-                    "frame": { "x": 20, "y": 46, "r": 20, "h": 34 }
-                  },
-                  {
-                    "type": "label",
-                    "id": "manual-driver-pattern-label",
-                    "text": { "bind": "i18n.manual.driver.patternLabel", "default": "INF 通配符（逗号/分号/换行分隔）" },
-                    "style": {
-                      "font": "Microsoft YaHei UI",
-                      "size": 12,
-                      "weight": 700,
-                      "fg": "#334155",
-                      "align": "start"
-                    },
-                    "frame": { "x": 20, "y": 88, "r": 20, "h": 22 }
-                  },
-                  {
-                    "type": "input",
-                    "id": "manual-driver-pattern-input",
-                    "value": { "bind": "manual.driver.infPatterns", "default": "" },
-                    "placeholder": { "bind": "i18n.manual.driver.patternPlaceholder", "default": "例如：oem*.inf, net*.inf" },
-                    "onChange": "manual-driver-pattern-change",
-                    "frame": { "x": 20, "y": 112, "r": 20, "h": 32 }
-                  },
-                  {
-                    "type": "label",
-                    "id": "manual-driver-guid-label",
-                    "text": { "bind": "i18n.manual.driver.guidLabel", "default": "按设备类 GUID 选择" },
-                    "style": {
-                      "font": "Microsoft YaHei UI",
-                      "size": 12,
-                      "weight": 700,
-                      "fg": "#334155",
-                      "align": "start"
-                    },
-                    "frame": { "x": 20, "y": 150, "r": 20, "h": 22 }
-                  },
-                  {
-                    "type": "scrollview",
-                    "id": "manual-driver-guid-scroll",
-                    "style": {
-                      "bg": "#ffffff",
-                      "border": "#cbd5e1",
-                      "borderW": 1,
-                      "radius": 10
-                    },
-                    "frame": { "x": 20, "y": 174, "r": 20, "h": 126 },
-                    "children": [
-                      {
+                    {
+                        "_comment_zh": "页面：主页面（系统版本选择）。",
+                        "children": [
+                            {
+                                "children": [
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 54,
+                                                    "w": 1,
+                                                    "x": 0,
+                                                    "y": 0
+                                                },
+                                                "text": "",
+                                                "type": "label"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    },
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 40,
+                                                    "w": 1,
+                                                    "x": 0,
+                                                    "y": 0
+                                                },
+                                                "text": "",
+                                                "type": "label"
+                                            },
+                                            {
+                                                "frame": {
+                                                    "h": 40,
+                                                    "r": 20,
+                                                    "x": 20,
+                                                    "y": 0
+                                                },
+                                                "id": "select-title",
+                                                "scale": "px",
+                                                "style": {
+                                                    "align": "center",
+                                                    "fg": "#0f172a",
+                                                    "font": "Microsoft YaHei UI",
+                                                    "size": 20,
+                                                    "weight": 700
+                                                },
+                                                "text": {
+                                                    "bind": "i18n.select.title",
+                                                    "default": "请选择要安装的操作系统"
+                                                },
+                                                "type": "label"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    },
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 40,
+                                                    "w": 1,
+                                                    "x": 0,
+                                                    "y": 0
+                                                },
+                                                "text": "",
+                                                "type": "label"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    },
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 120,
+                                                    "w": 1,
+                                                    "x": 0,
+                                                    "y": 0
+                                                },
+                                                "text": "",
+                                                "type": "label"
+                                            },
+                                            {
+                                                "children": [
+                                                    {
+                                                        "children": [
+                                                            {
+                                                                "frame": {
+                                                                    "h": 120,
+                                                                    "w": 120,
+                                                                    "x": 0,
+                                                                    "y": 0
+                                                                },
+                                                                "id": "btn-win7",
+                                                                "image": "win7.png",
+                                                                "imagePos": "top",
+                                                                "imageSizeDP": 48,
+                                                                "onClick": "install-win7",
+                                                                "style": {
+                                                                    "pressedBg": "#43cd80"
+                                                                },
+                                                                "text": {
+                                                                    "bind": "i18n.select.win7",
+                                                                    "default": "重装 Win7"
+                                                                },
+                                                                "type": "button"
+                                                            }
+                                                        ],
+                                                        "type": "panel"
+                                                    },
+                                                    {
+                                                        "children": [
+                                                            {
+                                                                "frame": {
+                                                                    "h": 120,
+                                                                    "w": 120,
+                                                                    "x": 0,
+                                                                    "y": 0
+                                                                },
+                                                                "id": "btn-win10",
+                                                                "image": "win10.png",
+                                                                "imagePos": "top",
+                                                                "imageSizeDP": 48,
+                                                                "onClick": "install-win10",
+                                                                "text": {
+                                                                    "bind": "i18n.select.win10",
+                                                                    "default": "重装 Win10"
+                                                                },
+                                                                "type": "button"
+                                                            }
+                                                        ],
+                                                        "type": "panel"
+                                                    },
+                                                    {
+                                                        "children": [
+                                                            {
+                                                                "frame": {
+                                                                    "h": 120,
+                                                                    "w": 120,
+                                                                    "x": 0,
+                                                                    "y": 0
+                                                                },
+                                                                "id": "btn-win11",
+                                                                "image": "win11.png",
+                                                                "imagePos": "top",
+                                                                "imageSizeDP": 48,
+                                                                "onClick": "install-win11",
+                                                                "style": {
+                                                                    "pressedBg": "#00bfff"
+                                                                },
+                                                                "text": {
+                                                                    "bind": "i18n.select.win11",
+                                                                    "default": "重装 Win11"
+                                                                },
+                                                                "type": "button"
+                                                            }
+                                                        ],
+                                                        "type": "panel"
+                                                    }
+                                                ],
+                                                "frame": {
+                                                    "h": 120,
+                                                    "w": 456,
+                                                    "x": "(parentW-456)/2",
+                                                    "y": 0
+                                                },
+                                                "id": "select-actions-grid",
+                                                "layout": {
+                                                    "colGap": 48,
+                                                    "cols": 3,
+                                                    "type": "grid"
+                                                },
+                                                "scale": "px",
+                                                "type": "panel"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    }
+                                ],
+                                "frame": {
+                                    "b": 0,
+                                    "r": 0,
+                                    "x": 0,
+                                    "y": 0
+                                },
+                                "id": "select-content",
+                                "layout": {
+                                    "cross": "stretch",
+                                    "type": "col"
+                                },
+                                "type": "panel"
+                            },
+                            {
+                                "frame": {
+                                    "h": 36,
+                                    "r": 20,
+                                    "w": 96,
+                                    "y": 20
+                                },
+                                "id": "btn-advanced",
+                                "onClick": "open-manual",
+                                "scale": "px",
+                                "style": {
+                                    "bg": "#ffffff",
+                                    "border": "#e2e8f0",
+                                    "disabledBg": "#f1f5f9",
+                                    "downFg": "#ffffff",
+                                    "fg": "#475569",
+                                    "font": "Microsoft YaHei",
+                                    "hoverBg": "#f8fafc",
+                                    "pad": 12,
+                                    "pressedBg": "#0f172a",
+                                    "radius": 10,
+                                    "size": 14,
+                                    "weight": 400
+                                },
+                                "text": {
+                                    "bind": "i18n.select.advanced",
+                                    "default": "楂樼骇妯″紡"
+                                },
+                                "type": "button"
+                            }
+                        ],
+                        "frame": {
+                            "b": 0,
+                            "r": 0,
+                            "x": 0,
+                            "y": 0
+                        },
+                        "id": "page-select",
+                        "layout": "abs",
+                        "scale": "px",
                         "type": "panel",
-                        "id": "manual-driver-guid-list",
-                        "layout": { "type": "col", "gap": 6, "pad": 8 },
-                        "frame": { "x": 0, "y": 0, "r": 0, "b": 0 }
-                      }
-                    ]
-                  },
-                  {
-                    "type": "label",
-                    "id": "manual-driver-summary",
-                    "text": { "bind": "manual.driver.summary", "default": "未选择任何规则，将取消备份驱动勾选。" },
-                    "multiline": true,
-                    "wordWrap": true,
-                    "style": {
-                      "font": "Microsoft YaHei UI",
-                      "size": 12,
-                      "fg": "#475569",
-                      "align": "start"
+                        "visible": {
+                            "bind": "pages.selectVisible",
+                            "default": true
+                        }
                     },
-                    "frame": { "x": 20, "y": 304, "r": 20, "h": 34 }
-                  },
-                  {
-                    "type": "button",
-                    "id": "manual-driver-confirm",
-                    "text": { "bind": "i18n.manual.driver.confirm", "default": "确定" },
-                    "style": {
-                      "font": "Microsoft YaHei UI",
-                      "size": 14,
-                      "weight": 700,
-                      "fg": "#ffffff",
-                      "downFg": "#ffffff",
-                      "disabledFg": "#bfdbfe",
-                      "bg": "#2563eb",
-                      "hoverBg": "#1d4ed8",
-                      "pressedBg": "#1e40af",
-                      "disabledBg": "#60a5fa",
-                      "radius": 10,
-                      "pad": 12
+                    {
+                        "_comment_zh": "页面：安装进度页面。",
+                        "children": [
+                            {
+                                "children": [
+                                    {
+                                        "frame": {
+                                            "h": 146,
+                                            "w": 1,
+                                            "x": 0,
+                                            "y": 0
+                                        },
+                                        "text": "",
+                                        "type": "label"
+                                    }
+                                ],
+                                "type": "panel"
+                            },
+                            {
+                                "children": [
+                                    {
+                                        "autoplay": {
+                                            "bind": "progress.spinnerPlaying",
+                                            "default": false
+                                        },
+                                        "fit": "contain",
+                                        "frame": {
+                                            "h": 88,
+                                            "w": 88,
+                                            "x": 336,
+                                            "y": 0
+                                        },
+                                        "id": "progress-spinner",
+                                        "src": "wait.gif",
+                                        "type": "animimg"
+                                    }
+                                ],
+                                "type": "panel"
+                            },
+                            {
+                                "children": [
+                                    {
+                                        "frame": {
+                                            "h": 20,
+                                            "w": 1,
+                                            "x": 0,
+                                            "y": 0
+                                        },
+                                        "text": "",
+                                        "type": "label"
+                                    }
+                                ],
+                                "type": "panel"
+                            },
+                            {
+                                "children": [
+                                    {
+                                        "frame": {
+                                            "h": 30,
+                                            "w": 720,
+                                            "x": 20,
+                                            "y": 0
+                                        },
+                                        "id": "progress-status",
+                                        "style": {
+                                            "align": "center",
+                                            "fg": "#0f172a",
+                                            "font": "Microsoft YaHei UI",
+                                            "size": 18,
+                                            "weight": 700
+                                        },
+                                        "text": {
+                                            "bind": "progress.status",
+                                            "default": "正在准备..."
+                                        },
+                                        "type": "label"
+                                    }
+                                ],
+                                "type": "panel"
+                            },
+                            {
+                                "children": [
+                                    {
+                                        "frame": {
+                                            "h": 48,
+                                            "w": 1,
+                                            "x": 0,
+                                            "y": 0
+                                        },
+                                        "text": "",
+                                        "type": "label"
+                                    }
+                                ],
+                                "type": "panel"
+                            },
+                            {
+                                "children": [
+                                    {
+                                        "frame": {
+                                            "h": 12,
+                                            "w": 532,
+                                            "x": 114,
+                                            "y": 0
+                                        },
+                                        "id": "progress-bar",
+                                        "style": {
+                                            "bubble": "#16a34a",
+                                            "fg": "#ffffff",
+                                            "fill": "#22c55e",
+                                            "font": "Microsoft YaHei UI",
+                                            "radius": 12,
+                                            "showPct": true,
+                                            "size": 14,
+                                            "track": "#f3f4f6",
+                                            "weight": 700
+                                        },
+                                        "type": "progress",
+                                        "value": {
+                                            "bind": "progress.value",
+                                            "default": 0
+                                        }
+                                    }
+                                ],
+                                "type": "panel"
+                            }
+                        ],
+                        "frame": {
+                            "b": 0,
+                            "r": 0,
+                            "x": 0,
+                            "y": 0
+                        },
+                        "id": "page-progress",
+                        "layout": {
+                            "cross": "stretch",
+                            "type": "col"
+                        },
+                        "scale": "px",
+                        "type": "panel",
+                        "visible": {
+                            "bind": "pages.progressVisible",
+                            "default": false
+                        }
                     },
-                    "onClick": "manual-driver-confirm",
-                    "frame": { "x": 364, "y": 320, "w": 88, "h": 30 }
-                  },
-                  {
-                    "type": "button",
-                    "id": "manual-driver-cancel",
-                    "text": { "bind": "i18n.manual.driver.cancel", "default": "取消" },
-                    "style": {
-                      "font": "Microsoft YaHei",
-                      "size": 14,
-                      "weight": 400,
-                      "fg": "#475569",
-                      "downFg": "#ffffff",
-                      "bg": "#ffffff",
-                      "hoverBg": "#f8fafc",
-                      "pressedBg": "#0f172a",
-                      "disabledBg": "#f1f5f9",
-                      "border": "#e2e8f0",
-                      "radius": 10,
-                      "pad": 12
+                    {
+                        "_comment_zh": "页面：高级/手动模式页面。",
+                        "children": [
+                            {
+                                "children": [
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 30,
+                                                    "w": 70,
+                                                    "x": 0,
+                                                    "y": 0
+                                                },
+                                                "id": "manual-back",
+                                                "onClick": "manual-back",
+                                                "style": {
+                                                    "bg": "#ffffff",
+                                                    "border": "#e2e8f0",
+                                                    "disabledBg": "#f1f5f9",
+                                                    "downFg": "#ffffff",
+                                                    "fg": "#475569",
+                                                    "font": "Microsoft YaHei",
+                                                    "hoverBg": "#f8fafc",
+                                                    "pad": 12,
+                                                    "pressedBg": "#0f172a",
+                                                    "radius": 10,
+                                                    "size": 14,
+                                                    "weight": 400
+                                                },
+                                                "text": {
+                                                    "bind": "i18n.manual.back",
+                                                    "default": "返回"
+                                                },
+                                                "type": "button"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    },
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 30,
+                                                    "w": 650,
+                                                    "x": 0,
+                                                    "y": 0
+                                                },
+                                                "id": "manual-title",
+                                                "style": {
+                                                    "align": "start",
+                                                    "fg": "#0f172a",
+                                                    "font": "Microsoft YaHei UI",
+                                                    "size": 18,
+                                                    "weight": 700
+                                                },
+                                                "text": {
+                                                    "bind": "i18n.manual.title",
+                                                    "default": "手动重装"
+                                                },
+                                                "type": "label"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    }
+                                ],
+                                "layout": {
+                                    "cross": "center",
+                                    "gap": 12,
+                                    "pad": [
+                                        14,
+                                        14,
+                                        0,
+                                        14
+                                    ],
+                                    "type": "row"
+                                },
+                                "type": "panel"
+                            },
+                            {
+                                "children": [
+                                    {
+                                        "frame": {
+                                            "h": 8,
+                                            "w": 1,
+                                            "x": 0,
+                                            "y": 0
+                                        },
+                                        "text": "",
+                                        "type": "label"
+                                    }
+                                ],
+                                "type": "panel"
+                            },
+                            {
+                                "children": [
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 28,
+                                                    "w": 42,
+                                                    "x": 0,
+                                                    "y": 0
+                                                },
+                                                "id": "manual-image-label",
+                                                "style": {
+                                                    "align": "start",
+                                                    "fg": "#334155",
+                                                    "font": "Microsoft YaHei UI",
+                                                    "size": 13,
+                                                    "weight": 700
+                                                },
+                                                "text": {
+                                                    "bind": "i18n.manual.image.label",
+                                                    "default": "镜像"
+                                                },
+                                                "type": "label"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    },
+                                    {
+                                        "children": [
+                                            {
+                                                "accept": [
+                                                    "*.iso",
+                                                    "*.wim",
+                                                    "*.esd"
+                                                ],
+                                                "buttonText": {
+                                                    "bind": "i18n.common.browse",
+                                                    "default": "浏览"
+                                                },
+                                                "dialogTitle": {
+                                                    "bind": "i18n.manual.image.dialogTitle",
+                                                    "default": "选择安装镜像"
+                                                },
+                                                "frame": {
+                                                    "h": 28,
+                                                    "w": 684,
+                                                    "x": 0,
+                                                    "y": 0
+                                                },
+                                                "id": "manual-image-picker",
+                                                "onChange": "manual-image-change",
+                                                "placeholder": {
+                                                    "bind": "manual.image.placeholder",
+                                                    "default": "选择本地 ISO / WIM / ESD 镜像"
+                                                },
+                                                "style": {
+                                                    "btn": {
+                                                        "bg": "#ffffff",
+                                                        "border": "#e2e8f0",
+                                                        "disabledBg": "#f1f5f9",
+                                                        "downFg": "#ffffff",
+                                                        "fg": "#475569",
+                                                        "font": "Microsoft YaHei",
+                                                        "hoverBg": "#f8fafc",
+                                                        "pad": 12,
+                                                        "pressedBg": "#0f172a",
+                                                        "radius": 10,
+                                                        "size": 14,
+                                                        "weight": 400
+                                                    }
+                                                },
+                                                "type": "file",
+                                                "value": {
+                                                    "bind": "manual.image.path",
+                                                    "default": ""
+                                                }
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    },
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 28,
+                                                    "w": 42,
+                                                    "x": 0,
+                                                    "y": 0
+                                                },
+                                                "id": "manual-index-label",
+                                                "style": {
+                                                    "align": "start",
+                                                    "fg": "#334155",
+                                                    "font": "Microsoft YaHei UI",
+                                                    "size": 13,
+                                                    "weight": 700
+                                                },
+                                                "text": {
+                                                    "bind": "i18n.manual.image.indexLabel",
+                                                    "default": "索引"
+                                                },
+                                                "type": "label"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    },
+                                    {
+                                        "children": [
+                                            {
+                                                "children": [
+                                                    {
+                                                        "frame": {
+                                                            "h": 28,
+                                                            "w": 250,
+                                                            "x": 0,
+                                                            "y": 0
+                                                        },
+                                                        "id": "manual-index-select",
+                                                        "items": {
+                                                            "bind": "manual.image.items",
+                                                            "default": []
+                                                        },
+                                                        "onChange": "manual-index-change",
+                                                        "placeholder": {
+                                                            "bind": "manual.image.indexPlaceholder",
+                                                            "default": "先选择镜像"
+                                                        },
+                                                        "sel": {
+                                                            "bind": "manual.image.selected",
+                                                            "default": ""
+                                                        },
+                                                        "type": "select"
+                                                    }
+                                                ],
+                                                "type": "panel"
+                                            },
+                                            {
+                                                "children": [
+                                                    {
+                                                        "frame": {
+                                                            "h": 28,
+                                                            "w": 424,
+                                                            "x": 0,
+                                                            "y": 0
+                                                        },
+                                                        "id": "manual-summary",
+                                                        "style": {
+                                                            "align": "start",
+                                                            "fg": "#475569",
+                                                            "font": "Microsoft YaHei UI",
+                                                            "size": 12
+                                                        },
+                                                        "text": {
+                                                            "bind": "manual.summary",
+                                                            "default": "请选择本地安装镜像和目标分区。"
+                                                        },
+                                                        "type": "label"
+                                                    }
+                                                ],
+                                                "type": "panel"
+                                            }
+                                        ],
+                                        "layout": {
+                                            "cross": "center",
+                                            "gap": 10,
+                                            "type": "row"
+                                        },
+                                        "type": "panel"
+                                    }
+                                ],
+                                "layout": {
+                                    "colGap": 6,
+                                    "labelW": 42,
+                                    "pad": [
+                                        0,
+                                        14,
+                                        0,
+                                        14
+                                    ],
+                                    "rowGap": 6,
+                                    "type": "form"
+                                },
+                                "type": "panel"
+                            },
+                            {
+                                "children": [
+                                    {
+                                        "frame": {
+                                            "h": 6,
+                                            "w": 1,
+                                            "x": 0,
+                                            "y": 0
+                                        },
+                                        "text": "",
+                                        "type": "label"
+                                    }
+                                ],
+                                "type": "panel"
+                            },
+                            {
+                                "children": [
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 20,
+                                                    "w": 274,
+                                                    "x": 0,
+                                                    "y": 0
+                                                },
+                                                "id": "manual-target-label",
+                                                "style": {
+                                                    "align": "start",
+                                                    "fg": "#334155",
+                                                    "font": "Microsoft YaHei UI",
+                                                    "size": 13,
+                                                    "weight": 700
+                                                },
+                                                "text": {
+                                                    "bind": "i18n.manual.target.label",
+                                                    "default": "安装分区"
+                                                },
+                                                "type": "label"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    },
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 20,
+                                                    "w": 446,
+                                                    "x": 0,
+                                                    "y": 0
+                                                },
+                                                "id": "manual-detail-label",
+                                                "style": {
+                                                    "align": "start",
+                                                    "fg": "#334155",
+                                                    "font": "Microsoft YaHei UI",
+                                                    "size": 13,
+                                                    "weight": 700
+                                                },
+                                                "text": {
+                                                    "bind": "i18n.manual.detail.label",
+                                                    "default": "分区详情"
+                                                },
+                                                "type": "label"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    }
+                                ],
+                                "layout": {
+                                    "cross": "center",
+                                    "gap": 12,
+                                    "pad": [
+                                        0,
+                                        14,
+                                        0,
+                                        14
+                                    ],
+                                    "type": "row"
+                                },
+                                "type": "panel"
+                            },
+                            {
+                                "children": [
+                                    {
+                                        "frame": {
+                                            "h": 2,
+                                            "w": 1,
+                                            "x": 0,
+                                            "y": 0
+                                        },
+                                        "text": "",
+                                        "type": "label"
+                                    }
+                                ],
+                                "type": "panel"
+                            },
+                            {
+                                "children": [
+                                    {
+                                        "children": [
+                                            {
+                                                "enabled": {
+                                                    "bind": "manual.partitions.listEnabled",
+                                                    "default": true
+                                                },
+                                                "frame": {
+                                                    "h": 266,
+                                                    "w": 274,
+                                                    "x": 0,
+                                                    "y": 0
+                                                },
+                                                "id": "manual-partition-list",
+                                                "items": {
+                                                    "bind": "manual.partitions.items",
+                                                    "default": []
+                                                },
+                                                "onChange": "manual-partition-change",
+                                                "sel": {
+                                                    "bind": "manual.partitions.selected",
+                                                    "default": ""
+                                                },
+                                                "type": "listbox"
+                                            },
+                                            {
+                                                "children": [
+                                                    {
+                                                        "autoplay": {
+                                                            "bind": "manual.partitions.loading",
+                                                            "default": false
+                                                        },
+                                                        "fit": "contain",
+                                                        "frame": {
+                                                            "h": 68,
+                                                            "w": 68,
+                                                            "x": "(parentW-68)/2",
+                                                            "y": "(parentH-68)/2-18"
+                                                        },
+                                                        "id": "manual-loading-spinner",
+                                                        "src": "wait.gif",
+                                                        "type": "animimg",
+                                                        "visible": {
+                                                            "bind": "manual.partitions.loading",
+                                                            "default": false
+                                                        }
+                                                    },
+                                                    {
+                                                        "frame": {
+                                                            "h": 28,
+                                                            "r": 12,
+                                                            "x": 12,
+                                                            "y": "parentH/2+20"
+                                                        },
+                                                        "id": "manual-loading-text",
+                                                        "style": {
+                                                            "align": "center",
+                                                            "fg": "#475569",
+                                                            "font": "Microsoft YaHei UI",
+                                                            "size": 12,
+                                                            "weight": 700
+                                                        },
+                                                        "text": {
+                                                            "bind": "manual.partitions.loadingText",
+                                                            "default": "正在检测硬盘中..."
+                                                        },
+                                                        "type": "label",
+                                                        "visible": {
+                                                            "bind": "manual.partitions.loading",
+                                                            "default": false
+                                                        }
+                                                    }
+                                                ],
+                                                "frame": {
+                                                    "h": 266,
+                                                    "w": 274,
+                                                    "x": 0,
+                                                    "y": 0
+                                                },
+                                                "id": "manual-loading-panel",
+                                                "style": {
+                                                    "bg": "#ffffff",
+                                                    "border": "#cbd5e1",
+                                                    "borderW": 1,
+                                                    "radius": 12
+                                                },
+                                                "type": "panel",
+                                                "visible": {
+                                                    "bind": "manual.partitions.loading",
+                                                    "default": false
+                                                }
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    },
+                                    {
+                                        "children": [
+                                            {
+                                                "children": [
+                                                    {
+                                                        "children": [
+                                                            {
+                                                                "frame": {
+                                                                    "b": 10,
+                                                                    "r": 10,
+                                                                    "x": 10,
+                                                                    "y": 10
+                                                                },
+                                                                "id": "manual-detail-text",
+                                                                "multiline": true,
+                                                                "style": {
+                                                                    "align": "start",
+                                                                    "fg": "#1e293b",
+                                                                    "font": "Microsoft YaHei UI",
+                                                                    "size": 12
+                                                                },
+                                                                "text": {
+                                                                    "bind": "manual.partitions.detail",
+                                                                    "default": "请选择一个分区查看详情。"
+                                                                },
+                                                                "type": "label",
+                                                                "wordWrap": true
+                                                            }
+                                                        ],
+                                                        "frame": {
+                                                            "h": 104,
+                                                            "w": 446,
+                                                            "x": 0,
+                                                            "y": 0
+                                                        },
+                                                        "id": "manual-detail-panel",
+                                                        "style": {
+                                                            "bg": "#ffffff",
+                                                            "border": "#cbd5e1",
+                                                            "borderW": 1,
+                                                            "radius": 12
+                                                        },
+                                                        "type": "panel"
+                                                    }
+                                                ],
+                                                "type": "panel"
+                                            },
+                                            {
+                                                "children": [
+                                                    {
+                                                        "frame": {
+                                                            "h": 6,
+                                                            "w": 1,
+                                                            "x": 0,
+                                                            "y": 0
+                                                        },
+                                                        "text": "",
+                                                        "type": "label"
+                                                    }
+                                                ],
+                                                "type": "panel"
+                                            },
+                                            {
+                                                "children": [
+                                                    {
+                                                        "checked": {
+                                                            "bind": "manual.options.autoPE",
+                                                            "default": true
+                                                        },
+                                                        "enabled": {
+                                                            "bind": "manual.options.autoPEEnabled",
+                                                            "default": false
+                                                        },
+                                                        "frame": {
+                                                            "h": 28,
+                                                            "w": 446,
+                                                            "x": 0,
+                                                            "y": 0
+                                                        },
+                                                        "id": "manual-auto-pe",
+                                                        "onChange": "manual-auto-pe-change",
+                                                        "style": {
+                                                            "indicatorStyle": "check"
+                                                        },
+                                                        "text": {
+                                                            "bind": "i18n.manual.option.autoPE",
+                                                            "default": "自动处理 PE"
+                                                        },
+                                                        "type": "checkbox"
+                                                    }
+                                                ],
+                                                "type": "panel"
+                                            },
+                                            {
+                                                "children": [
+                                                    {
+                                                        "frame": {
+                                                            "h": 4,
+                                                            "w": 1,
+                                                            "x": 0,
+                                                            "y": 0
+                                                        },
+                                                        "text": "",
+                                                        "type": "label"
+                                                    }
+                                                ],
+                                                "type": "panel"
+                                            },
+                                            {
+                                                "children": [
+                                                    {
+                                                        "accept": [
+                                                            "*.wim"
+                                                        ],
+                                                        "buttonText": {
+                                                            "bind": "i18n.common.browse",
+                                                            "default": "浏览"
+                                                        },
+                                                        "dialogTitle": {
+                                                            "bind": "i18n.manual.pe.dialogTitle",
+                                                            "default": "选择 PE WIM"
+                                                        },
+                                                        "enabled": {
+                                                            "bind": "manual.options.peEnabled",
+                                                            "default": false
+                                                        },
+                                                        "frame": {
+                                                            "h": 28,
+                                                            "w": 446,
+                                                            "x": 0,
+                                                            "y": 0
+                                                        },
+                                                        "id": "manual-pe-picker",
+                                                        "onChange": "manual-pe-change",
+                                                        "placeholder": {
+                                                            "bind": "i18n.manual.pe.placeholder",
+                                                            "default": "自动处理 PE 关闭后，可手动指定 PE WIM"
+                                                        },
+                                                        "style": {
+                                                            "btn": {
+                                                                "bg": "#ffffff",
+                                                                "border": "#e2e8f0",
+                                                                "disabledBg": "#f1f5f9",
+                                                                "downFg": "#ffffff",
+                                                                "fg": "#475569",
+                                                                "font": "Microsoft YaHei",
+                                                                "hoverBg": "#f8fafc",
+                                                                "pad": 12,
+                                                                "pressedBg": "#0f172a",
+                                                                "radius": 10,
+                                                                "size": 14,
+                                                                "weight": 400
+                                                            }
+                                                        },
+                                                        "type": "file",
+                                                        "value": {
+                                                            "bind": "manual.options.pePath",
+                                                            "default": ""
+                                                        }
+                                                    }
+                                                ],
+                                                "type": "panel"
+                                            },
+                                            {
+                                                "children": [
+                                                    {
+                                                        "frame": {
+                                                            "h": 6,
+                                                            "w": 1,
+                                                            "x": 0,
+                                                            "y": 0
+                                                        },
+                                                        "text": "",
+                                                        "type": "label"
+                                                    }
+                                                ],
+                                                "type": "panel"
+                                            },
+                                            {
+                                                "children": [
+                                                    {
+                                                        "children": [
+                                                            {
+                                                                "frame": {
+                                                                    "h": 28,
+                                                                    "w": 64,
+                                                                    "x": 0,
+                                                                    "y": 0
+                                                                },
+                                                                "id": "manual-boot-label",
+                                                                "style": {
+                                                                    "align": "start",
+                                                                    "fg": "#334155",
+                                                                    "font": "Microsoft YaHei UI",
+                                                                    "size": 13,
+                                                                    "weight": 700
+                                                                },
+                                                                "text": {
+                                                                    "bind": "i18n.manual.boot.label",
+                                                                    "default": "修复引导"
+                                                                },
+                                                                "type": "label"
+                                                            }
+                                                        ],
+                                                        "type": "panel"
+                                                    },
+                                                    {
+                                                        "children": [
+                                                            {
+                                                                "frame": {
+                                                                    "h": 28,
+                                                                    "w": 132,
+                                                                    "x": 0,
+                                                                    "y": 0
+                                                                },
+                                                                "id": "manual-boot-mode",
+                                                                "items": {
+                                                                    "bind": "manual.boot.modeItems",
+                                                                    "default": []
+                                                                },
+                                                                "onChange": "manual-boot-mode-change",
+                                                                "sel": {
+                                                                    "bind": "manual.boot.mode",
+                                                                    "default": "auto"
+                                                                },
+                                                                "type": "select"
+                                                            }
+                                                        ],
+                                                        "type": "panel"
+                                                    },
+                                                    {
+                                                        "children": [
+                                                            {
+                                                                "enabled": {
+                                                                    "bind": "manual.boot.targetEnabled",
+                                                                    "default": false
+                                                                },
+                                                                "frame": {
+                                                                    "h": 28,
+                                                                    "w": 238,
+                                                                    "x": 0,
+                                                                    "y": 0
+                                                                },
+                                                                "id": "manual-boot-target",
+                                                                "items": {
+                                                                    "bind": "manual.boot.targets",
+                                                                    "default": []
+                                                                },
+                                                                "onChange": "manual-boot-target-change",
+                                                                "placeholder": {
+                                                                    "bind": "manual.boot.placeholder",
+                                                                    "default": "引导分区将随目标分区自动更新"
+                                                                },
+                                                                "sel": {
+                                                                    "bind": "manual.boot.target",
+                                                                    "default": ""
+                                                                },
+                                                                "type": "select"
+                                                            }
+                                                        ],
+                                                        "type": "panel"
+                                                    }
+                                                ],
+                                                "layout": {
+                                                    "cross": "center",
+                                                    "gap": 6,
+                                                    "type": "row"
+                                                },
+                                                "type": "panel"
+                                            }
+                                        ],
+                                        "layout": {
+                                            "cross": "stretch",
+                                            "type": "col"
+                                        },
+                                        "type": "panel"
+                                    }
+                                ],
+                                "layout": {
+                                    "cross": "stretch",
+                                    "gap": 12,
+                                    "pad": [
+                                        0,
+                                        14,
+                                        0,
+                                        14
+                                    ],
+                                    "type": "row"
+                                },
+                                "type": "panel"
+                            },
+                            {
+                                "children": [
+                                    {
+                                        "frame": {
+                                            "h": 8,
+                                            "w": 1,
+                                            "x": 0,
+                                            "y": 0
+                                        },
+                                        "text": "",
+                                        "type": "label"
+                                    }
+                                ],
+                                "type": "panel"
+                            },
+                            {
+                                "children": [
+                                    {
+                                        "children": [
+                                            {
+                                                "children": [
+                                                    {
+                                                        "checked": {
+                                                            "bind": "manual.options.formatTarget",
+                                                            "default": true
+                                                        },
+                                                        "frame": {
+                                                            "h": 28,
+                                                            "w": 147,
+                                                            "x": 0,
+                                                            "y": 0
+                                                        },
+                                                        "id": "manual-format-target",
+                                                        "onChange": "manual-format-change",
+                                                        "style": {
+                                                            "indicatorStyle": "check"
+                                                        },
+                                                        "text": {
+                                                            "bind": "i18n.manual.option.formatTarget",
+                                                            "default": "格式化目标分区"
+                                                        },
+                                                        "type": "checkbox"
+                                                    }
+                                                ],
+                                                "type": "panel"
+                                            },
+                                            {
+                                                "children": [
+                                                    {
+                                                        "checked": {
+                                                            "bind": "manual.options.backupDrivers",
+                                                            "default": false
+                                                        },
+                                                        "frame": {
+                                                            "h": 28,
+                                                            "w": 147,
+                                                            "x": 0,
+                                                            "y": 0
+                                                        },
+                                                        "id": "manual-backup-drivers",
+                                                        "onChange": "manual-backup-change",
+                                                        "style": {
+                                                            "indicatorStyle": "check"
+                                                        },
+                                                        "text": {
+                                                            "bind": "i18n.manual.option.backupDrivers",
+                                                            "default": "备份驱动"
+                                                        },
+                                                        "type": "checkbox"
+                                                    }
+                                                ],
+                                                "type": "panel"
+                                            },
+                                            {
+                                                "children": [
+                                                    {
+                                                        "checked": {
+                                                            "bind": "manual.options.autoDeploy",
+                                                            "default": true
+                                                        },
+                                                        "frame": {
+                                                            "h": 28,
+                                                            "w": 147,
+                                                            "x": 0,
+                                                            "y": 0
+                                                        },
+                                                        "id": "manual-auto-deploy",
+                                                        "onChange": "manual-deploy-change",
+                                                        "style": {
+                                                            "indicatorStyle": "check"
+                                                        },
+                                                        "text": {
+                                                            "bind": "i18n.manual.option.autoDeploy",
+                                                            "default": "无人值守"
+                                                        },
+                                                        "type": "checkbox"
+                                                    }
+                                                ],
+                                                "type": "panel"
+                                            },
+                                            {
+                                                "children": [
+                                                    {
+                                                        "checked": {
+                                                            "bind": "manual.options.autoReboot",
+                                                            "default": true
+                                                        },
+                                                        "frame": {
+                                                            "h": 28,
+                                                            "w": 147,
+                                                            "x": 0,
+                                                            "y": 0
+                                                        },
+                                                        "id": "manual-auto-reboot",
+                                                        "onChange": "manual-reboot-change",
+                                                        "style": {
+                                                            "indicatorStyle": "check"
+                                                        },
+                                                        "text": {
+                                                            "bind": "i18n.manual.option.autoReboot",
+                                                            "default": "自动重启"
+                                                        },
+                                                        "type": "checkbox"
+                                                    }
+                                                ],
+                                                "type": "panel"
+                                            }
+                                        ],
+                                        "layout": {
+                                            "colGap": 8,
+                                            "cols": 4,
+                                            "type": "grid"
+                                        },
+                                        "type": "panel"
+                                    },
+                                    {
+                                        "children": [
+                                            {
+                                                "enabled": {
+                                                    "bind": "manual.options.startEnabled",
+                                                    "default": false
+                                                },
+                                                "frame": {
+                                                    "h": 32,
+                                                    "w": 108,
+                                                    "x": 0,
+                                                    "y": 0
+                                                },
+                                                "id": "manual-start",
+                                                "onClick": "manual-start",
+                                                "style": {
+                                                    "bg": "#2563eb",
+                                                    "disabledBg": "#60a5fa",
+                                                    "disabledFg": "#bfdbfe",
+                                                    "downFg": "#ffffff",
+                                                    "fg": "#ffffff",
+                                                    "font": "Microsoft YaHei UI",
+                                                    "hoverBg": "#1d4ed8",
+                                                    "pad": 12,
+                                                    "pressedBg": "#1e40af",
+                                                    "radius": 10,
+                                                    "size": 14,
+                                                    "weight": 700
+                                                },
+                                                "text": {
+                                                    "bind": "i18n.manual.start",
+                                                    "default": "开始重装"
+                                                },
+                                                "type": "button"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    }
+                                ],
+                                "layout": {
+                                    "cross": "center",
+                                    "gap": 12,
+                                    "pad": [
+                                        0,
+                                        14,
+                                        0,
+                                        14
+                                    ],
+                                    "type": "row"
+                                },
+                                "type": "panel"
+                            },
+                            {
+                                "children": [
+                                    {
+                                        "frame": {
+                                            "h": 12,
+                                            "w": 1,
+                                            "x": 0,
+                                            "y": 0
+                                        },
+                                        "text": "",
+                                        "type": "label"
+                                    }
+                                ],
+                                "type": "panel"
+                            }
+                        ],
+                        "frame": {
+                            "b": 0,
+                            "r": 0,
+                            "x": 0,
+                            "y": 0
+                        },
+                        "id": "page-manual",
+                        "layout": {
+                            "cross": "stretch",
+                            "type": "col"
+                        },
+                        "scale": "px",
+                        "type": "panel",
+                        "visible": {
+                            "bind": "pages.manualVisible",
+                            "default": false
+                        }
                     },
-                    "onClick": "manual-driver-cancel",
-                    "frame": { "x": 464, "y": 320, "w": 88, "h": 30 }
-                  }
-                ]
-              }
-            ]
-          },
-          {
-            "type": "modal",
-            "id": "prompt-bitlocker",
-            "_comment_zh": "页面：BitLocker 解锁弹层。",
-            "visible": { "bind": "prompt.visible", "default": false },
-            "onDismiss": "prompt-cancel",
-            "backdrop": {
-              "color": "#0f172a",
-              "opacity": 112,
-              "blur": 0,
-              "dismissOnClick": false
+                    {
+                        "_comment_zh": "页面：驱动备份规则选择弹层。",
+                        "backdrop": {
+                            "blur": 0,
+                            "color": "#0f172a",
+                            "dismissOnClick": true,
+                            "opacity": 112
+                        },
+                        "children": [
+                            {
+                                "children": [
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 28,
+                                                    "w": 540,
+                                                    "x": 20,
+                                                    "y": 16
+                                                },
+                                                "id": "manual-driver-title",
+                                                "style": {
+                                                    "align": "start",
+                                                    "fg": "#0f172a",
+                                                    "font": "Microsoft YaHei UI",
+                                                    "size": 18,
+                                                    "weight": 700
+                                                },
+                                                "text": {
+                                                    "bind": "i18n.manual.driver.title",
+                                                    "default": "备份驱动规则"
+                                                },
+                                                "type": "label"
+                                            },
+                                            {
+                                                "frame": {
+                                                    "h": 34,
+                                                    "w": 540,
+                                                    "x": 20,
+                                                    "y": 46
+                                                },
+                                                "id": "manual-driver-tip",
+                                                "multiline": true,
+                                                "style": {
+                                                    "align": "start",
+                                                    "fg": "#475569",
+                                                    "font": "Microsoft YaHei UI",
+                                                    "size": 12
+                                                },
+                                                "text": {
+                                                    "bind": "i18n.manual.driver.tip",
+                                                    "default": "支持按 INF 通配符和设备类 GUID 选择驱动备份范围。"
+                                                },
+                                                "type": "label",
+                                                "wordWrap": true
+                                            },
+                                            {
+                                                "frame": {
+                                                    "h": 22,
+                                                    "w": 540,
+                                                    "x": 20,
+                                                    "y": 88
+                                                },
+                                                "id": "manual-driver-pattern-label",
+                                                "style": {
+                                                    "align": "start",
+                                                    "fg": "#334155",
+                                                    "font": "Microsoft YaHei UI",
+                                                    "size": 12,
+                                                    "weight": 700
+                                                },
+                                                "text": {
+                                                    "bind": "i18n.manual.driver.patternLabel",
+                                                    "default": "INF 通配符（逗号/分号/换行分隔）"
+                                                },
+                                                "type": "label"
+                                            },
+                                            {
+                                                "frame": {
+                                                    "h": 32,
+                                                    "w": 540,
+                                                    "x": 20,
+                                                    "y": 112
+                                                },
+                                                "id": "manual-driver-pattern-input",
+                                                "onChange": "manual-driver-pattern-change",
+                                                "placeholder": {
+                                                    "bind": "i18n.manual.driver.patternPlaceholder",
+                                                    "default": "例如：oem*.inf, net*.inf"
+                                                },
+                                                "type": "input",
+                                                "value": {
+                                                    "bind": "manual.driver.infPatterns",
+                                                    "default": ""
+                                                }
+                                            },
+                                            {
+                                                "frame": {
+                                                    "h": 22,
+                                                    "w": 540,
+                                                    "x": 20,
+                                                    "y": 150
+                                                },
+                                                "id": "manual-driver-guid-label",
+                                                "style": {
+                                                    "align": "start",
+                                                    "fg": "#334155",
+                                                    "font": "Microsoft YaHei UI",
+                                                    "size": 12,
+                                                    "weight": 700
+                                                },
+                                                "text": {
+                                                    "bind": "i18n.manual.driver.guidLabel",
+                                                    "default": "按设备类 GUID 选择"
+                                                },
+                                                "type": "label"
+                                            },
+                                            {
+                                                "children": [
+                                                    {
+                                                        "id": "manual-driver-guid-list",
+                                                        "layout": {
+                                                            "gap": 6,
+                                                            "pad": 8,
+                                                            "type": "col"
+                                                        },
+                                                        "type": "panel"
+                                                    }
+                                                ],
+                                                "frame": {
+                                                    "h": 160,
+                                                    "w": 540,
+                                                    "x": 20,
+                                                    "y": 174
+                                                },
+                                                "id": "manual-driver-guid-scroll",
+                                                "layout": {
+                                                    "cross": "stretch",
+                                                    "type": "col"
+                                                },
+                                                "style": {
+                                                    "bg": "#ffffff",
+                                                    "border": "#cbd5e1",
+                                                    "borderW": 1,
+                                                    "radius": 10
+                                                },
+                                                "type": "scrollview"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    },
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 4,
+                                                    "w": 1,
+                                                    "x": 0,
+                                                    "y": 0
+                                                },
+                                                "text": "",
+                                                "type": "label"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    },
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 34,
+                                                    "w": 540,
+                                                    "x": 20,
+                                                    "y": 0
+                                                },
+                                                "id": "manual-driver-summary",
+                                                "multiline": true,
+                                                "style": {
+                                                    "align": "start",
+                                                    "fg": "#475569",
+                                                    "font": "Microsoft YaHei UI",
+                                                    "size": 12
+                                                },
+                                                "text": {
+                                                    "bind": "manual.driver.summary",
+                                                    "default": "未选择任何规则，将取消备份驱动勾选。"
+                                                },
+                                                "type": "label",
+                                                "wordWrap": true
+                                            },
+                                            {
+                                                "frame": {
+                                                    "h": 30,
+                                                    "w": 88,
+                                                    "x": 364,
+                                                    "y": 16
+                                                },
+                                                "id": "manual-driver-confirm",
+                                                "onClick": "manual-driver-confirm",
+                                                "style": {
+                                                    "bg": "#2563eb",
+                                                    "disabledBg": "#60a5fa",
+                                                    "disabledFg": "#bfdbfe",
+                                                    "downFg": "#ffffff",
+                                                    "fg": "#ffffff",
+                                                    "font": "Microsoft YaHei UI",
+                                                    "hoverBg": "#1d4ed8",
+                                                    "pad": 12,
+                                                    "pressedBg": "#1e40af",
+                                                    "radius": 10,
+                                                    "size": 14,
+                                                    "weight": 700
+                                                },
+                                                "text": {
+                                                    "bind": "i18n.manual.driver.confirm",
+                                                    "default": "确定"
+                                                },
+                                                "type": "button"
+                                            },
+                                            {
+                                                "frame": {
+                                                    "h": 30,
+                                                    "w": 88,
+                                                    "x": 464,
+                                                    "y": 16
+                                                },
+                                                "id": "manual-driver-cancel",
+                                                "onClick": "manual-driver-cancel",
+                                                "style": {
+                                                    "bg": "#ffffff",
+                                                    "border": "#e2e8f0",
+                                                    "disabledBg": "#f1f5f9",
+                                                    "downFg": "#ffffff",
+                                                    "fg": "#475569",
+                                                    "font": "Microsoft YaHei",
+                                                    "hoverBg": "#f8fafc",
+                                                    "pad": 12,
+                                                    "pressedBg": "#0f172a",
+                                                    "radius": 10,
+                                                    "size": 14,
+                                                    "weight": 400
+                                                },
+                                                "text": {
+                                                    "bind": "i18n.manual.driver.cancel",
+                                                    "default": "取消"
+                                                },
+                                                "type": "button"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    },
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 10,
+                                                    "w": 1,
+                                                    "x": 0,
+                                                    "y": 0
+                                                },
+                                                "text": "",
+                                                "type": "label"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    }
+                                ],
+                                "frame": {
+                                    "h": 400,
+                                    "w": 580,
+                                    "x": "50%-290",
+                                    "y": "50%-200"
+                                },
+                                "id": "manual-driver-card",
+                                "layout": {
+                                    "cross": "stretch",
+                                    "type": "col"
+                                },
+                                "scale": "px",
+                                "style": {
+                                    "bg": "#ffffff",
+                                    "border": "#cbd5e1",
+                                    "borderW": 1,
+                                    "radius": 14
+                                },
+                                "type": "panel"
+                            }
+                        ],
+                        "id": "manual-driver-modal",
+                        "onDismiss": "manual-driver-cancel",
+                        "type": "modal",
+                        "visible": {
+                            "bind": "manual.driver.visible",
+                            "default": false
+                        }
+                    },
+                    {
+                        "_comment_zh": "页面：BitLocker 解锁弹层。",
+                        "backdrop": {
+                            "blur": 0,
+                            "color": "#0f172a",
+                            "dismissOnClick": false,
+                            "opacity": 112
+                        },
+                        "children": [
+                            {
+                                "children": [
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 24,
+                                                    "w": 1,
+                                                    "x": 0,
+                                                    "y": 0
+                                                },
+                                                "text": "",
+                                                "type": "label"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    },
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 30,
+                                                    "w": 512,
+                                                    "x": 24,
+                                                    "y": 0
+                                                },
+                                                "id": "prompt-title",
+                                                "style": {
+                                                    "align": "start",
+                                                    "fg": "#0f172a",
+                                                    "font": "Microsoft YaHei UI",
+                                                    "size": 20,
+                                                    "weight": 700
+                                                },
+                                                "text": {
+                                                    "bind": "prompt.title",
+                                                    "default": "BitLocker 解锁"
+                                                },
+                                                "type": "label"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    },
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 10,
+                                                    "w": 1,
+                                                    "x": 0,
+                                                    "y": 0
+                                                },
+                                                "text": "",
+                                                "type": "label"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    },
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 106,
+                                                    "w": 512,
+                                                    "x": 24,
+                                                    "y": 0
+                                                },
+                                                "id": "prompt-text",
+                                                "multiline": true,
+                                                "style": {
+                                                    "align": "start",
+                                                    "fg": "#334155",
+                                                    "font": "Microsoft YaHei UI",
+                                                    "size": 14
+                                                },
+                                                "text": {
+                                                    "bind": "prompt.text",
+                                                    "default": ""
+                                                },
+                                                "type": "label",
+                                                "wordWrap": true
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    },
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 8,
+                                                    "w": 1,
+                                                    "x": 0,
+                                                    "y": 0
+                                                },
+                                                "text": "",
+                                                "type": "label"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    },
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 40,
+                                                    "w": 512,
+                                                    "x": 24,
+                                                    "y": 0
+                                                },
+                                                "id": "prompt-input",
+                                                "onChange": "prompt-input-change",
+                                                "onSubmit": "prompt-submit-password",
+                                                "placeholder": {
+                                                    "bind": "i18n.prompt.inputPlaceholder",
+                                                    "default": "请输入密码或 48 位恢复密钥"
+                                                },
+                                                "style": {
+                                                    "bg": "#ffffff",
+                                                    "border": "#cbd5e1",
+                                                    "fg": "#1e293b",
+                                                    "focusBorder": "#2563eb",
+                                                    "font": "Microsoft YaHei UI",
+                                                    "hoverBorder": "#3b82f6",
+                                                    "pad": 8,
+                                                    "ph": "#94a3b8",
+                                                    "radius": 10,
+                                                    "size": 14
+                                                },
+                                                "type": "input",
+                                                "value": {
+                                                    "bind": "prompt.credential",
+                                                    "default": ""
+                                                }
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    },
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 8,
+                                                    "w": 1,
+                                                    "x": 0,
+                                                    "y": 0
+                                                },
+                                                "text": "",
+                                                "type": "label"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    },
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 24,
+                                                    "w": 512,
+                                                    "x": 24,
+                                                    "y": 0
+                                                },
+                                                "id": "prompt-error",
+                                                "style": {
+                                                    "align": "start",
+                                                    "fg": "#dc2626",
+                                                    "font": "Microsoft YaHei UI",
+                                                    "size": 14
+                                                },
+                                                "text": {
+                                                    "bind": "prompt.error",
+                                                    "default": ""
+                                                },
+                                                "type": "label"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    },
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 8,
+                                                    "w": 1,
+                                                    "x": 0,
+                                                    "y": 0
+                                                },
+                                                "text": "",
+                                                "type": "label"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    },
+                                    {
+                                        "children": [
+                                            {
+                                                "children": [
+                                                    {
+                                                        "frame": {
+                                                            "h": 36,
+                                                            "w": 148,
+                                                            "x": 0,
+                                                            "y": 0
+                                                        },
+                                                        "id": "prompt-password",
+                                                        "onClick": "prompt-submit-password",
+                                                        "style": {
+                                                            "bg": "#2563eb",
+                                                            "disabledBg": "#60a5fa",
+                                                            "disabledFg": "#bfdbfe",
+                                                            "downFg": "#ffffff",
+                                                            "fg": "#ffffff",
+                                                            "font": "Microsoft YaHei UI",
+                                                            "hoverBg": "#1d4ed8",
+                                                            "pad": 12,
+                                                            "pressedBg": "#1e40af",
+                                                            "radius": 10,
+                                                            "size": 14,
+                                                            "weight": 700
+                                                        },
+                                                        "text": {
+                                                            "bind": "i18n.prompt.password",
+                                                            "default": "用密码解锁"
+                                                        },
+                                                        "type": "button"
+                                                    }
+                                                ],
+                                                "type": "panel"
+                                            },
+                                            {
+                                                "children": [
+                                                    {
+                                                        "frame": {
+                                                            "h": 36,
+                                                            "w": 12,
+                                                            "x": 0,
+                                                            "y": 0
+                                                        },
+                                                        "text": "",
+                                                        "type": "label"
+                                                    }
+                                                ],
+                                                "type": "panel"
+                                            },
+                                            {
+                                                "children": [
+                                                    {
+                                                        "frame": {
+                                                            "h": 36,
+                                                            "w": 148,
+                                                            "x": 0,
+                                                            "y": 0
+                                                        },
+                                                        "id": "prompt-recovery",
+                                                        "onClick": "prompt-submit-recovery",
+                                                        "style": {
+                                                            "bg": "#2563eb",
+                                                            "disabledBg": "#60a5fa",
+                                                            "disabledFg": "#bfdbfe",
+                                                            "downFg": "#ffffff",
+                                                            "fg": "#ffffff",
+                                                            "font": "Microsoft YaHei UI",
+                                                            "hoverBg": "#1d4ed8",
+                                                            "pad": 12,
+                                                            "pressedBg": "#1e40af",
+                                                            "radius": 10,
+                                                            "size": 14,
+                                                            "weight": 700
+                                                        },
+                                                        "text": {
+                                                            "bind": "i18n.prompt.recovery",
+                                                            "default": "用恢复密钥"
+                                                        },
+                                                        "type": "button"
+                                                    }
+                                                ],
+                                                "type": "panel"
+                                            },
+                                            {
+                                                "children": [
+                                                    {
+                                                        "frame": {
+                                                            "h": 36,
+                                                            "w": 104,
+                                                            "x": 0,
+                                                            "y": 0
+                                                        },
+                                                        "text": "",
+                                                        "type": "label"
+                                                    }
+                                                ],
+                                                "type": "panel"
+                                            },
+                                            {
+                                                "children": [
+                                                    {
+                                                        "frame": {
+                                                            "h": 36,
+                                                            "w": 100,
+                                                            "x": 0,
+                                                            "y": 0
+                                                        },
+                                                        "id": "prompt-cancel",
+                                                        "onClick": "prompt-cancel",
+                                                        "style": {
+                                                            "bg": "#ffffff",
+                                                            "border": "#e2e8f0",
+                                                            "disabledBg": "#f1f5f9",
+                                                            "downFg": "#ffffff",
+                                                            "fg": "#475569",
+                                                            "font": "Microsoft YaHei",
+                                                            "hoverBg": "#f8fafc",
+                                                            "pad": 12,
+                                                            "pressedBg": "#0f172a",
+                                                            "radius": 10,
+                                                            "size": 14,
+                                                            "weight": 400
+                                                        },
+                                                        "text": {
+                                                            "bind": "i18n.prompt.cancel",
+                                                            "default": "取消"
+                                                        },
+                                                        "type": "button"
+                                                    }
+                                                ],
+                                                "type": "panel"
+                                            }
+                                        ],
+                                        "layout": {
+                                            "cross": "center",
+                                            "pad": [
+                                                0,
+                                                24,
+                                                0,
+                                                24
+                                            ],
+                                            "type": "row"
+                                        },
+                                        "type": "panel"
+                                    },
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 6,
+                                                    "w": 1,
+                                                    "x": 0,
+                                                    "y": 0
+                                                },
+                                                "text": "",
+                                                "type": "label"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    }
+                                ],
+                                "frame": {
+                                    "h": 300,
+                                    "w": 560,
+                                    "x": "50%-280",
+                                    "y": "50%-150"
+                                },
+                                "id": "prompt-card",
+                                "layout": {
+                                    "cross": "stretch",
+                                    "type": "col"
+                                },
+                                "style": {
+                                    "bg": "#ffffff",
+                                    "border": "#cbd5e1",
+                                    "borderW": 1,
+                                    "radius": 14
+                                },
+                                "type": "panel"
+                            }
+                        ],
+                        "id": "prompt-bitlocker",
+                        "onDismiss": "prompt-cancel",
+                        "type": "modal",
+                        "visible": {
+                            "bind": "prompt.visible",
+                            "default": false
+                        }
+                    }
+                ],
+                "id": "root",
+                "layout": "abs",
+                "type": "panel"
             },
-            "children": [
-              {
-                "type": "panel",
-                "id": "prompt-card",
-                "style": {
-                  "bg": "#ffffff",
-                  "border": "#cbd5e1",
-                  "borderW": 1,
-                  "radius": 14
-                },
-                "frame": { "x": "50%-280", "y": "50%-150", "w": 560, "h": 300 },
-                "children": [
-                  {
-                    "type": "label",
-                    "id": "prompt-title",
-                    "text": { "bind": "prompt.title", "default": "BitLocker 解锁" },
-                    "style": {
-                      "font": "Microsoft YaHei UI",
-                      "size": 20,
-                      "weight": 700,
-                      "fg": "#0f172a",
-                      "align": "start"
-                    },
-                    "frame": { "x": 24, "y": 24, "r": 24, "h": 30 }
-                  },
-                  {
-                    "type": "label",
-                    "id": "prompt-text",
-                    "text": { "bind": "prompt.text", "default": "" },
-                    "multiline": true,
-                    "wordWrap": true,
-                    "style": {
-                      "font": "Microsoft YaHei UI",
-                      "size": 14,
-                      "fg": "#334155",
-                      "align": "start"
-                    },
-                    "frame": { "x": 24, "y": 64, "r": 24, "h": 106 }
-                  },
-                  {
-                    "type": "input",
-                    "id": "prompt-input",
-                    "value": { "bind": "prompt.credential", "default": "" },
-                    "placeholder": { "bind": "i18n.prompt.inputPlaceholder", "default": "请输入密码或 48 位恢复密钥" },
-                    "onChange": "prompt-input-change",
-                    "onSubmit": "prompt-submit-password",
-                    "style": {
-                      "font": "Microsoft YaHei UI",
-                      "size": 14,
-                      "fg": "#1e293b",
-                      "ph": "#94a3b8",
-                      "bg": "#ffffff",
-                      "border": "#cbd5e1",
-                      "hoverBorder": "#3b82f6",
-                      "focusBorder": "#2563eb",
-                      "pad": 8,
-                      "radius": 10
-                    },
-                    "frame": { "x": 24, "y": 178, "r": 24, "h": 40 }
-                  },
-                  {
-                    "type": "label",
-                    "id": "prompt-error",
-                    "text": { "bind": "prompt.error", "default": "" },
-                    "style": {
-                      "font": "Microsoft YaHei UI",
-                      "size": 14,
-                      "fg": "#dc2626",
-                      "align": "start"
-                    },
-                    "frame": { "x": 24, "y": 226, "r": 24, "h": 24 }
-                  },
-                  {
-                    "type": "button",
-                    "id": "prompt-password",
-                    "text": { "bind": "i18n.prompt.password", "default": "用密码解锁" },
-                    "style": {
-                      "font": "Microsoft YaHei UI",
-                      "size": 14,
-                      "weight": 700,
-                      "fg": "#ffffff",
-                      "downFg": "#ffffff",
-                      "disabledFg": "#bfdbfe",
-                      "bg": "#2563eb",
-                      "hoverBg": "#1d4ed8",
-                      "pressedBg": "#1e40af",
-                      "disabledBg": "#60a5fa",
-                      "radius": 10,
-                      "pad": 12
-                    },
-                    "onClick": "prompt-submit-password",
-                    "frame": { "x": 24, "y": 258, "w": 148, "h": 36 }
-                  },
-                  {
-                    "type": "button",
-                    "id": "prompt-recovery",
-                    "text": { "bind": "i18n.prompt.recovery", "default": "用恢复密钥" },
-                    "style": {
-                      "font": "Microsoft YaHei UI",
-                      "size": 14,
-                      "weight": 700,
-                      "fg": "#ffffff",
-                      "downFg": "#ffffff",
-                      "disabledFg": "#bfdbfe",
-                      "bg": "#2563eb",
-                      "hoverBg": "#1d4ed8",
-                      "pressedBg": "#1e40af",
-                      "disabledBg": "#60a5fa",
-                      "radius": 10,
-                      "pad": 12
-                    },
-                    "onClick": "prompt-submit-recovery",
-                    "frame": { "x": 184, "y": 258, "w": 148, "h": 36 }
-                  },
-                  {
-                    "type": "button",
-                    "id": "prompt-cancel",
-                    "text": { "bind": "i18n.prompt.cancel", "default": "取消" },
-                    "style": {
-                      "font": "Microsoft YaHei",
-                      "size": 14,
-                      "weight": 400,
-                      "fg": "#475569",
-                      "downFg": "#ffffff",
-                      "bg": "#ffffff",
-                      "hoverBg": "#f8fafc",
-                      "pressedBg": "#0f172a",
-                      "disabledBg": "#f1f5f9",
-                      "border": "#e2e8f0",
-                      "radius": 10,
-                      "pad": 12
-                    },
-                    "onClick": "prompt-cancel",
-                    "frame": { "x": 436, "y": 258, "w": 100, "h": 36 }
-                  }
-                ]
-              }
-            ]
-          }
-        ]
-      }
-    }
-  ]
+            "title": {
+                "bind": "window.title",
+                "default": "ReSys-一键重装"
+            },
+            "w": 760
+        }
+    ]
 }

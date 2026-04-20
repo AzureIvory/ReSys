@@ -178,11 +178,6 @@ func onCreate(app *core.App, scene *widgets.Scene) error {
 		return err
 	}
 
-	size := app.ClientSize()
-	if ui.window.Root != nil {
-		ui.window.Root.SetBounds(widgets.Rect{W: size.Width, H: size.Height})
-	}
-
 	applyMode(modeSelect)
 	EnsureDriverDialogInit()
 	return nil
@@ -190,10 +185,7 @@ func onCreate(app *core.App, scene *widgets.Scene) error {
 
 // onResize 同步根节点 bounds，使 abs 布局表达式按最新窗口尺寸重新计算。
 func onResize(_ *core.App, _ *widgets.Scene, size core.Size) {
-	if ui.window == nil || ui.window.Root == nil {
-		return
-	}
-	ui.window.Root.SetBounds(widgets.Rect{W: size.Width, H: size.Height})
+	syncRootBounds(size)
 }
 
 // onDPIChanged 触发资源重载（主要是 image 等），并同步根节点 bounds。
@@ -204,8 +196,15 @@ func onDPIChanged(_ *core.App, _ *widgets.Scene, _ core.DPIInfo) {
 	if ui.app == nil || ui.window == nil || ui.window.Root == nil {
 		return
 	}
-	size := ui.app.ClientSize()
+	syncRootBounds(ui.app.ClientSize())
+}
+
+func syncRootBounds(size core.Size) bool {
+	if ui.window == nil || ui.window.Root == nil {
+		return false
+	}
 	ui.window.Root.SetBounds(widgets.Rect{W: size.Width, H: size.Height})
+	return true
 }
 
 // onDestroy 清理 UI 相关引用与可能挂起的弹窗。

@@ -1,3 +1,7 @@
 {
-  "language": "auto"
+  "language": {
+    "ui_language":"auto",
+    "image_default_language": "zh-CN"
+  }
+ 
 }

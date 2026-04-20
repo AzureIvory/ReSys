@@ -35,7 +35,7 @@ jobs:
         shell: pwsh
         run: |
           go install honnef.co/go/tools/cmd/staticcheck@latest
-          staticcheck ./...
+          staticcheck -checks=all,-U1000 ./...
 
       - name: Install and run govulncheck
         continue-on-error: true
