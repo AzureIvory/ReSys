@@ -67,12 +67,11 @@ func test() {
 	defer cancel()
 
 	res, err := download.Download(ctx, download.NOptions{
-		URL:         "https://mirrors.sdu.edu.cn/wepe/WePE_64_V2.3.exe",
+		URL:         "http://dl.delivery.mp.microsoft.com/filestreamingservice/files/6048ac73-c010-4eaf-ac07-a8672588662e/19045.3803.231204-0204.22h2_release_svc_refresh_CLIENTCHINA_RET_x64FRE_zh-cn.esd",
 		Destination: "./1.exe",
 		Concurrency: 1,
 		ChunkSize:   4 << 20, // 4 MiB
 		Header:      nil,     // 默认空
-		SkipProbe:   true,    // 跳过探测阶段，直接进入下载阶段
 
 		VerifyChecksum: &download.ChecksumConfig{
 			Name:        "sha256",
@@ -114,8 +113,6 @@ func test() {
 }
 
 func main() {
-	test()
-
 	if !tools.IsAdmin() {
 		if err := tools.RestartAsAdmin(); err != nil {
 			panic(err)

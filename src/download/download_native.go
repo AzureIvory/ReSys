@@ -1,13 +1,16 @@
 package download
 
 import (
+	applog "ReSys/src/log"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"hash"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -32,6 +35,8 @@ const (
 	StatusCanceled    Status = "canceled"
 )
 
+const UA = "aria2/1.37.0"
+
 type ChecksumConfig struct {
 	Name        string
 	New         func() hash.Hash
@@ -44,8 +49,8 @@ type NOptions struct {
 
 	Header http.Header
 
-	// Skip the probe request and use a single GET directly.
-	SkipProbe bool
+	ProgressSizeHint     float64
+	ProgressSizeHintUnit string
 
 	Concurrency int
 	ChunkSize   int64
@@ -419,12 +424,100 @@ func adjustFinalProgress(progress *NProgress, size int64) {
 	if progress == nil {
 		return
 	}
-	if size > 0 && progress.BytesTotal == 0 {
+	if size > 0 && (progress.BytesTotal == 0 || progress.Status == StatusCompleted) {
 		progress.BytesTotal = size
 	}
 	if progress.Status == StatusCompleted {
 		progress.Percent = 1
 	}
+}
+
+func formatBytesForLog(size int64) string {
+	if size < 0 {
+		return "未知"
+	}
+	if size < 1024 {
+		return fmt.Sprintf("%d B", size)
+	}
+
+	value := float64(size)
+	unit := "KiB"
+	for _, next := range []string{"KiB", "MiB", "GiB", "TiB"} {
+		unit = next
+		value /= 1024
+		if value < 1024 || next == "TiB" {
+			break
+		}
+	}
+	return fmt.Sprintf("%d B (%.2f %s)", size, value, unit)
+}
+
+func progressSizeHintBytes(size float64, unit string) int64 {
+	if size <= 0 {
+		return 0
+	}
+
+	multiplier := float64(0)
+	switch strings.ToUpper(strings.TrimSpace(unit)) {
+	case "", "B", "BYTE", "BYTES":
+		multiplier = 1
+	case "KB", "K", "KIB":
+		multiplier = 1024
+	case "MB", "M", "MIB":
+		multiplier = 1024 * 1024
+	case "GB", "G", "GIB":
+		multiplier = 1024 * 1024 * 1024
+	case "TB", "T", "TIB":
+		multiplier = 1024 * 1024 * 1024 * 1024
+	default:
+		return 0
+	}
+
+	total := size * multiplier
+	if total <= 0 || total > float64(math.MaxInt64) {
+		return 0
+	}
+	return int64(math.Round(total))
+}
+
+func resolveProgressTotalSource(probeSize int64, opt NOptions) (int64, string) {
+	if probeSize >= 0 {
+		return probeSize, "探测结果"
+	}
+	if hint := progressSizeHintBytes(opt.ProgressSizeHint, opt.ProgressSizeHintUnit); hint > 0 {
+		return hint, "传入参数"
+	}
+	return 0, "未知"
+}
+
+func resolveProgressTotal(probeSize int64, opt NOptions) int64 {
+	total, _ := resolveProgressTotalSource(probeSize, opt)
+	return total
+}
+
+func formatProgressHintForLog(opt NOptions) string {
+	if opt.ProgressSizeHint <= 0 {
+		return "未提供"
+	}
+
+	unit := strings.TrimSpace(opt.ProgressSizeHintUnit)
+	if unit == "" {
+		unit = "B"
+	}
+	return fmt.Sprintf("%.6f %s -> %s", opt.ProgressSizeHint, unit, formatBytesForLog(progressSizeHintBytes(opt.ProgressSizeHint, unit)))
+}
+
+func checksumConfigForLog(cfg *ChecksumConfig) string {
+	if cfg == nil {
+		return "未提供"
+	}
+
+	name := strings.ToUpper(strings.TrimSpace(cfg.Name))
+	expected := strings.TrimSpace(cfg.ExpectedHex)
+	if expected == "" {
+		return fmt.Sprintf("算法=%s 仅计算不比对", name)
+	}
+	return fmt.Sprintf("算法=%s 期望值=%s", name, expected)
 }
 
 func Download(ctx context.Context, opt NOptions) (*NResult, error) {
@@ -449,7 +542,22 @@ func Download(ctx context.Context, opt NOptions) (*NResult, error) {
 	_ = os.Remove(result.TempPath)
 
 	probe := probeInfo{Size: -1}
-	skipProbe := opt.SkipProbe
+	var err error
+	singleRequestMode := singleRequest(opt.URL)
+	skipProbe := singleRequestMode
+
+	applog.LogWrite(
+		0,
+		"[Download] 下载参数：目标=%s URL=%s 单连接模式=%t 传入文件大小=%s 校验=%s",
+		opt.Destination,
+		opt.URL,
+		singleRequestMode,
+		formatProgressHintForLog(opt),
+		checksumConfigForLog(opt.VerifyChecksum),
+	)
+	if skipProbe {
+		applog.LogWrite(0, "[Download] 已跳过探测：URL=%s 原因=单连接镜像", opt.URL)
+	}
 
 	if !skipProbe {
 		probeStats := newStats(0, 0)
@@ -457,12 +565,13 @@ func Download(ctx context.Context, opt NOptions) (*NResult, error) {
 		probeReporter := newProgressReporter(probeStats, opt.ProgressInterval, opt.OnProgress)
 		probeReporter.Start()
 
-		probe, err := probeResource(ctx, retryClient, opt)
+		probe, err = probeResource(ctx, retryClient, opt)
 		if err != nil {
 			result.ProbeStatusCode = extractDownloadErrorStatusCode(err)
 			if shouldDowngradeProbeError(err) {
 				skipProbe = true
 				probe = probeInfo{Size: -1}
+				applog.LogWrite(-1, "[Download] 探测失败，改为直接下载：URL=%s 错误=%v", opt.URL, err)
 				probeStats.setStatus(StatusDownloading)
 				_ = probeReporter.StopAndEmitFinal()
 			} else {
@@ -481,6 +590,15 @@ func Download(ctx context.Context, opt NOptions) (*NResult, error) {
 			result.ETag = probe.ETag
 			result.LastModified = probe.LastModified
 			result.Size = probe.Size
+			applog.LogWrite(
+				0,
+				"[Download] 探测结果：状态码=%d 文件大小=%s 支持分块=%t ETag=%s Last-Modified=%s",
+				probe.ProbeStatusCode,
+				formatBytesForLog(probe.Size),
+				probe.SupportsRanges,
+				firstNonEmpty(probe.ETag, "无"),
+				firstNonEmpty(probe.LastModified, "无"),
+			)
 
 			probeStats.setStatus(StatusDownloading)
 			_ = probeReporter.StopAndEmitFinal()
@@ -530,10 +648,15 @@ func Download(ctx context.Context, opt NOptions) (*NResult, error) {
 	if usedRanges {
 		chunksTotal = int32(len(parts))
 	}
-	progressTotal := probe.Size
-	if progressTotal < 0 {
-		progressTotal = 0
-	}
+	progressTotal, progressSource := resolveProgressTotalSource(probe.Size, opt)
+	applog.LogWrite(
+		0,
+		"[Download] 下载前信息：探测文件大小=%s 传入文件大小=%s 进度总量=%s 来源=%s",
+		formatBytesForLog(probe.Size),
+		formatProgressHintForLog(opt),
+		formatBytesForLog(progressTotal),
+		progressSource,
+	)
 	dlStats := newStats(progressTotal, chunksTotal)
 	dlStats.setStatus(StatusDownloading)
 	reporter := newProgressReporter(dlStats, opt.ProgressInterval, opt.OnProgress)
@@ -667,11 +790,13 @@ func Download(ctx context.Context, opt NOptions) (*NResult, error) {
 	reporter.emit(time.Now())
 
 	if opt.VerifyChecksum != nil {
+		applog.LogWrite(0, "[Download] 开始文件校验：算法=%s 文件=%s", strings.ToUpper(opt.VerifyChecksum.Name), result.TempPath)
 		checksumHex, err := computeFileChecksum(result.TempPath, opt.VerifyChecksum.New)
 		if err != nil {
 			if opt.RemovePartialOnError {
 				_ = os.Remove(result.TempPath)
 			}
+			applog.LogWrite(-2, "[Download] 文件校验失败：算法=%s 文件=%s 错误=%v", strings.ToUpper(opt.VerifyChecksum.Name), result.TempPath, err)
 			derr := &DownloadError{Op: "verify_checksum", URL: opt.URL, Reason: "compute checksum", Err: err}
 			dlStats.setStatus(StatusFailed)
 			result.Status = StatusFailed
@@ -688,6 +813,7 @@ func Download(ctx context.Context, opt NOptions) (*NResult, error) {
 				if opt.RemovePartialOnError {
 					_ = os.Remove(result.TempPath)
 				}
+				applog.LogWrite(-2, "[Download] 文件校验失败：算法=%s 实际=%s 期望=%s", strings.ToUpper(opt.VerifyChecksum.Name), checksumHex, expected)
 				derr := &DownloadError{
 					Op:     "verify_checksum",
 					URL:    opt.URL,
@@ -702,6 +828,7 @@ func Download(ctx context.Context, opt NOptions) (*NResult, error) {
 				return result, derr
 			}
 		}
+		applog.LogWrite(0, "[Download] 文件校验通过：算法=%s 结果=%s", strings.ToUpper(result.ChecksumName), result.ChecksumHex)
 	}
 
 	if err := replaceFile(result.TempPath, result.Destination); err != nil {
@@ -729,6 +856,16 @@ func Download(ctx context.Context, opt NOptions) (*NResult, error) {
 func newRetryClient(opt NOptions) *retryablehttp.Client {
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.DisableCompression = true
+	if singleRequest(opt.URL) {
+		tr.ForceAttemptHTTP2 = false
+		tr.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
+		if tr.TLSClientConfig == nil {
+			tr.TLSClientConfig = &tls.Config{}
+		} else {
+			tr.TLSClientConfig = tr.TLSClientConfig.Clone()
+		}
+		tr.TLSClientConfig.NextProtos = []string{"http/1.1"}
+	}
 	tr.MaxConnsPerHost = opt.MaxConnsPerHost
 	tr.MaxIdleConns = opt.MaxIdleConns
 	tr.MaxIdleConnsPerHost = opt.MaxIdleConnsPerHost
@@ -775,7 +912,7 @@ func probeResource(ctx context.Context, client *retryablehttp.Client, opt NOptio
 	headStatus := 0
 	var headHeader http.Header
 	if headReq, err := retryablehttp.NewRequestWithContext(ctx, http.MethodHead, opt.URL, nil); err == nil {
-		applyRequestHeaders(headReq.Header, headers)
+		applyHeaders(headReq.Header, headers, opt.URL)
 		resp, err := client.Do(headReq)
 		if err == nil && resp != nil {
 			headStatus = resp.StatusCode
@@ -788,7 +925,7 @@ func probeResource(ctx context.Context, client *retryablehttp.Client, opt NOptio
 	if err != nil {
 		return probeInfo{}, &DownloadError{Op: "probe_build", URL: opt.URL, Reason: "build probe request", Err: err}
 	}
-	applyRequestHeaders(rangeReq.Header, headers)
+	applyHeaders(rangeReq.Header, headers, opt.URL)
 	rangeReq.Header.Set("Range", "bytes=0-0")
 
 	resp, err := client.Do(rangeReq)
@@ -955,7 +1092,7 @@ func downloadPartOnce(ctx context.Context, client *retryablehttp.Client, file *o
 	if err != nil {
 		return 0, &DownloadError{Op: "part_build", URL: opt.URL, Part: &part, Reason: "build range request", Err: err}
 	}
-	applyRequestHeaders(req.Header, opt.Header)
+	applyHeaders(req.Header, opt.Header, opt.URL)
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", part.Start, part.End))
 	applyConsistencyHeaders(req.Header, probe)
 
@@ -1060,8 +1197,10 @@ func downloadSingleOnce(ctx context.Context, client *retryablehttp.Client, file 
 	if err != nil {
 		return 0, &DownloadError{Op: "single_build", URL: opt.URL, Reason: "build GET request", Err: err}
 	}
-	applyRequestHeaders(req.Header, opt.Header)
-	applyConsistencyHeaders(req.Header, currentProbe)
+	applyHeaders(req.Header, opt.Header, opt.URL)
+	if !singleRequest(opt.URL) {
+		applyConsistencyHeaders(req.Header, currentProbe)
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -1198,6 +1337,15 @@ func applyRequestHeaders(dst http.Header, src http.Header) {
 		dst[k] = vvCopy
 	}
 }
+
+func applyHeaders(dst http.Header, src http.Header, url string) {
+	if singleRequest(url) {
+		dst.Set("User-Agent", UA)
+		return
+	}
+	applyRequestHeaders(dst, src)
+}
+
 func cloneHeader(h http.Header) http.Header {
 	if h == nil {
 		return nil

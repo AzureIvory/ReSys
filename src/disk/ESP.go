@@ -35,9 +35,6 @@ func EnsureESPRoot(part PartitionInfo) (string, func(), error) {
 			}
 		}
 	}
-	if strings.TrimSpace(part.VolumeGuidPath) == "" {
-		return "", nil, fmt.Errorf("EFI partition has no volume GUID")
-	}
 	root, cleanup, err := MountVolumeToTempLetter(part)
 	if err != nil {
 		return "", nil, err
@@ -96,22 +93,26 @@ func MountVolumeToTempLetter(part PartitionInfo) (string, func(), error) {
 		return "", nil, err
 	}
 	volumeGuid := strings.TrimSpace(part.VolumeGuidPath)
-	if volumeGuid == "" {
-		return "", nil, fmt.Errorf("empty volume GUID")
-	}
-	if !strings.HasSuffix(volumeGuid, `\`) {
-		volumeGuid += `\`
-	}
+	var mountvolErr error
+	if volumeGuid != "" {
+		if !strings.HasSuffix(volumeGuid, `\`) {
+			volumeGuid += `\`
+		}
 
-	root, cleanup, mountvolErr := mountVolumeWithMountvol(volumeGuid, letter)
-	if mountvolErr == nil {
-		return root, cleanup, nil
+		root, cleanup, err := mountVolumeWithMountvol(volumeGuid, letter)
+		if err == nil {
+			return root, cleanup, nil
+		}
+		mountvolErr = err
+		fmt.Printf("[MountVolumeToTempLetter] mountvol failed, fallback to diskpart: %v\n", mountvolErr)
 	}
-	fmt.Printf("[MountVolumeToTempLetter] mountvol failed, fallback to diskpart: %v\n", mountvolErr)
 
 	root, cleanup, diskpartErr := mountVolumeWithDiskpart(part, letter)
 	if diskpartErr == nil {
 		return root, cleanup, nil
+	}
+	if volumeGuid == "" {
+		return "", nil, fmt.Errorf("mount partition via diskpart failed: %w", diskpartErr)
 	}
 	return "", nil, fmt.Errorf("mount volume %s failed: mountvol=%v; diskpart=%v", volumeGuid, mountvolErr, diskpartErr)
 }

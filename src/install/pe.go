@@ -374,9 +374,12 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 
 				if !useExisting {
 					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
-					err := download.DownloadFile(ctx, link, exePath, func(pct float64, speed int64) {
-						pr.Update(pct, speed)
-					})
+					_, err := download.Download(
+						ctx,
+						download.NewNativeDownloadOptions(link, exePath, func(pct float64, speed int64) {
+							pr.Update(pct, speed)
+						}),
+					)
 					cancel()
 					if err != nil {
 						markFailedLink(link)
@@ -414,9 +417,15 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 				triedLink = true
 
 				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
-				err := download.DownloadFile(ctx, link, wimPath, func(pct float64, speed int64) {
+				opt := download.NewNativeDownloadOptions(link, wimPath, func(pct float64, speed int64) {
 					pr.Update(pct, speed)
 				})
+				opt.ProgressSizeHint = it.Sz
+				opt.ProgressSizeHintUnit = "MB"
+				_, err := download.Download(
+					ctx,
+					opt,
+				)
 				cancel()
 				if err != nil {
 					markFailedLink(link)
@@ -478,6 +487,10 @@ func downloadPEUrls(name string, size float64, arch string, links []string) (str
 	}
 
 	meta, hasMeta := matchPEMetaByLinks(name, arch, out)
+	progressSize := size
+	if hasMeta && meta.Sz > 0 {
+		progressSize = meta.Sz
+	}
 	needBytes := int64(1024 * 1024 * 1024)
 	if hasMeta && meta.Sz > 0 {
 		needBytes = int64(meta.Sz * 1024 * 1024 * 2)
@@ -557,9 +570,12 @@ func downloadPEUrls(name string, size float64, arch string, links []string) (str
 
 			if !useExisting {
 				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
-				err := download.DownloadFile(ctx, link, exePath, func(pct float64, speed int64) {
-					pr.Update(pct, speed)
-				})
+				_, err := download.Download(
+					ctx,
+					download.NewNativeDownloadOptions(link, exePath, func(pct float64, speed int64) {
+						pr.Update(pct, speed)
+					}),
+				)
 				cancel()
 				if err != nil {
 					markFailedLink(link)
@@ -592,9 +608,15 @@ func downloadPEUrls(name string, size float64, arch string, links []string) (str
 			}
 		} else {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
-			err := download.DownloadFile(ctx, link, wimPath, func(pct float64, speed int64) {
+			opt := download.NewNativeDownloadOptions(link, wimPath, func(pct float64, speed int64) {
 				pr.Update(pct, speed)
 			})
+			opt.ProgressSizeHint = progressSize
+			opt.ProgressSizeHintUnit = "MB"
+			_, err := download.Download(
+				ctx,
+				opt,
+			)
 			cancel()
 			if err != nil {
 				markFailedLink(link)

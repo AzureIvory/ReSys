@@ -131,7 +131,7 @@ func filterMSCandidatesByLanguage(candidates []data.RuleItem, preferredLang stri
 }
 
 // downloadFileWithRetry 下载单个 HTTP/HTTPS 链接，并在检测到本地冲突时清理后重试一次。
-func downloadFileWithRetry(link, dstPath string, progress func(float64, int64)) error {
+func downloadFileWithRetry(it data.RuleItem, link, dstPath string, progress func(float64, int64)) error {
 	if err := cleanupDownloadArtifacts(dstPath); err != nil {
 		log.LogWrite(0, "[downloadImage] cleanup existing download target failed: path=%s err=%v", dstPath, err)
 	}
@@ -139,7 +139,14 @@ func downloadFileWithRetry(link, dstPath string, progress func(float64, int64)) 
 	var lastErr error
 	for attempt := 1; attempt <= 2; attempt++ {
 		ctx, cancel := context.WithCancel(context.Background())
-		err := download.DownloadFile(ctx, link, dstPath, progress)
+		opt := download.NewNativeDownloadOptions(link, dstPath, progress)
+		opt.ProgressSizeHint = it.Size
+		opt.ProgressSizeHintUnit = it.SizeUnit
+		opt.VerifyChecksum = imageChecksumConfig(it)
+		_, err := download.Download(
+			ctx,
+			opt,
+		)
 		cancel()
 		if err == nil {
 			return nil
@@ -182,7 +189,7 @@ func ruleItemLinks(it data.RuleItem) []string {
 func prepareImageDestination(it data.RuleItem, dstDir, link string) (string, bool) {
 	dstPath := filepath.Join(dstDir, data.RuleItemFileName(it, link))
 	if st, err := os.Stat(dstPath); err == nil && !st.IsDir() && st.Size() > 0 {
-		if err := validateImageFile(it, dstPath); err != nil {
+		if err := validateDownloadedImageFile(it, dstPath); err != nil {
 			log.LogWrite(0, "[downloadImage] image verification failed, removing and retrying: %s err=%v", dstPath, err)
 			_ = cleanupDownloadArtifacts(dstPath)
 		} else {
@@ -278,7 +285,7 @@ func DownloadImage(target, arch string) (string, error) {
 				true,
 			)
 
-			err := downloadFileWithRetry(link, dstPath, func(pct float64, speed int64) {
+			err := downloadFileWithRetry(it, link, dstPath, func(pct float64, speed int64) {
 				pr.Update(pct, speed)
 			})
 			log.LogWrite(0, "[downloadImage] DownloadFile returned: link=%s dst=%s err=%v", link, dstPath, err)
@@ -288,7 +295,7 @@ func DownloadImage(target, arch string) (string, error) {
 			}
 
 			if err == nil {
-				if vErr := validateImageFile(it, dstPath); vErr != nil {
+				if vErr := validateDownloadedImageFile(it, dstPath); vErr != nil {
 					markFailedLink(link)
 					_ = cleanupDownloadArtifacts(dstPath)
 					log.LogWrite(0, "[downloadImage] image verification failed, removing and retrying: %s err=%v", dstPath, vErr)
@@ -380,7 +387,7 @@ func DownloadImage(target, arch string) (string, error) {
 				}
 			}
 
-			if vErr := validateImageFile(it, finalPath); vErr != nil {
+			if vErr := validateDownloadedImageFile(it, finalPath); vErr != nil {
 				markFailedLink(link)
 				_ = cleanupDownloadArtifacts(finalPath)
 				log.LogWrite(0, "[downloadImage] image verification failed, removing and retrying: %s err=%v", finalPath, vErr)

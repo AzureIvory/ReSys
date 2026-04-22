@@ -25,6 +25,8 @@ const (
 	espFixMarkerFile    = "ESP_FIX_WIN.DAT"
 )
 
+var findPartitionByRef = disk.FindPartitionByRef
+
 // ===== 领域类型 =====
 
 type ReinstallMode string
@@ -833,16 +835,20 @@ func ResolveInstallTarget(plan *InstallPlan) error {
 		log.LogWrite(0, "[ResolveInstallTarget] auto mode on Windows, force target root: %s", plan.TargetRoot)
 	}
 
-	if strings.TrimSpace(plan.TargetPartRef) != "" && strings.TrimSpace(plan.TargetRoot) == "" {
-		_, part, err := disk.FindPartitionByRef(plan.TargetPartRef)
+	if strings.TrimSpace(plan.TargetPartRef) != "" {
+		_, part, err := findPartitionByRef(plan.TargetPartRef)
 		if err != nil {
 			log.LogWrite(0, "[ResolveInstallTarget] ignore invalid target_part_ref=%s err=%v", plan.TargetPartRef, err)
 		} else {
 			root, err := partitionRootFromInfo(part)
 			if err != nil {
-				return err
+				if strings.TrimSpace(plan.TargetRoot) == "" {
+					return err
+				}
+				log.LogWrite(0, "[ResolveInstallTarget] keep existing target_root=%s because target_part_ref=%s cannot resolve a drive letter: %v", plan.TargetRoot, plan.TargetPartRef, err)
+			} else {
+				plan.TargetRoot = root
 			}
-			plan.TargetRoot = root
 		}
 	}
 

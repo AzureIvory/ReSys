@@ -647,6 +647,55 @@ func ListDrive() ([]string, error) {
 	return drives, nil
 }
 
+// ListNotDrive 获取当前系统中所有未使用的盘符。
+// 该函数会先读取已分配盘符，再从 A-Z 中扣除已分配盘符，并固定排除 A、B、C、X 四个盘符。
+func ListNotDrive() ([]string, error) {
+	drives, err := ListDrive()
+	if err != nil {
+		log.LogWrite(0, "[ListNotDrive] ListDrive 失败: %v", err)
+		return nil, err
+	}
+
+	usedSet := make(map[byte]struct{}, len(drives))
+	for _, drive := range drives {
+		drive = strings.TrimSpace(drive)
+		if drive == "" {
+			continue
+		}
+
+		letter := strings.ToUpper(string(drive[0]))
+		if len(letter) != 1 {
+			continue
+		}
+		ch := letter[0]
+		if ch < 'A' || ch > 'Z' {
+			continue
+		}
+		usedSet[ch] = struct{}{}
+	}
+
+	excluded := map[byte]struct{}{
+		'A': {},
+		'B': {},
+		'C': {},
+		'X': {},
+	}
+
+	notDrives := make([]string, 0, 22)
+	for ch := byte('A'); ch <= 'Z'; ch++ {
+		if _, ok := excluded[ch]; ok {
+			continue
+		}
+		if _, ok := usedSet[ch]; ok {
+			continue
+		}
+		notDrives = append(notDrives, fmt.Sprintf("%c:\\", ch))
+	}
+
+	log.LogWrite(0, fmt.Sprintf("[ListNotDrive] 未使用盘符: %v\n", notDrives))
+	return notDrives, nil
+}
+
 // formatGUID 将 GUID 结构格式化为标准字符串：xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx。
 func formatGUID(g GUID) string {
 	return fmt.Sprintf("%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x",
