@@ -2,6 +2,7 @@ package boot
 
 import (
 	"ReSys/src/disk"
+	"ReSys/src/log"
 	"ReSys/src/tools"
 	"ReSys/src/utils"
 	"errors"
@@ -283,6 +284,7 @@ func SecureBootEnabled() (bool, error) {
 	}
 	return v != 0, nil
 }
+
 func FindESP(osRoot string) (string, func(), error) {
 	root, _ := utils.NormalizeDrive(osRoot, 0)
 	if root == "" {
@@ -303,6 +305,7 @@ func FindESP(osRoot string) (string, func(), error) {
 		return "", nil, fmt.Errorf("find target-disk ESP: %w", err)
 	} else if found {
 		fmt.Println("[FindESP] use same-disk EFI:", root)
+		log.LogWrite(0, "[FindESP] found ESP on target disk %d, use it\n", targetDisk)
 		return root, cleanup, nil
 	}
 
@@ -310,6 +313,7 @@ func FindESP(osRoot string) (string, func(), error) {
 	if err != nil {
 		return "", nil, fmt.Errorf("ListPhysicalDisks: %w", err)
 	}
+	log.LogWrite(0, "[FindESP] target disk %d, enumerate disks to find fallback ESP\n  err: %v", targetDisk, err)
 	volumes, err := disk.ListVolumes()
 	if err != nil {
 		return "", nil, fmt.Errorf("ListVolumes: %w", err)
@@ -320,18 +324,21 @@ func FindESP(osRoot string) (string, func(), error) {
 		}
 		if disk.ShouldSkipFallbackDisk(d.DiskNumber, volumes) {
 			fmt.Printf("[FindESP] skip fallback disk %d\n", d.DiskNumber)
+			log.LogWrite(0, "[FindESP] skip fallback disk %d\n", d.DiskNumber)
 			continue
 		}
 		if root, cleanup, found, err := disk.FindESPOnDisk(d.DiskNumber); err != nil {
 			fmt.Printf("[FindESP] enumerate disk %d failed: %v\n", d.DiskNumber, err)
+			log.LogWrite(0, "[FindESP] enumerate disk %d failed: %v\n", d.DiskNumber, err)
 			continue
 		} else if found {
 			fmt.Println("[FindESP] use fallback EFI:", root)
+			log.LogWrite(0, "[FindESP] found fallback ESP on disk %d, use it\n", d.DiskNumber)
 			return root, cleanup, nil
 		}
 	}
 
-	fmt.Printf("[FindESP] no EFI found, create new ESP on disk %d\n", targetDisk)
+	log.LogWrite(0, "[FindESP] no EFI found, create new ESP on disk %d\n", targetDisk)
 	return CreateESP(osRoot)
 }
 
@@ -490,6 +497,7 @@ func FixUEFI(osRoot, sysHint, locale string) error {
 	}
 	fmt.Println("[FixUEFI] bcdboot ok")
 	fmt.Println(out)
+	log.LogWrite(0, "[FixUEFI] running: %s %s\n out: %s  err: %v", bcdpath, strings.Join(args, " "), out, err)
 	return nil
 }
 
@@ -505,22 +513,28 @@ func FixBIOS(osRoot, sysHint, locale string) error {
 	if out, err := tools.RunCmd("bootrec.exe", nil, nil, "", "/fixmbr"); err != nil {
 		fmt.Println("[FixBIOS] bootrec /fixmbr failed (may be ok):", err)
 		fmt.Println(out)
+		log.LogWrite(0, "[FixBIOS] bootrec /fixmbr failed (may be ok): %v\nout: %s", err, out)
 	} else {
 		fmt.Println("[FixBIOS] bootrec /fixmbr ok")
 		fmt.Println(out)
+		log.LogWrite(0, "[FixBIOS] bootrec /fixmbr ok\nout: %s", out)
 	}
 	if out, err := tools.RunCmd("bootrec.exe", nil, nil, "", "/fixboot"); err != nil {
 		fmt.Println("[FixBIOS] bootrec /fixboot failed, try bootsect:", err)
 		fmt.Println(out)
+		log.LogWrite(0, "[FixBIOS] bootrec /fixboot failed: %v\nout: %s", err, out)
 		if out2, err2 := tools.RunCmd("bootsect.exe", nil, nil, "", "/nt60", sysRoot, "/mbr"); err2 != nil {
 			fmt.Println("[FixBIOS] bootsect failed:", err2)
 			fmt.Println(out2)
+			log.LogWrite(0, "[FixBIOS] bootsect failed: %v\nout: %s", err2, out2)
 		} else {
 			fmt.Println("[FixBIOS] bootsect ok")
+			log.LogWrite(0, "[FixBIOS] bootsect ok\nout: %s", out)
 		}
 	} else {
 		fmt.Println("[FixBIOS] bootrec /fixboot ok")
 		fmt.Println(out)
+		log.LogWrite(0, "[FixBIOS] bootrec /fixboot ok\nout: %s", out)
 	}
 
 	//bcdboot
@@ -540,6 +554,7 @@ func FixBIOS(osRoot, sysHint, locale string) error {
 	}
 	fmt.Println("[FixBIOS] bcdboot ok")
 	fmt.Println(out)
+	log.LogWrite(0, "[FixBIOS] running: %s %s\n out: %s  err: %v", bcdpath, strings.Join(args, " "), out, err)
 	return nil
 }
 

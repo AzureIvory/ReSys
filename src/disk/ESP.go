@@ -1,6 +1,7 @@
 package disk
 
 import (
+	"ReSys/src/log"
 	"ReSys/src/tools"
 	"ReSys/src/utils"
 	"fmt"
@@ -36,6 +37,7 @@ func EnsureESPRoot(part PartitionInfo) (string, func(), error) {
 		}
 	}
 	root, cleanup, err := MountVolumeToTempLetter(part)
+	log.LogWrite(0, "[EnsureESPRoot] MountVolumeToTempLetter for disk %d partition %d returned root=%s err=%v", part.DiskNumber, part.PartitionNumber, root, err)
 	if err != nil {
 		return "", nil, err
 	}
@@ -45,6 +47,7 @@ func EnsureESPRoot(part PartitionInfo) (string, func(), error) {
 		}
 		return "", nil, err
 	}
+	log.LogWrite(0, "[EnsureESPRoot] Found ESP on disk %d partition %d at %s with size %d bytes", part.DiskNumber, part.PartitionNumber, root, part.SizeBytes)
 	return root, cleanup, nil
 }
 
@@ -69,6 +72,7 @@ func CreateESPFromExtent(extent FreeExtent, sizeMB int, label string) (string, f
 	if err != nil {
 		return "", nil, fmt.Errorf("create EFI partition failed: %w\n输出:\n%s", err, out)
 	}
+	log.LogWrite(0, "[CreateESPFromExtent] diskpart 输出: %s  err: %v  命令：%s", out, err, "diskpart "+strings.Join(lines, " "))
 	if err := diskpartDetectError(out, "create EFI partition"); err != nil {
 		return "", nil, err
 	}
@@ -89,6 +93,7 @@ func CreateESPFromExtent(extent FreeExtent, sizeMB int, label string) (string, f
 // MountVolumeToTempLetter 将指定卷 GUID 临时挂载到空闲盘符；失败时回退到 diskpart。
 func MountVolumeToTempLetter(part PartitionInfo) (string, func(), error) {
 	letter, err := chooseTempDriveLetter()
+	log.LogWrite(0, "[MountVolumeToTempLetter][chooseTempDriveLetter]选择临时盘符 %s 来挂载磁盘%d分区%d", letter, part.DiskNumber, part.PartitionNumber)
 	if err != nil {
 		return "", nil, err
 	}
@@ -100,6 +105,7 @@ func MountVolumeToTempLetter(part PartitionInfo) (string, func(), error) {
 		}
 
 		root, cleanup, err := mountVolumeWithMountvol(volumeGuid, letter)
+
 		if err == nil {
 			return root, cleanup, nil
 		}
@@ -120,6 +126,7 @@ func MountVolumeToTempLetter(part PartitionInfo) (string, func(), error) {
 // FindESPOnDisk 枚举指定磁盘上的 EFI 分区并返回最合适的候选。
 func FindESPOnDisk(diskNumber int) (string, func(), bool, error) {
 	parts, err := ListDiskPartitions(diskNumber)
+	log.LogWrite(0, "[FindESPOnDisk][ListDiskPartitions]列出磁盘%d的分区信息：%v", diskNumber, parts)
 	if err != nil {
 		return "", nil, false, err
 	}
@@ -139,6 +146,7 @@ func FindESPOnDisk(diskNumber int) (string, func(), bool, error) {
 		root, cleanup, err := EnsureESPRoot(part)
 		if err != nil {
 			fmt.Printf("[FindESP] skip EFI on disk %d offset=%d: %v\n", diskNumber, part.OffsetBytes, err)
+			log.LogWrite(0, "[FindESPOnDisk][FindESP] skip EFI on disk %d offset=%d: %v\n", diskNumber, part.OffsetBytes, err)
 			continue
 		}
 		cand := espCandidate{
@@ -303,6 +311,7 @@ func partitionTypeForVolume(vol VolumeInfo, parts []PartitionInfo) string {
 // FindESPFreeExtentAfterShrink 在收缩卷后寻找新腾出的未分配空间。
 func FindESPFreeExtentAfterShrink(root string, targetDisk int, minSizeBytes, probeWindowBytes uint64) (FreeExtent, error) {
 	extents, err := GetDiskFreeExtents(targetDisk)
+	log.LogWrite(0, "[FindESPFreeExtentAfterShrink][GetDiskFreeExtents]列出磁盘%d的未分配空间：%v", targetDisk, extents)
 	if err != nil {
 		return FreeExtent{}, fmt.Errorf("GetDiskFreeExtents: %w", err)
 	}
@@ -374,8 +383,10 @@ func absDiffUint64(a, b uint64) uint64 {
 // mountVolumeWithMountvol 使用 mountvol 把卷 GUID 挂载到空闲盘符。
 func mountVolumeWithMountvol(volumeGuid, letter string) (string, func(), error) {
 	mountvol := utils.GetSystemExe("mountvol.exe")
+	log.LogWrite(0, "[MountVolumeWithMountvol] mountvol 路径：%s", mountvol)
 	target := letter + ":"
 	out, err := tools.RunCmd(mountvol, nil, nil, "", target, volumeGuid)
+	log.LogWrite(0, "[MountVolumeWithMountvol] mountvol 输出: %s  err: %v  命令：%s", out, err, mountvol+" "+target+" "+volumeGuid)
 	if err != nil {
 		_ = removeDriveLetter(letter)
 		return "", nil, fmt.Errorf("mountvol %s -> %s failed: %w\n输出:\n%s", target, volumeGuid, err, out)
@@ -387,6 +398,7 @@ func mountVolumeWithMountvol(volumeGuid, letter string) (string, func(), error) 
 	}
 	cleanup := func() {
 		if err := removeDriveLetter(letter); err != nil {
+			log.LogWrite(0, "[MountVolumeToTempLetter] unmount %s failed: %v\n", root, err)
 			fmt.Printf("[MountVolumeToTempLetter] unmount %s failed: %v\n", root, err)
 		}
 	}
@@ -403,6 +415,11 @@ func mountVolumeWithDiskpart(part PartitionInfo, letter string) (string, func(),
 		fmt.Sprintf("select partition %d", part.PartitionNumber),
 		fmt.Sprintf("assign letter=%s", letter),
 	})
+	log.LogWrite(0, "[MountVolumeWithDiskpart] diskpart 输出: %s  err: %v  命令：%s", out, err, "diskpart "+strings.Join([]string{
+		fmt.Sprintf("select disk %d", part.DiskNumber),
+		fmt.Sprintf("select partition %d", part.PartitionNumber),
+		fmt.Sprintf("assign letter=%s", letter),
+	}, " "))
 	if err != nil {
 		return "", nil, fmt.Errorf("diskpart assign %s on disk %d partition %d failed: %w\n输出:\n%s", letter, part.DiskNumber, part.PartitionNumber, err, out)
 	}
@@ -416,6 +433,7 @@ func mountVolumeWithDiskpart(part PartitionInfo, letter string) (string, func(),
 	}
 	cleanup := func() {
 		if err := removeDriveLetter(letter); err != nil {
+			log.LogWrite(0, "[MountVolumeToTempLetter] unmount %s failed: %v\n", root, err)
 			fmt.Printf("[MountVolumeToTempLetter] unmount %s failed: %v\n", root, err)
 		}
 	}
@@ -431,6 +449,7 @@ func validateESPRoot(root string) error {
 		return err
 	}
 	if !strings.EqualFold(fs, "FAT32") {
+		log.LogWrite(0, "[validateESPRoot] 文件系统不是 FAT32: %s", fs)
 		return fmt.Errorf("fs=%s, want FAT32", fs)
 	}
 	return nil
@@ -443,8 +462,10 @@ func removeDriveLetter(letter string) error {
 		return fmt.Errorf("empty drive letter")
 	}
 	mountvol := utils.GetSystemExe("mountvol.exe")
+	log.LogWrite(0, "[RemoveDriveLetter] mountvol 路径：%s", mountvol)
 	target := letter + ":"
 	out, err := tools.RunCmd(mountvol, nil, nil, "", target, "/D")
+	log.LogWrite(0, "[RemoveDriveLetter] mountvol 输出: %s  err: %v", out, err)
 	if err == nil {
 		return nil
 	}
@@ -452,6 +473,7 @@ func removeDriveLetter(letter string) error {
 		fmt.Sprintf("select volume %s", letter),
 		fmt.Sprintf("remove letter=%s", letter),
 	})
+	log.LogWrite(0, "[RemoveDriveLetter] diskpart 输出2: %s  err2: %v", out2, err2)
 	if err2 == nil {
 		if detectErr := diskpartDetectError(out2, "remove drive letter"); detectErr == nil {
 			return nil
@@ -461,23 +483,35 @@ func removeDriveLetter(letter string) error {
 }
 
 func chooseTempDriveLetter() (string, error) {
-	roots, err := ListDrive()
+	notDrives, err := ListNotDrive()
 	if err != nil {
-		return "", fmt.Errorf("ListDrive: %w", err)
+		return "", fmt.Errorf("ListNotDrive: %w", err)
 	}
-	used := map[string]struct{}{"X": {}}
-	for _, root := range roots {
-		if letter, err := utils.NormalizeDrive(root, 1); err == nil {
-			used[strings.ToUpper(letter)] = struct{}{}
-		}
+
+	if len(notDrives) == 0 {
+		return "", fmt.Errorf("no free drive letter available")
 	}
-	for ch := 'Z'; ch >= 'D'; ch-- {
-		letter := string(ch)
-		if _, ok := used[letter]; ok {
+
+	// 优先从 Z 往 D 选
+	for i := len(notDrives) - 1; i >= 0; i-- {
+		drive := strings.TrimSpace(notDrives[i])
+		if drive == "" {
 			continue
 		}
+
+		letter := strings.ToUpper(string(drive[0]))
+		if len(letter) != 1 {
+			continue
+		}
+
+		ch := letter[0]
+		if ch < 'D' || ch > 'Z' {
+			continue
+		}
+
 		return letter, nil
 	}
+
 	return "", fmt.Errorf("no free drive letter available")
 }
 

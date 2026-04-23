@@ -73,6 +73,16 @@ const (
 	storagePropertySeekPenalty = 7 // StorageDeviceSeekPenaltyProperty
 	// STORAGE_QUERY_TYPE
 	storageQueryStandard = 0 // PropertyStandardQuery
+
+	driveLayoutHeaderSize      = 48
+	driveLayoutDiskIDOffset    = 8
+	partitionEntrySize         = 144
+	partitionOffsetFieldOffset = 8
+	partitionLengthFieldOffset = 16
+	partitionNumberFieldOffset = 24
+	partitionUnionFieldOffset  = 32
+	partitionGPTTypeOffset     = 0
+	partitionGPTIDOffset       = 16
 )
 
 // DISK_EXTENT
@@ -908,6 +918,119 @@ func getVolumePathNames(volumeName string) ([]string, error) {
 
 // readDriveLayout 读取物理磁盘的分区布局（GPT/MBR/RAW）、磁盘唯一标识，以及分区列表。
 // GPT 返回磁盘 GUID；MBR 返回 Signature（十六进制字符串）；读取失败返回错误。
+func layoutStyleName(styleVal uint32) string {
+	switch styleVal {
+	case partitionStyleMBR:
+		return "MBR"
+	case partitionStyleGPT:
+		return "GPT"
+	case partitionStyleRAW:
+		return "RAW"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+func parseGUIDAt(buf []byte, offset int) (GUID, error) {
+	if offset < 0 || offset+16 > len(buf) {
+		return GUID{}, fmt.Errorf("GUID out of range: offset=%d len=%d", offset, len(buf))
+	}
+
+	var g GUID
+	g.Data1 = binary.LittleEndian.Uint32(buf[offset : offset+4])
+	g.Data2 = binary.LittleEndian.Uint16(buf[offset+4 : offset+6])
+	g.Data3 = binary.LittleEndian.Uint16(buf[offset+6 : offset+8])
+	copy(g.Data4[:], buf[offset+8:offset+16])
+	return g, nil
+}
+
+func parseDriveLayoutBuffer(diskNumber int, buf []byte, bytesRet uint32) (string, string, []PartitionInfo, error) {
+	available := len(buf)
+	if available > int(bytesRet) {
+		available = int(bytesRet)
+	}
+	if available < 8 {
+		return "", "", nil, fmt.Errorf("unexpected DRIVE_LAYOUT_INFORMATION_EX size: %d", bytesRet)
+	}
+
+	buf = buf[:available]
+	styleVal := binary.LittleEndian.Uint32(buf[0:4])
+	count := binary.LittleEndian.Uint32(buf[4:8])
+	style := layoutStyleName(styleVal)
+	if available < driveLayoutHeaderSize {
+		return style, "", nil, fmt.Errorf("unexpected DRIVE_LAYOUT_INFORMATION_EX header: %d", bytesRet)
+	}
+
+	var uniqueID string
+	switch styleVal {
+	case partitionStyleGPT:
+		diskID, err := parseGUIDAt(buf, driveLayoutDiskIDOffset)
+		if err != nil {
+			return style, "", nil, err
+		}
+		uniqueID = formatGUID(diskID)
+	case partitionStyleMBR:
+		signature := binary.LittleEndian.Uint32(buf[driveLayoutDiskIDOffset : driveLayoutDiskIDOffset+4])
+		if signature != 0 {
+			uniqueID = fmt.Sprintf("%08x", signature)
+		}
+	}
+
+	entryCount := int(count)
+	maxEntries := 0
+	if available > driveLayoutHeaderSize {
+		maxEntries = (available - driveLayoutHeaderSize) / partitionEntrySize
+	}
+	if entryCount > maxEntries {
+		entryCount = maxEntries
+	}
+
+	partitions := make([]PartitionInfo, 0, entryCount)
+	for i := 0; i < entryCount; i++ {
+		base := driveLayoutHeaderSize + i*partitionEntrySize
+		partStyle := binary.LittleEndian.Uint32(buf[base : base+4])
+		offsetBytes := int64(binary.LittleEndian.Uint64(
+			buf[base+partitionOffsetFieldOffset : base+partitionOffsetFieldOffset+8],
+		))
+		lengthBytes := int64(binary.LittleEndian.Uint64(
+			buf[base+partitionLengthFieldOffset : base+partitionLengthFieldOffset+8],
+		))
+		if lengthBytes <= 0 || offsetBytes < 0 {
+			continue
+		}
+
+		part := PartitionInfo{
+			DiskNumber: diskNumber,
+			PartitionNumber: int(binary.LittleEndian.Uint32(
+				buf[base+partitionNumberFieldOffset : base+partitionNumberFieldOffset+4],
+			)),
+			OffsetBytes: uint64(offsetBytes),
+			SizeBytes:   uint64(lengthBytes),
+		}
+
+		unionOffset := base + partitionUnionFieldOffset
+		switch partStyle {
+		case partitionStyleGPT:
+			partType, err := parseGUIDAt(buf, unionOffset+partitionGPTTypeOffset)
+			if err != nil {
+				return style, "", nil, err
+			}
+			partID, err := parseGUIDAt(buf, unionOffset+partitionGPTIDOffset)
+			if err != nil {
+				return style, "", nil, err
+			}
+			part.PartitionGuid = formatGUID(partID)
+			part.Type = partitionTypeFromGPT(partType)
+		case partitionStyleMBR:
+			part.Type = partitionTypeFromMBR(buf[unionOffset])
+		}
+
+		partitions = append(partitions, part)
+	}
+
+	return style, uniqueID, partitions, nil
+}
+
 func readDriveLayout(diskNumber int) (string, string, []PartitionInfo, error) {
 	hDisk, err := openPhysicalDrive(diskNumber, syscall.GENERIC_READ)
 	if err != nil {
@@ -930,81 +1053,7 @@ func readDriveLayout(diskNumber int) (string, string, []PartitionInfo, error) {
 	if err != nil {
 		return "", "", nil, fmt.Errorf("DeviceIoControl IOCTL_DISK_GET_DRIVE_LAYOUT_EX failed: %w", err)
 	}
-	if bytesRet < 8 {
-		return "", "", nil, fmt.Errorf("unexpected DRIVE_LAYOUT_INFORMATION_EX size: %d", bytesRet)
-	}
-
-	styleVal := binary.LittleEndian.Uint32(out[0:4])
-	count := binary.LittleEndian.Uint32(out[4:8])
-	var style string
-	switch styleVal {
-	case partitionStyleMBR:
-		style = "MBR"
-	case partitionStyleGPT:
-		style = "GPT"
-	case partitionStyleRAW:
-		style = "RAW"
-	default:
-		style = "UNKNOWN"
-	}
-
-	mbtSize := unsafe.Sizeof(driveLayoutInformationMbr{})
-	gptSize := unsafe.Sizeof(driveLayoutInformationGpt{})
-	unionSize := mbtSize
-	if gptSize > unionSize {
-		unionSize = gptSize
-	}
-	headerSize := 8 + unionSize
-	if uint32(headerSize) > bytesRet {
-		return style, "", nil, fmt.Errorf("unexpected DRIVE_LAYOUT_INFORMATION_EX header: %d", bytesRet)
-	}
-
-	var uniqueId string
-	if styleVal == partitionStyleGPT {
-		gpt := (*driveLayoutInformationGpt)(unsafe.Pointer(&out[8]))
-		uniqueId = formatGUID(gpt.DiskId)
-	} else if styleVal == partitionStyleMBR {
-		mbr := (*driveLayoutInformationMbr)(unsafe.Pointer(&out[8]))
-		if mbr.Signature != 0 {
-			uniqueId = fmt.Sprintf("%08x", mbr.Signature)
-		}
-	}
-
-	unionPartSize := unsafe.Sizeof(partitionInformationMbr{})
-	if gptSize := unsafe.Sizeof(partitionInformationGpt{}); gptSize > unionPartSize {
-		unionPartSize = gptSize
-	}
-	entrySize := unsafe.Sizeof(partitionInformationEx{}) + unionPartSize
-	partitions := make([]PartitionInfo, 0, count)
-	for i := uint32(0); i < count; i++ {
-		baseOffset := uintptr(headerSize) + uintptr(i)*entrySize
-		if baseOffset+entrySize > uintptr(bytesRet) {
-			break
-		}
-		base := (*partitionInformationEx)(unsafe.Pointer(&out[baseOffset]))
-		if base.PartitionLength <= 0 {
-			continue
-		}
-
-		part := PartitionInfo{
-			DiskNumber:      diskNumber,
-			PartitionNumber: int(base.PartitionNumber),
-			OffsetBytes:     uint64(base.StartingOffset),
-			SizeBytes:       uint64(base.PartitionLength),
-		}
-		unionOffset := baseOffset + unsafe.Sizeof(partitionInformationEx{})
-		if base.PartitionStyle == partitionStyleGPT {
-			gpt := (*partitionInformationGpt)(unsafe.Pointer(&out[unionOffset]))
-			part.PartitionGuid = formatGUID(gpt.PartitionId)
-			part.Type = partitionTypeFromGPT(gpt.PartitionType)
-		} else if base.PartitionStyle == partitionStyleMBR {
-			mbr := (*partitionInformationMbr)(unsafe.Pointer(&out[unionOffset]))
-			part.Type = partitionTypeFromMBR(mbr.PartitionType)
-		}
-		partitions = append(partitions, part)
-	}
-
-	return style, uniqueId, partitions, nil
+	return parseDriveLayoutBuffer(diskNumber, out, bytesRet)
 }
 
 // ListPhysicalDisks 枚举系统内可访问的物理磁盘，返回磁盘容量、分区样式与唯一标识等信息。
@@ -1066,11 +1115,13 @@ func ListPhysicalDisks() ([]DiskInfo, error) {
 // 若分区 GUID 缺失，会用卷侧推断补全。
 func ListDiskPartitions(diskNumber int) ([]PartitionInfo, error) {
 	_, _, parts, err := readDriveLayout(diskNumber)
+	log.LogWrite(0, "[ListDiskPartitions]列出磁盘%d的分区信息：%v", diskNumber, parts)
 	if err != nil {
 		return nil, err
 	}
 
 	volumes, _ := ListVolumes()
+	log.LogWrite(0, "[ListDiskPartitions][ListVolumes]列出系统卷信息：%v", volumes)
 	for i := range parts {
 		for _, vol := range volumes {
 			if vol.DiskNumber != diskNumber {
