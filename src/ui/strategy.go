@@ -277,7 +277,13 @@ func manualBuildJSON() (string, error) {
 		}
 	}
 
+	targetOS := mSelectedTargetOS()
+	files := manualDefaultFiles(targetOS, manualOptionAutoDeploy())
+
 	cfg := config.Config{
+		Mode:      "manual",
+		TargetOS:  targetOS,
+		ImageArch: utils.NormalizeArch(info.Arch),
 		ImagePath: strings.TrimSpace(manual.imagePath),
 		Index:     info.Index,
 		Partition: partition,
@@ -303,8 +309,47 @@ func manualBuildJSON() (string, error) {
 			Letter: config.Auto,
 			Label:  "",
 		},
+		File: config.FileConfig{
+			State: len(files) > 0,
+			Items: files,
+		},
 	}
 	return config.Marshal(cfg)
+}
+
+func manualDefaultFiles(targetOS string, copyXML bool) []config.FileItem {
+	files := []config.FileItem{
+		{
+			Src:       `tools\drive.exe`,
+			Dst:       `\drive.exe`,
+			Overwrite: true,
+			Required:  false,
+		},
+	}
+	if copyXML {
+		xmlSrc := `tools\win10.xml`
+		if strings.EqualFold(targetOS, "win7") {
+			xmlSrc = `tools\win7.xml`
+		}
+		files = append(
+			[]config.FileItem{
+				{
+					Src:       xmlSrc,
+					Dst:       `\Windows\Panther\Unattend.xml`,
+					Overwrite: true,
+					Required:  false,
+				},
+				{
+					Src:       `tools\HEU_KMS_Activator.exe`,
+					Dst:       `\HEU_KMS_Activator.exe`,
+					Overwrite: true,
+					Required:  false,
+				},
+			},
+			files...,
+		)
+	}
+	return files
 }
 
 // mSelectedImageInfo 从缓存的 imageInfos 中按 Store 里选中的索引找出对应镜像元信息。

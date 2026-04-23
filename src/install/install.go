@@ -9,6 +9,7 @@ import (
 	"ReSys/src/log"
 	"ReSys/src/tools"
 	"ReSys/src/utils"
+	"ReSys/src/wimlib"
 	"ReSys/src/windows"
 	"encoding/json"
 	"fmt"
@@ -26,6 +27,10 @@ const (
 )
 
 var findPartitionByRef = disk.FindPartitionByRef
+var applyImageWithWimlib = wimlib.ApplyImage
+var applyImageWithDism = func(imageFile, applyDir string, index uint32, progressCh chan<- dism.DismProgress) error {
+	return dism.NewDism().ApplyImageCmd(imageFile, applyDir, index, progressCh)
+}
 
 // ===== 领域类型 =====
 
@@ -50,6 +55,14 @@ type InstallFlags struct {
 	NeedBackupBeforePE    bool
 	NeedOfflineDrivers    bool
 	NeedCopyXMLAfterBoot  bool
+}
+
+// InstallFile 描述安装完成后的单个复制项。
+type InstallFile struct {
+	Src       string `json:"src"`
+	Dst       string `json:"dst"`
+	Overwrite bool   `json:"overwrite"`
+	Required  bool   `json:"required"`
 }
 
 type InstallPlan struct {
@@ -77,6 +90,7 @@ type InstallPlan struct {
 	UnattendFile  string
 	DriverFiles   []string
 	DriverGUIDs   []string
+	Files         []InstallFile
 	Flags         InstallFlags
 }
 
@@ -165,6 +179,9 @@ func NormalizeInstallPlan(plan *InstallPlan) error {
 	}
 	if plan.DriverGUIDs == nil {
 		plan.DriverGUIDs = []string{}
+	}
+	if plan.Files == nil {
+		plan.Files = []InstallFile{}
 	}
 	if strings.TrimSpace(plan.UnattendFile) == "" {
 		plan.UnattendFile = "AUTO"
@@ -406,6 +423,13 @@ func formatInstallPlanLines(plan *InstallPlan) ([]string, error) {
 			return nil, err
 		}
 		lines = append(lines, fmt.Sprintf("driver_guids=%s", string(text)))
+	}
+	if len(plan.Files) > 0 {
+		text, err := json.Marshal(plan.Files)
+		if err != nil {
+			return nil, err
+		}
+		lines = append(lines, fmt.Sprintf("files=%s", string(text)))
 	}
 	if plan.ImageIndex > 0 {
 		lines = append(lines, fmt.Sprintf("index=%d", plan.ImageIndex))
@@ -792,6 +816,8 @@ func parseInstallPlanData(data string, defaultTargetRoot string) (*InstallPlan, 
 			_ = json.Unmarshal([]byte(val), &plan.DriverFiles)
 		case "driver_guids":
 			_ = json.Unmarshal([]byte(val), &plan.DriverGUIDs)
+		case "files":
+			_ = json.Unmarshal([]byte(val), &plan.Files)
 		case "index":
 			if v, e := strconv.Atoi(val); e == nil {
 				plan.ImageIndex = v
@@ -1007,10 +1033,30 @@ func ApplyInstallImage(plan *InstallPlan, progress func(string, float64, string)
 	}
 
 	log.LogWrite(0, "[ApplyInstallImage] ext=%s image=%s applyPath=%s target=%s index=%d", ext, imagePath, applyPath, targetRoot, plan.ImageIndex)
-	dismSvc := dism.NewDism()
+	return applyImage(applyPath, targetRoot, plan.ImageIndex, progress)
+}
 
+func applyImage(
+	applyPath string,
+	targetRoot string,
+	imageIndex int,
+	progress func(string, float64, string),
+) error {
+	if imageIndex <= 0 {
+		return fmt.Errorf("invalid image index: %d", imageIndex)
+	}
+
+	wimlibErr := applyImageWithWimlib(applyPath, imageIndex, targetRoot)
+	if wimlibErr == nil {
+		if progress != nil {
+			progress("apply", 100, "Done")
+		}
+		return nil
+	}
+
+	log.LogWrite(-1, "[ApplyInstallImage] wimlib apply failed, fallback to DISM: image=%s target=%s index=%d err=%v", applyPath, targetRoot, imageIndex, wimlibErr)
 	if progress == nil {
-		return dismSvc.ApplyImageCmd(applyPath, targetRoot, uint32(plan.ImageIndex), nil)
+		return applyImageWithDism(applyPath, targetRoot, uint32(imageIndex), nil)
 	}
 
 	progressCh := make(chan dism.DismProgress, 16)
@@ -1022,7 +1068,7 @@ func ApplyInstallImage(plan *InstallPlan, progress func(string, float64, string)
 		}
 	}()
 
-	err := dismSvc.ApplyImageCmd(applyPath, targetRoot, uint32(plan.ImageIndex), progressCh)
+	err := applyImageWithDism(applyPath, targetRoot, uint32(imageIndex), progressCh)
 	close(progressCh)
 	<-done
 	return err
@@ -1069,7 +1115,6 @@ func registerBuiltInHooks(ctx *InstallContext) {
 	ctx.Hooks.Add(HookBeforeEnterPE, backupDriversBeforeEnterPE)
 	ctx.Hooks.Add(HookAfterRepairBoot, restoreBackedUpDrivers)
 	ctx.Hooks.Add(HookAfterInstall, autoinstools)
-	ctx.Hooks.Add(HookAfterInstall, adddrivexe)
 	ctx.Hooks.Add(HookAfterInstall, cleanupPreparedPEAfterInstall)
 }
 
@@ -1240,12 +1285,66 @@ func autoinstools(ctx *InstallContext) error {
 		return err
 	}
 	baseDir := filepath.Dir(selfExe)
-	unattend := unattendedPath(ctx.Plan, baseDir)
-	_ = file.Copy(unattend, filepath.Join(ctx.Plan.TargetRoot, "Windows", "Panther", "Unattend.xml"), true, true)
-	_ = file.Copy(filepath.Join(baseDir, "tools", "HEU_KMS_Activator.exe"), filepath.Join(ctx.Plan.TargetRoot, "HEU_KMS_Activator.exe"), true, true)
+	if err := copyPlanFiles(ctx.Plan.TargetRoot, baseDir, ctx.Plan.Files); err != nil {
+		return err
+	}
 	_, _ = tools.CreateShortcut(filepath.Join(ctx.Plan.TargetRoot, "Users", "Public", "Desktop")+`\`, "应用商店", "https://store.ttraw.com")
-	log.LogWrite(0, "[postInstallTasks] copied answer file, activator, and shortcut")
+	log.LogWrite(0, "[postInstallTasks] copied configured files and shortcut")
 	return nil
+}
+
+// copyPlanFiles 将配置中的文件复制到新系统。
+func copyPlanFiles(targetRoot, baseDir string, files []InstallFile) error {
+	targetRoot = strings.TrimSpace(targetRoot)
+	baseDir = strings.TrimSpace(baseDir)
+	if targetRoot == "" {
+		return fmt.Errorf("install target root is empty")
+	}
+	for _, item := range files {
+		src, err := planFileSrc(baseDir, item.Src)
+		if err != nil {
+			return err
+		}
+		dst, err := planFileDst(targetRoot, item.Dst)
+		if err != nil {
+			return err
+		}
+
+		if _, err := os.Stat(src); err != nil {
+			if os.IsNotExist(err) && !item.Required {
+				log.LogWrite(0, "[copyPlanFiles] skip missing optional file: %s", src)
+				continue
+			}
+			return fmt.Errorf("copy %s failed: %w", src, err)
+		}
+		if err := file.Copy(src, dst, item.Overwrite, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func planFileSrc(baseDir, src string) (string, error) {
+	src = strings.TrimSpace(src)
+	if src == "" {
+		return "", fmt.Errorf("file src is empty")
+	}
+	if filepath.IsAbs(src) {
+		return filepath.Clean(src), nil
+	}
+	if baseDir == "" {
+		return "", fmt.Errorf("base dir is empty")
+	}
+	return filepath.Join(baseDir, filepath.FromSlash(strings.ReplaceAll(src, `\`, "/"))), nil
+}
+
+func planFileDst(targetRoot, dst string) (string, error) {
+	dst = strings.TrimSpace(dst)
+	dst = strings.TrimLeft(dst, `\/`)
+	if dst == "" {
+		return "", fmt.Errorf("file dst is empty")
+	}
+	return filepath.Join(targetRoot, filepath.FromSlash(strings.ReplaceAll(dst, `\`, "/"))), nil
 }
 
 // adddrivexe 预置驱动安装工具。

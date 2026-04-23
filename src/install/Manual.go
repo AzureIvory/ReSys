@@ -72,7 +72,6 @@ func buildManualInstallPlan(src string) (*InstallPlan, error) {
 	}
 
 	plan := planFromCfg(cfg)
-	plan.PEArch = windows.SystemArch()
 	if err := NormalizeInstallPlan(plan); err != nil {
 		return nil, err
 	}
@@ -118,9 +117,29 @@ func buildManualInstallPlan(src string) (*InstallPlan, error) {
 // 这里只做字段翻译，不做磁盘扫描、镜像解析等依赖系统状态的动作，
 // 这样测试可以稳定覆盖 JSON 语义本身。
 func planFromCfg(cfg config.Config) *InstallPlan {
+	mode := ReinstallModeManual
+	if strings.EqualFold(strings.TrimSpace(cfg.Mode), string(ReinstallModeAuto)) {
+		mode = ReinstallModeAuto
+	}
+
+	files := []InstallFile{}
+	if cfg.File.State {
+		files = make([]InstallFile, 0, len(cfg.File.Items))
+		for _, item := range cfg.File.Items {
+			files = append(files, InstallFile{
+				Src:       item.Src,
+				Dst:       item.Dst,
+				Overwrite: item.Overwrite,
+				Required:  item.Required,
+			})
+		}
+	}
+
 	plan := &InstallPlan{
-		Mode:         ReinstallModeManual,
-		PEArch:       "",
+		Mode:         mode,
+		TargetOS:     strings.TrimSpace(cfg.TargetOS),
+		ImageArch:    planArch(cfg.ImageArch),
+		PEArch:       planArch(cfg.PEArch),
 		ImagePath:    strings.TrimSpace(cfg.ImagePath),
 		ImageIndex:   cfg.Index,
 		TargetRoot:   strings.TrimSpace(cfg.Partition),
@@ -135,11 +154,12 @@ func planFromCfg(cfg config.Config) *InstallPlan {
 		UnattendFile: strings.TrimSpace(cfg.Unattended.File),
 		DriverFiles:  append([]string{}, cfg.BackupDriver.File...),
 		DriverGUIDs:  append([]string{}, cfg.BackupDriver.GUID...),
+		Files:        files,
 		Flags: InstallFlags{
 			NeedBitLockerHandling: true,
 			NeedBackupBeforePE:    cfg.BackupDriver.State,
 			NeedOfflineDrivers:    cfg.BackupDriver.State,
-			NeedCopyXMLAfterBoot:  cfg.Unattended.State,
+			NeedCopyXMLAfterBoot:  cfg.Unattended.State || cfg.File.State,
 		},
 	}
 	if strings.EqualFold(strings.TrimSpace(cfg.Boot.BootPartition), config.Auto) {
@@ -148,6 +168,14 @@ func planFromCfg(cfg config.Config) *InstallPlan {
 		plan.BootPartRef = strings.TrimSpace(cfg.Boot.BootPartition)
 	}
 	return plan
+}
+
+func planArch(arch string) string {
+	arch = strings.TrimSpace(arch)
+	if strings.EqualFold(arch, "auto") {
+		return ""
+	}
+	return arch
 }
 
 // unattendedPath 返回本次安装应使用的无人值守文件路径。

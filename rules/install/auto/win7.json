@@ -1,0 +1,60 @@
+{
+  "mode": "auto",
+  "target_os": "win7",
+  "image_arch": "auto",
+  "pe_arch": "auto",
+
+  "image_path": "",
+  "index": -1,
+  "partition": "",
+  "PEwim": "",
+
+  "boot": {
+    "method": "AUTO",
+    "boot_partition": "AUTO"
+  },
+  "restart": true,
+  "unattended": {
+    "state": true,
+    "unattended_file": "AUTO"
+  },
+  "backup_driver": {
+    "state": false,
+    "file": [
+      "oem*.inf"
+    ],
+    "guid": [
+      "{88BAE032-5A81-49F0-BC3D-A4FF138216D6}"
+    ]
+  },
+  "format": {
+    "state": true,
+    "fs": "NTFS",
+    "quick": true,
+    "letter": "AUTO",
+    "label": "Windows"
+  },
+  "file": {
+    "state": true,
+    "items": [
+      {
+        "src": "tools\\win7.xml",
+        "dst": "\\Windows\\Panther\\Unattend.xml",
+        "overwrite": true,
+        "required": false
+      },
+      {
+        "src": "tools\\HEU_KMS_Activator.exe",
+        "dst": "\\HEU_KMS_Activator.exe",
+        "overwrite": true,
+        "required": false
+      },
+      {
+        "src": "tools\\drive.exe",
+        "dst": "\\drive.exe",
+        "overwrite": true,
+        "required": false
+      }
+    ]
+  }
+}

@@ -1,12 +1,15 @@
 package install
 
 import (
+	"ReSys/src/config"
 	"ReSys/src/log"
 	"ReSys/src/ui"
-	"ReSys/src/windows"
+	"ReSys/src/utils"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime/debug"
+	"strings"
 )
 
 // init 将安装入口绑定到界面层。
@@ -16,26 +19,12 @@ func init() {
 
 // StartInstall 启动 Windows 侧的自动重装准备流程。
 func StartInstall(target string) {
-	plan := &InstallPlan{
-		Mode:         ReinstallModeAuto,
-		TargetOS:     target,
-		ImageArch:    windows.DesiredArch(),
-		PEArch:       windows.SystemArch(),
-		AutoPE:       true,
-		FormatTarget: true,
-		FormatFS:     "NTFS",
-		FormatLabel:  "Windows",
-		FormatQuick:  true,
-		BootRepair:   BootRepairModeAuto,
-		UnattendFile: "AUTO",
-		DriverFiles:  []string{},
-		DriverGUIDs:  []string{},
-		Flags: InstallFlags{
-			NeedBitLockerHandling: true,
-			NeedBackupBeforePE:    true,
-			NeedOfflineDrivers:    true,
-			NeedCopyXMLAfterBoot:  true,
-		},
+	plan, err := loadAutoInstallPlan(target)
+	if err != nil {
+		log.LogWrite(-2, "[StartInstall] load config failed: %v", err)
+		ui.UiShowError("", err.Error())
+		os.Exit(-1)
+		return
 	}
 	ctx := NewInstallContext(plan)
 
@@ -52,6 +41,48 @@ func StartInstall(target string) {
 	ui.UiSetProgress(100)
 	ui.UiSetStatus(ui.Tr("install.auto.prepareDone"))
 	log.LogWrite(0, "[StartInstall] prepare finished")
+}
+
+// loadAutoInstallPlan 读取自动重装 JSON 并转换为安装计划。
+func loadAutoInstallPlan(target string) (*InstallPlan, error) {
+	target = strings.ToLower(strings.TrimSpace(target))
+	if target == "" {
+		return nil, fmt.Errorf("empty target os")
+	}
+
+	cfgPath, err := autoConfigPath(target)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := config.ParseSource(cfgPath)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(cfg.Mode) == "" {
+		cfg.Mode = string(ReinstallModeAuto)
+	}
+	if strings.TrimSpace(cfg.TargetOS) == "" {
+		cfg.TargetOS = target
+	}
+
+	plan := planFromCfg(cfg)
+	plan.Mode = ReinstallModeAuto
+	if strings.TrimSpace(plan.TargetOS) == "" {
+		plan.TargetOS = target
+	}
+	if err := NormalizeInstallPlan(plan); err != nil {
+		return nil, err
+	}
+	return plan, nil
+}
+
+func autoConfigPath(target string) (string, error) {
+	switch target {
+	case TargetWin7, TargetWin10, TargetWin11:
+	default:
+		return "", fmt.Errorf("unsupported target os: %s", target)
+	}
+	return utils.ProjectFile(filepath.Join("rules", "install", "auto", target+".json"))
 }
 
 // RunPEInstall 执行 PE 内的自动安装流程。

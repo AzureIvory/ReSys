@@ -1,13 +1,14 @@
 //go:build windows
 
-// Package config 定义手动重装使用的 JSON 配置模型。
+// 这个go文件定义手动重装使用的 JSON 配置模型。
 //
-// 这个包只负责两件事：
+// 这个go文件只负责两件事：
 // 1. 在 UI 侧把当前选择序列化为 JSON 文本。
 // 2. 在安装侧把 JSON 文本或 JSON 绝对路径解析为结构化配置。
 package config
 
 import (
+	"ReSys/src/utils"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -31,6 +32,10 @@ const (
 
 // Config 是手动重装 JSON 的顶层结构。
 type Config struct {
+	Mode         string       `json:"mode"`
+	TargetOS     string       `json:"target_os"`
+	ImageArch    string       `json:"image_arch"`
+	PEArch       string       `json:"pe_arch"`
 	ImagePath    string       `json:"image_path"`
 	Index        int          `json:"index"`
 	Partition    string       `json:"partition"`
@@ -40,6 +45,7 @@ type Config struct {
 	Unattended   Unattended   `json:"unattended"`
 	BackupDriver BackupDriver `json:"backup_driver"`
 	Format       Format       `json:"format"`
+	File         FileConfig   `json:"file"`
 }
 
 // Boot 是引导修复相关配置。
@@ -68,6 +74,20 @@ type Format struct {
 	Quick  bool   `json:"quick"`
 	Letter string `json:"letter"`
 	Label  string `json:"label"`
+}
+
+// FileConfig 定义安装后复制到新系统中的文件列表。
+type FileConfig struct {
+	State bool       `json:"state"`
+	Items []FileItem `json:"items"`
+}
+
+// FileItem 描述单个复制规则。
+type FileItem struct {
+	Src       string `json:"src"`
+	Dst       string `json:"dst"`
+	Overwrite bool   `json:"overwrite"`
+	Required  bool   `json:"required"`
 }
 
 // ParseSource 自动识别 JSON 文本或 JSON 绝对路径，并完成归一化。
@@ -105,6 +125,34 @@ func (cfg *Config) Normalize() error {
 		return fmt.Errorf("install config is nil")
 	}
 
+	mode := strings.ToLower(strings.TrimSpace(cfg.Mode))
+	switch mode {
+	case "", "manual", "auto":
+		cfg.Mode = mode
+	default:
+		return fmt.Errorf("unsupported install mode: %s", cfg.Mode)
+	}
+
+	target := strings.ToLower(strings.TrimSpace(cfg.TargetOS))
+	switch target {
+	case "", "win7", "win10", "win11":
+		cfg.TargetOS = target
+	default:
+		return fmt.Errorf("unsupported target os: %s", cfg.TargetOS)
+	}
+
+	arch, err := normalizeArch(cfg.ImageArch)
+	if err != nil {
+		return fmt.Errorf("image_arch: %w", err)
+	}
+	cfg.ImageArch = arch
+
+	peArch, err := normalizeArch(cfg.PEArch)
+	if err != nil {
+		return fmt.Errorf("pe_arch: %w", err)
+	}
+	cfg.PEArch = peArch
+
 	cfg.ImagePath = strings.TrimSpace(cfg.ImagePath)
 	cfg.Partition = strings.TrimSpace(cfg.Partition)
 	cfg.PEWIM = strings.TrimSpace(cfg.PEWIM)
@@ -119,6 +167,9 @@ func (cfg *Config) Normalize() error {
 	cfg.Unattended.normalize()
 	cfg.BackupDriver.normalize()
 	if err := cfg.Format.normalize(); err != nil {
+		return err
+	}
+	if err := cfg.File.normalize(); err != nil {
 		return err
 	}
 
@@ -212,6 +263,61 @@ func (f *Format) normalize() error {
 	}
 	f.Letter = Auto
 	return nil
+}
+
+func (f *FileConfig) normalize() error {
+	if f == nil {
+		return nil
+	}
+	if f.Items == nil {
+		f.Items = []FileItem{}
+	}
+
+	items := make([]FileItem, 0, len(f.Items))
+	for i := range f.Items {
+		item, ok, err := f.Items[i].normalize()
+		if err != nil {
+			return fmt.Errorf("file.items[%d]: %w", i, err)
+		}
+		if ok {
+			items = append(items, item)
+		}
+	}
+	f.Items = items
+	return nil
+}
+
+func (f FileItem) normalize() (FileItem, bool, error) {
+	f.Src = strings.TrimSpace(f.Src)
+	f.Dst = strings.TrimSpace(f.Dst)
+	if f.Src == "" && f.Dst == "" {
+		return FileItem{}, false, nil
+	}
+	if f.Src == "" {
+		return FileItem{}, false, fmt.Errorf("src is required")
+	}
+	if f.Dst == "" {
+		return FileItem{}, false, fmt.Errorf("dst is required")
+	}
+	return f, true, nil
+}
+
+func normalizeArch(arch string) (string, error) {
+	arch = strings.TrimSpace(arch)
+	if arch == "" {
+		return "", nil
+	}
+	if strings.EqualFold(arch, Auto) {
+		return "auto", nil
+	}
+
+	arch = utils.NormalizeArch(arch)
+	switch arch {
+	case "32", "64", "arm":
+		return arch, nil
+	default:
+		return "", fmt.Errorf("unsupported arch: %s", arch)
+	}
 }
 
 func readSource(src string) (string, error) {
