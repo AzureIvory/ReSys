@@ -31,6 +31,9 @@ var applyImageWithWimlib = wimlib.ApplyImage
 var applyImageWithDism = func(imageFile, applyDir string, index uint32, progressCh chan<- dism.DismProgress) error {
 	return dism.NewDism().ApplyImageCmd(imageFile, applyDir, index, progressCh)
 }
+var createShortcut = tools.CreateShortcut
+var addWin7Dir = fixWin7Dir
+var addWin7NVMe = fixWin7NVMe
 
 // ===== 领域类型 =====
 
@@ -54,7 +57,6 @@ type InstallFlags struct {
 	NeedBitLockerHandling bool
 	NeedBackupBeforePE    bool
 	NeedOfflineDrivers    bool
-	NeedCopyXMLAfterBoot  bool
 }
 
 // InstallFile 描述安装完成后的单个复制项。
@@ -63,6 +65,19 @@ type InstallFile struct {
 	Dst       string `json:"dst"`
 	Overwrite bool   `json:"overwrite"`
 	Required  bool   `json:"required"`
+}
+
+type InstallShortcut struct {
+	Target string `json:"target"`
+	Name   string `json:"name"`
+	Dir    string `json:"dir"`
+}
+
+type InstallWin7Fix struct {
+	NVMe              string `json:"nvme"`
+	StorageController string `json:"storage_controller"`
+	USB3              string `json:"usb3"`
+	UEFI              string `json:"uefi"`
 }
 
 type InstallPlan struct {
@@ -87,10 +102,11 @@ type InstallPlan struct {
 	AutoReboot    bool
 	BootRepair    BootRepairMode
 	BootPartRef   string
-	UnattendFile  string
 	DriverFiles   []string
 	DriverGUIDs   []string
 	Files         []InstallFile
+	Shortcuts     []InstallShortcut
+	Win7Fix       InstallWin7Fix
 	Flags         InstallFlags
 }
 
@@ -183,17 +199,15 @@ func NormalizeInstallPlan(plan *InstallPlan) error {
 	if plan.Files == nil {
 		plan.Files = []InstallFile{}
 	}
-	if strings.TrimSpace(plan.UnattendFile) == "" {
-		plan.UnattendFile = "AUTO"
+	if plan.Shortcuts == nil {
+		plan.Shortcuts = []InstallShortcut{}
 	}
 	if !plan.Flags.NeedBitLockerHandling &&
 		!plan.Flags.NeedBackupBeforePE &&
-		!plan.Flags.NeedOfflineDrivers &&
-		!plan.Flags.NeedCopyXMLAfterBoot {
+		!plan.Flags.NeedOfflineDrivers {
 		plan.Flags.NeedBitLockerHandling = true
 		plan.Flags.NeedBackupBeforePE = true
 		plan.Flags.NeedOfflineDrivers = true
-		plan.Flags.NeedCopyXMLAfterBoot = true
 	}
 
 	return nil
@@ -402,7 +416,6 @@ func formatInstallPlanLines(plan *InstallPlan) ([]string, error) {
 		fmt.Sprintf("format_quick=%t", plan.FormatQuick),
 		fmt.Sprintf("auto_reboot=%t", plan.AutoReboot),
 		fmt.Sprintf("boot_repair=%s", plan.BootRepair),
-		fmt.Sprintf("unattend_file=%s", plan.UnattendFile),
 	)
 	if plan.ManualPEWIM != "" {
 		lines = append(lines, fmt.Sprintf("manual_pe_wim=%s", plan.ManualPEWIM))
@@ -431,6 +444,20 @@ func formatInstallPlanLines(plan *InstallPlan) ([]string, error) {
 		}
 		lines = append(lines, fmt.Sprintf("files=%s", string(text)))
 	}
+	if len(plan.Shortcuts) > 0 {
+		text, err := json.Marshal(plan.Shortcuts)
+		if err != nil {
+			return nil, err
+		}
+		lines = append(lines, fmt.Sprintf("shortcuts=%s", string(text)))
+	}
+	if !plan.Win7Fix.empty() {
+		text, err := json.Marshal(plan.Win7Fix)
+		if err != nil {
+			return nil, err
+		}
+		lines = append(lines, fmt.Sprintf("win7fix=%s", string(text)))
+	}
 	if plan.ImageIndex > 0 {
 		lines = append(lines, fmt.Sprintf("index=%d", plan.ImageIndex))
 	}
@@ -439,7 +466,6 @@ func formatInstallPlanLines(plan *InstallPlan) ([]string, error) {
 		fmt.Sprintf("flag_need_bitlocker=%t", plan.Flags.NeedBitLockerHandling),
 		fmt.Sprintf("flag_need_backup_before_pe=%t", plan.Flags.NeedBackupBeforePE),
 		fmt.Sprintf("flag_need_offline_drivers=%t", plan.Flags.NeedOfflineDrivers),
-		fmt.Sprintf("flag_need_copy_xml_after_boot=%t", plan.Flags.NeedCopyXMLAfterBoot),
 	)
 	return lines, nil
 }
@@ -810,14 +836,16 @@ func parseInstallPlanData(data string, defaultTargetRoot string) (*InstallPlan, 
 			plan.BootRepair = BootRepairMode(strings.ToLower(strings.TrimSpace(val)))
 		case "boot_part_ref":
 			plan.BootPartRef = val
-		case "unattend_file":
-			plan.UnattendFile = val
 		case "driver_files":
 			_ = json.Unmarshal([]byte(val), &plan.DriverFiles)
 		case "driver_guids":
 			_ = json.Unmarshal([]byte(val), &plan.DriverGUIDs)
 		case "files":
 			_ = json.Unmarshal([]byte(val), &plan.Files)
+		case "shortcuts":
+			_ = json.Unmarshal([]byte(val), &plan.Shortcuts)
+		case "win7fix":
+			_ = json.Unmarshal([]byte(val), &plan.Win7Fix)
 		case "index":
 			if v, e := strconv.Atoi(val); e == nil {
 				plan.ImageIndex = v
@@ -828,8 +856,6 @@ func parseInstallPlanData(data string, defaultTargetRoot string) (*InstallPlan, 
 			plan.Flags.NeedBackupBeforePE = parsePlanBool(val)
 		case "flag_need_offline_drivers":
 			plan.Flags.NeedOfflineDrivers = parsePlanBool(val)
-		case "flag_need_copy_xml_after_boot":
-			plan.Flags.NeedCopyXMLAfterBoot = parsePlanBool(val)
 		}
 	}
 	return plan, nil
@@ -893,8 +919,8 @@ func ResolveInstallTarget(plan *InstallPlan) error {
 
 // captureInstallTargetLocation 根据当前 TargetRoot 反查并记录稳定分区引用。
 //
-// 这个步骤发生在进入 PE 之前，用于把“当前在线环境中的盘符”转换成
-// “重启后依然可识别的分区身份”，避免后续流程依赖变化的盘符。
+// 这个步骤发生在进入 PE 之前，用于把当前在线环境中的盘符转换成
+// 重启后依然可识别的分区身份，避免后续流程依赖变化的盘符。
 func captureInstallTargetLocation(plan *InstallPlan) error {
 	if plan == nil {
 		return fmt.Errorf("install plan is nil")
@@ -1110,16 +1136,16 @@ func registerBuiltInHooks(ctx *InstallContext) {
 	if ctx.Hooks == nil {
 		ctx.Hooks = NewHookRegistry()
 	}
-	ctx.Hooks.Add(HookAfterApplyImage, fixwin7drive_updata)
-	ctx.Hooks.Add(HookAfterRepairBoot, fixwin7uefi)
+	ctx.Hooks.Add(HookAfterApplyImage, fixWin7)
+	ctx.Hooks.Add(HookAfterRepairBoot, fixWin7UEFI)
 	ctx.Hooks.Add(HookBeforeEnterPE, backupDriversBeforeEnterPE)
 	ctx.Hooks.Add(HookAfterRepairBoot, restoreBackedUpDrivers)
-	ctx.Hooks.Add(HookAfterInstall, autoinstools)
+	ctx.Hooks.Add(HookAfterInstall, afterInstall)
 	ctx.Hooks.Add(HookAfterInstall, cleanupPreparedPEAfterInstall)
 }
 
 // fixwin7drive_updata 为 Win7 离线系统预注入驱动和更新。
-func fixwin7drive_updata(ctx *InstallContext) error {
+func fixWin7(ctx *InstallContext) error {
 	if ctx == nil || ctx.Plan == nil {
 		return fmt.Errorf("install context is nil")
 	}
@@ -1129,41 +1155,44 @@ func fixwin7drive_updata(ctx *InstallContext) error {
 	if strings.TrimSpace(ctx.Plan.TargetRoot) == "" {
 		return fmt.Errorf("install target root is empty")
 	}
-
-	selfExe, err := os.Executable()
-	if err != nil {
-		return err
+	if ctx.Plan.Win7Fix.empty() {
+		return nil
 	}
-	baseDir := filepath.Dir(selfExe)
-	usb3Dir := filepath.Join(baseDir, "tools", "w7", "drivers", "usb3")
-	storageDir := filepath.Join(baseDir, "tools", "w7", "drivers", "storage_controller")
-	nvmeDir := filepath.Join(baseDir, "tools", "w7", "drivers", "nvme")
 
 	dismSvc := dism.NewDism()
-
-	if err := fixwin7Driver(dismSvc, ctx.Plan.TargetRoot, usb3Dir, "Win7 USB3 drivers"); err != nil {
-		return err
+	if dir := strings.TrimSpace(ctx.Plan.Win7Fix.USB3); dir != "" {
+		if err := addWin7Dir(dismSvc, ctx.Plan.TargetRoot, dir, "Win7 USB3 drivers"); err != nil {
+			return err
+		}
 	}
-	if err := fixwin7Driver(dismSvc, ctx.Plan.TargetRoot, storageDir, "Win7 storage controller drivers"); err != nil {
-		return err
+	if dir := strings.TrimSpace(ctx.Plan.Win7Fix.StorageController); dir != "" {
+		if err := addWin7Dir(dismSvc, ctx.Plan.TargetRoot, dir, "Win7 storage controller drivers"); err != nil {
+			return err
+		}
 	}
-	if err := fixwin7NVMe(dismSvc, ctx.Plan, nvmeDir); err != nil {
-		return err
+	if dir := strings.TrimSpace(ctx.Plan.Win7Fix.NVMe); dir != "" {
+		if err := addWin7NVMe(dismSvc, ctx.Plan, dir); err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
 // fixwin7uefi 在修复引导后为 Win7 的 UEFI 引导打补丁。
-func fixwin7uefi(ctx *InstallContext) error {
+func fixWin7UEFI(ctx *InstallContext) error {
 	if ctx == nil || ctx.Plan == nil {
 		return fmt.Errorf("install context is nil")
 	}
 	if !strings.EqualFold(ctx.Plan.TargetOS, TargetWin7) {
 		return nil
 	}
+	uefiDir := strings.TrimSpace(ctx.Plan.Win7Fix.UEFI)
+	if uefiDir == "" {
+		return nil
+	}
 	if strings.TrimSpace(ctx.Plan.ImageArch) == "32" {
-		log.LogWrite(0, "[fixwin7uefi] skip Win7 UEFI patch for 32-bit image")
+		log.LogWrite(0, "[fixWin7UEFI] skip Win7 UEFI patch for 32-bit image")
 		return nil
 	}
 	if strings.TrimSpace(ctx.Plan.TargetRoot) == "" {
@@ -1172,19 +1201,12 @@ func fixwin7uefi(ctx *InstallContext) error {
 
 	espRoot, cleanupESP, err := boot.FindESP(ctx.Plan.TargetRoot)
 	if err != nil {
-		log.LogWrite(0, "[fixwin7uefi] FindESP failed, skip UEFI patch: %v", err)
+		log.LogWrite(0, "[fixWin7UEFI] FindESP failed, skip UEFI patch: %v", err)
 		return nil
 	}
 	if cleanupESP != nil {
 		defer cleanupESP()
 	}
-
-	selfExe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	baseDir := filepath.Dir(selfExe)
-	uefiDir := filepath.Join(baseDir, "tools", "w7", "uefi")
 	bootShim := filepath.Join(uefiDir, "bootx64.efi")
 	uefiINI := filepath.Join(uefiDir, "UefiSeven.ini")
 	if !utils.FileExists(bootShim) {
@@ -1201,7 +1223,7 @@ func fixwin7uefi(ctx *InstallContext) error {
 		return fmt.Errorf("Win7 UEFI boot file not found after boot repair: %s", origBootmgfw)
 	}
 
-	log.LogWrite(0, "[fixwin7uefi] patching Win7 UEFI boot: esp=%s", espRoot)
+	log.LogWrite(0, "[fixWin7UEFI] patching Win7 UEFI boot: esp=%s", espRoot)
 	if err := file.Copy(origBootmgfw, backupBootmgfw, true, true); err != nil {
 		return fmt.Errorf("backup bootmgfw.efi failed: %w", err)
 	}
@@ -1212,25 +1234,32 @@ func fixwin7uefi(ctx *InstallContext) error {
 		return fmt.Errorf("deploy UefiSeven.ini failed: %w", err)
 	}
 
-	log.LogWrite(0, "[fixwin7uefi] Win7 UEFI boot patched")
+	log.LogWrite(0, "[fixWin7UEFI] Win7 UEFI boot patched")
 	return nil
 }
 
-func fixwin7Driver(dismSvc *dism.Dism, imagePath, driverDir, label string) error {
+func (w InstallWin7Fix) empty() bool {
+	return strings.TrimSpace(w.NVMe) == "" &&
+		strings.TrimSpace(w.StorageController) == "" &&
+		strings.TrimSpace(w.USB3) == "" &&
+		strings.TrimSpace(w.UEFI) == ""
+}
+
+func fixWin7Dir(dismSvc *dism.Dism, imagePath, driverDir, label string) error {
 	if st, err := os.Stat(driverDir); err != nil || !st.IsDir() {
 		return fmt.Errorf("%s directory not found: %s", label, driverDir)
 	}
 
-	log.LogWrite(0, "[fixwin7Driver] injecting %s: image=%s drivers=%s", label, imagePath, driverDir)
+	log.LogWrite(0, "[fixWin7Dir] injecting %s: image=%s drivers=%s", label, imagePath, driverDir)
 	if err := dismSvc.AddDriverOfflineCmd(imagePath, driverDir, true, true, nil); err != nil {
 		return fmt.Errorf("inject %s failed: %w", label, err)
 	}
 
-	log.LogWrite(0, "[fixwin7Driver] %s injected", label)
+	log.LogWrite(0, "[fixWin7Dir] %s injected", label)
 	return nil
 }
 
-func fixwin7NVMe(dismSvc *dism.Dism, plan *InstallPlan, nvmeDir string) error {
+func fixWin7NVMe(dismSvc *dism.Dism, plan *InstallPlan, nvmeDir string) error {
 	if plan == nil {
 		return fmt.Errorf("install plan is nil")
 	}
@@ -1272,11 +1301,12 @@ func fixwin7NVMe(dismSvc *dism.Dism, plan *InstallPlan, nvmeDir string) error {
 }
 
 // autoinstools 复制无人值守文件和安装后工具。
-func autoinstools(ctx *InstallContext) error {
+// afterInstall 按安装计划执行安装后的文件复制和快捷方式创建。
+func afterInstall(ctx *InstallContext) error {
 	if ctx == nil || ctx.Plan == nil {
 		return fmt.Errorf("install context is nil")
 	}
-	if !ctx.Plan.Flags.NeedCopyXMLAfterBoot {
+	if len(ctx.Plan.Files) == 0 && len(ctx.Plan.Shortcuts) == 0 {
 		return nil
 	}
 
@@ -1288,12 +1318,15 @@ func autoinstools(ctx *InstallContext) error {
 	if err := copyPlanFiles(ctx.Plan.TargetRoot, baseDir, ctx.Plan.Files); err != nil {
 		return err
 	}
-	_, _ = tools.CreateShortcut(filepath.Join(ctx.Plan.TargetRoot, "Users", "Public", "Desktop")+`\`, "应用商店", "https://store.ttraw.com")
-	log.LogWrite(0, "[postInstallTasks] copied configured files and shortcut")
+	if err := makeShortcuts(ctx.Plan.TargetRoot, ctx.Plan.Shortcuts); err != nil {
+		return err
+	}
+	log.LogWrite(0, "[afterInstall] copied files and created shortcuts")
 	return nil
 }
 
 // copyPlanFiles 将配置中的文件复制到新系统。
+// copyPlanFiles 把配置中的文件复制到新系统。
 func copyPlanFiles(targetRoot, baseDir string, files []InstallFile) error {
 	targetRoot = strings.TrimSpace(targetRoot)
 	baseDir = strings.TrimSpace(baseDir)
@@ -1324,6 +1357,29 @@ func copyPlanFiles(targetRoot, baseDir string, files []InstallFile) error {
 	return nil
 }
 
+// makeShortcuts 把配置中的快捷方式落到新系统。
+func makeShortcuts(targetRoot string, items []InstallShortcut) error {
+	targetRoot = strings.TrimSpace(targetRoot)
+	if targetRoot == "" {
+		return fmt.Errorf("install target root is empty")
+	}
+	for _, item := range items {
+		dir, err := shortcutDir(targetRoot, item.Dir)
+		if err != nil {
+			return err
+		}
+		target, err := shortcutTarget(targetRoot, item.Target)
+		if err != nil {
+			return err
+		}
+		if _, err := createShortcut(dir, item.Name, target); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// planFileSrc 解析安装后复制文件的源路径。
 func planFileSrc(baseDir, src string) (string, error) {
 	src = strings.TrimSpace(src)
 	if src == "" {
@@ -1338,6 +1394,7 @@ func planFileSrc(baseDir, src string) (string, error) {
 	return filepath.Join(baseDir, filepath.FromSlash(strings.ReplaceAll(src, `\`, "/"))), nil
 }
 
+// planFileDst 解析安装后复制文件的目标路径。
 func planFileDst(targetRoot, dst string) (string, error) {
 	dst = strings.TrimSpace(dst)
 	dst = strings.TrimLeft(dst, `\/`)
@@ -1347,62 +1404,33 @@ func planFileDst(targetRoot, dst string) (string, error) {
 	return filepath.Join(targetRoot, filepath.FromSlash(strings.ReplaceAll(dst, `\`, "/"))), nil
 }
 
-// adddrivexe 预置驱动安装工具。
-func adddrivexe(ctx *InstallContext) error {
-	if ctx == nil || ctx.Plan == nil {
-		return fmt.Errorf("install context is nil")
+func shortcutDir(targetRoot, dir string) (string, error) {
+	return planFileDst(targetRoot, dir)
+}
+
+// shortcutTarget 解析快捷方式目标，支持目标系统内路径和 URL。
+func shortcutTarget(targetRoot, target string) (string, error) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return "", fmt.Errorf("shortcut target is empty")
 	}
 
-	selfExe, err := os.Executable()
-	if err != nil {
-		return err
+	lower := strings.ToLower(target)
+	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+		return target, nil
 	}
-	baseDir := filepath.Dir(selfExe)
-	driveExe := filepath.Join(baseDir, "tools", "drive.exe")
-	if utils.FileExists(driveExe) {
-		_ = file.Copy(driveExe, filepath.Join(ctx.Plan.TargetRoot, "drive.exe"), true, true)
+	if filepath.IsAbs(target) {
+		return filepath.Clean(target), nil
 	}
-	log.LogWrite(0, "[postInstallTasks] driver setup tool is ready")
-	return nil
+	return planFileDst(targetRoot, target)
 }
+
+// adddrivexe 预置驱动安装工具。
 
 // ===== 兼容包装 =====
 
 // WriteResFile 保留旧入口并改为写入安装计划。
-func WriteResFile(imagePath string, target, arch string, index int) error {
-	return SaveInstallPlan(&InstallPlan{
-		Mode:       ReinstallModeAuto,
-		TargetOS:   target,
-		ImageArch:  arch,
-		ImagePath:  imagePath,
-		ImageIndex: index,
-	})
-}
 
 // LoadResData 保留旧读取入口并展开安装计划字段。
-func LoadResData() (targetRoot string, diskPath string, imagePath string, diskUniqueID string, imageRel string, targetOS string, arch string, index int, err error) {
-	plan, err := LoadInstallPlan()
-	if err != nil {
-		return "", "", "", "", "", "", "", 0, err
-	}
-	return plan.TargetRoot, plan.DiskPath, plan.ImagePath, plan.DiskUniqueID, plan.ImageRel, plan.TargetOS, plan.ImageArch, plan.ImageIndex, nil
-}
-
-func ResolveImagePath(diskPath, diskUniqueID, imagePath, imageRel string) (string, error) {
-	return RecoverInstallImagePath(&InstallPlan{
-		DiskPath:     diskPath,
-		DiskUniqueID: diskUniqueID,
-		ImagePath:    imagePath,
-		ImageRel:     imageRel,
-	})
-}
 
 // postInstallTasks 保留旧入口并执行安装后钩子。
-func postInstallTasks(targetRoot, targetOS string) error {
-	ctx := NewInstallContext(&InstallPlan{
-		Mode:       ReinstallModeAuto,
-		TargetRoot: targetRoot,
-		TargetOS:   targetOS,
-	})
-	return ctx.RunHooks(HookAfterInstall)
-}

@@ -1,48 +1,69 @@
 {
-  "mode": "manual",
-  "target_os": "",
-  "image_arch": "",
-  "pe_arch": "",
-
-  "image_path": "",
-  "_index": "注释：-1 为自动选择镜像索引",
-  "index": -1,
-  "partition": "",
-  "PEwim": "",
-
-  "boot": {
-    "_method": "引导方式: AUTO 自动, UEFI 强制 UEFI, BIOS 强制 BIOS, NONE 或空为跳过修复",
-    "method": "AUTO",
-    "_boot_partition": "引导分区: AUTO 自动; UEFI 用 gpt:<DiskUniqueID>:<PartitionGuid>; BIOS 用 mbr:<磁盘签名>:<分区号>",
-    "boot_partition": "AUTO"
-  },
-  "restart": true,
-  "unattended": {
-    "state": false,
-    "_": "AUTO 为按目标系统自动选择 tools\\win7.xml 或 tools\\win10.xml",
-    "unattended_file": "AUTO"
-  },
-  "backup_driver": {
-    "_": "支持文件规则和设备类 GUID，留空则不备份；常见 GUID 见 docs/driver-guid.md",
-    "state": true,
-    "file": [
-      "oem*.inf"
-    ],
-    "guid": [
-      "{88BAE032-5A81-49F0-BC3D-A4FF138216D6}"
-    ]
-  },
-  "format": {
-    "state": true,
-    "fs": "NTFS",
-    "quick": true,
-    "letter": "AUTO",
-    "_": "letter 目前只支持 AUTO",
-    "label": ""
-  },
-  "file": {
-    "state": false,
-    "_": "安装完成后复制到新系统中的文件，dst 相对目标系统根目录，例如 \\Windows\\Panther\\Unattend.xml",
-    "items": []
-  }
+	"mode": "manual",
+	"target_os": "",
+	"image_arch": "",
+	"pe_arch": "",
+	"image_path": "",
+	"_index": "注释：-1 为自动选择镜像索引",
+	"index": -1,
+	"partition": "",
+	"PEwim": "",
+	"boot": {
+		"_method": "引导方式：AUTO 自动，UEFI 强制 UEFI，BIOS 强制 BIOS，NONE 或空为跳过修复",
+		"method": "AUTO",
+		"_boot_partition": "引导分区：AUTO 自动；UEFI 用 gpt:<DiskUniqueID>:<PartitionGuid>；BIOS 用 mbr:<磁盘签名>:<分区号>",
+		"boot_partition": "AUTO"
+	},
+	"restart": true,
+	"unattended": {
+		"state": false,
+		"_": "AUTO 会按目标系统自动选用 tools\\win7.xml 或 tools\\win10.xml",
+		"unattended_file": "AUTO"
+	},
+	"backup_driver": {
+		"_": "支持文件规则和设备类 GUID，留空则不备份；常见 GUID 见 docs/driver-guid.md",
+		"state": true,
+		"file": [
+			"oem*.inf"
+		],
+		"guid": [
+			"{88BAE032-5A81-49F0-BC3D-A4FF138216D6}"
+		]
+	},
+	"format": {
+		"state": true,
+		"fs": "NTFS",
+		"quick": true,
+		"letter": "AUTO",
+		"_": "letter 目前只支持 AUTO",
+		"label": ""
+	},
+	"file": {
+		"state": false,
+		"_": "安装完成后复制到新系统中的文件，dst 相对目标系统根目录，例如 \\Windows\\Panther\\Unattend.xml",
+		"items": []
+	},
+	"shortcut": {
+		"state": true,
+		"_": "安装完成后创建的快捷方式，dir 和相对路径 target 都相对目标系统根目录",
+		"items": [
+			{
+				"target": "\\drive.exe",
+				"name": "驱动总裁",
+				"dir": "\\Users\\Public\\Desktop"
+			},
+			{
+				"target": "https://store.ttraw.com",
+				"name": "应用商店",
+				"dir": "\\Users\\Public\\Desktop"
+			}
+		]
+	},
+	"win7fix": {
+		"_": "Win7 修复资源目录，支持相对程序目录和绝对路径；非 Win7 可留空",
+		"nvme": "tools\\w7\\drivers\\nvme",
+		"storage_controller": "tools\\w7\\drivers\\storage_controller",
+		"usb3": "tools\\w7\\drivers\\usb3",
+		"uefi": "tools\\w7\\uefi"
+	}
 }

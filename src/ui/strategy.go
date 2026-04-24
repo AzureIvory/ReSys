@@ -15,10 +15,24 @@ import (
 	imgsvc "ReSys/src/image"
 	"ReSys/src/utils"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/AzureIvory/winui/widgets"
 )
+
+var manualConfigPath = func() (string, error) {
+	return utils.ProjectFile(filepath.Join("rules", "install", "default.json"))
+}
+
+// manualDefaultConfig 读取手动重装的默认 JSON 配置。
+func manualDefaultConfig() (config.Config, error) {
+	path, err := manualConfigPath()
+	if err != nil {
+		return config.Config{}, err
+	}
+	return config.ParseSource(path)
+}
 
 // manualUpdateDetail 根据当前选择生成“分区详情”文本。
 // 当分区与镜像都已选择时，会把镜像索引/架构等信息追加到详情中，便于用户确认。
@@ -253,6 +267,11 @@ func manualBuildJSON() (string, error) {
 		return "", fmt.Errorf("%s", reason)
 	}
 
+	cfg, err := manualDefaultConfig()
+	if err != nil {
+		return "", err
+	}
+
 	row, _ := manualSelectedPartition()
 	info, _ := mSelectedImageInfo()
 	partition := strings.TrimRight(strings.TrimSpace(row.TargetRoot), `\`)
@@ -280,45 +299,49 @@ func manualBuildJSON() (string, error) {
 	targetOS := mSelectedTargetOS()
 	files := manualDefaultFiles(targetOS, manualOptionAutoDeploy())
 
-	cfg := config.Config{
-		Mode:      "manual",
-		TargetOS:  targetOS,
-		ImageArch: utils.NormalizeArch(info.Arch),
-		ImagePath: strings.TrimSpace(manual.imagePath),
-		Index:     info.Index,
-		Partition: partition,
-		PEWIM:     peWIM,
-		Boot: config.Boot{
-			Method:        manualSelectedBootMode(),
-			BootPartition: bootPart,
-		},
-		Restart: manualOptionAutoReboot(),
-		Unattended: config.Unattended{
-			State: manualOptionAutoDeploy(),
-			File:  config.Auto,
-		},
-		BackupDriver: config.BackupDriver{
-			State: backupDrivers,
-			File:  fileRules,
-			GUID:  guidRules,
-		},
-		Format: config.Format{
-			State:  manualOptionFormatTarget(),
-			FS:     "NTFS",
-			Quick:  true,
-			Letter: config.Auto,
-			Label:  "",
-		},
-		File: config.FileConfig{
-			State: len(files) > 0,
-			Items: files,
-		},
+	cfg.Mode = "manual"
+	cfg.TargetOS = targetOS
+	cfg.ImageArch = utils.NormalizeArch(info.Arch)
+	cfg.ImagePath = strings.TrimSpace(manual.imagePath)
+	cfg.Index = info.Index
+	cfg.Partition = partition
+	cfg.PEWIM = peWIM
+	cfg.Boot = config.Boot{
+		Method:        manualSelectedBootMode(),
+		BootPartition: bootPart,
+	}
+	cfg.Restart = manualOptionAutoReboot()
+	cfg.Unattended = config.Unattended{
+		State: manualOptionAutoDeploy(),
+		File:  config.Auto,
+	}
+	cfg.BackupDriver = config.BackupDriver{
+		State: backupDrivers,
+		File:  fileRules,
+		GUID:  guidRules,
+	}
+	cfg.Format = config.Format{
+		State:  manualOptionFormatTarget(),
+		FS:     "NTFS",
+		Quick:  true,
+		Letter: config.Auto,
+		Label:  "",
+	}
+	cfg.File = config.FileConfig{
+		State: len(files) > 0,
+		Items: files,
 	}
 	return config.Marshal(cfg)
 }
 
 func manualDefaultFiles(targetOS string, copyXML bool) []config.FileItem {
 	files := []config.FileItem{
+		{
+			Src:       `tools\SetupComplete.cmd`,
+			Dst:       `\Windows\Setup\Scripts\SetupComplete.cmd`,
+			Overwrite: true,
+			Required:  false,
+		},
 		{
 			Src:       `tools\drive.exe`,
 			Dst:       `\drive.exe`,
@@ -327,14 +350,10 @@ func manualDefaultFiles(targetOS string, copyXML bool) []config.FileItem {
 		},
 	}
 	if copyXML {
-		xmlSrc := `tools\win10.xml`
-		if strings.EqualFold(targetOS, "win7") {
-			xmlSrc = `tools\win7.xml`
-		}
 		files = append(
 			[]config.FileItem{
 				{
-					Src:       xmlSrc,
+					Src:       manualUnattendFile(targetOS),
 					Dst:       `\Windows\Panther\Unattend.xml`,
 					Overwrite: true,
 					Required:  false,
@@ -350,6 +369,40 @@ func manualDefaultFiles(targetOS string, copyXML bool) []config.FileItem {
 		)
 	}
 	return files
+}
+
+func manualDefaultShortcuts() []config.ShortcutItem {
+	return []config.ShortcutItem{
+		{
+			Target: `\drive.exe`,
+			Name:   `驱动总裁`,
+			Dir:    `\Users\Public\Desktop`,
+		},
+		{
+			Target: `https://store.ttraw.com`,
+			Name:   `应用商店`,
+			Dir:    `\Users\Public\Desktop`,
+		},
+	}
+}
+
+func manualDefaultWin7Fix(targetOS string) config.Win7Fix {
+	if !strings.EqualFold(targetOS, "win7") {
+		return config.Win7Fix{}
+	}
+	return config.Win7Fix{
+		NVMe:              `tools\w7\drivers\nvme`,
+		StorageController: `tools\w7\drivers\storage_controller`,
+		USB3:              `tools\w7\drivers\usb3`,
+		UEFI:              `tools\w7\uefi`,
+	}
+}
+
+func manualUnattendFile(targetOS string) string {
+	if strings.EqualFold(targetOS, "win7") {
+		return `tools\win7.xml`
+	}
+	return `tools\win10.xml`
 }
 
 // mSelectedImageInfo 从缓存的 imageInfos 中按 Store 里选中的索引找出对应镜像元信息。

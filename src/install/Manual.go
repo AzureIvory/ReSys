@@ -134,6 +134,17 @@ func planFromCfg(cfg config.Config) *InstallPlan {
 			})
 		}
 	}
+	shortcuts := []InstallShortcut{}
+	if cfg.Shortcut.State {
+		shortcuts = make([]InstallShortcut, 0, len(cfg.Shortcut.Items))
+		for _, item := range cfg.Shortcut.Items {
+			shortcuts = append(shortcuts, InstallShortcut{
+				Target: item.Target,
+				Name:   item.Name,
+				Dir:    item.Dir,
+			})
+		}
+	}
 
 	plan := &InstallPlan{
 		Mode:         mode,
@@ -151,15 +162,20 @@ func planFromCfg(cfg config.Config) *InstallPlan {
 		FormatQuick:  cfg.Format.Quick,
 		AutoReboot:   cfg.Restart,
 		BootRepair:   BootRepairMode(strings.ToLower(strings.TrimSpace(cfg.Boot.Method))),
-		UnattendFile: strings.TrimSpace(cfg.Unattended.File),
 		DriverFiles:  append([]string{}, cfg.BackupDriver.File...),
 		DriverGUIDs:  append([]string{}, cfg.BackupDriver.GUID...),
 		Files:        files,
+		Shortcuts:    shortcuts,
+		Win7Fix: InstallWin7Fix{
+			NVMe:              strings.TrimSpace(cfg.Win7Fix.NVMe),
+			StorageController: strings.TrimSpace(cfg.Win7Fix.StorageController),
+			USB3:              strings.TrimSpace(cfg.Win7Fix.USB3),
+			UEFI:              strings.TrimSpace(cfg.Win7Fix.UEFI),
+		},
 		Flags: InstallFlags{
 			NeedBitLockerHandling: true,
 			NeedBackupBeforePE:    cfg.BackupDriver.State,
 			NeedOfflineDrivers:    cfg.BackupDriver.State,
-			NeedCopyXMLAfterBoot:  cfg.Unattended.State || cfg.File.State,
 		},
 	}
 	if strings.EqualFold(strings.TrimSpace(cfg.Boot.BootPartition), config.Auto) {
@@ -176,22 +192,6 @@ func planArch(arch string) string {
 		return ""
 	}
 	return arch
-}
-
-// unattendedPath 返回本次安装应使用的无人值守文件路径。
-func unattendedPath(plan *InstallPlan, baseDir string) string {
-	if plan == nil {
-		return ""
-	}
-
-	path := strings.TrimSpace(plan.UnattendFile)
-	if path == "" || strings.EqualFold(path, config.Auto) {
-		if strings.EqualFold(plan.TargetOS, TargetWin7) {
-			return filepath.Join(baseDir, "tools", "win7.xml")
-		}
-		return filepath.Join(baseDir, "tools", "win10.xml")
-	}
-	return path
 }
 
 func runManualPrepareFlow(ctx *InstallContext) error {

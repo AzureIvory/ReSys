@@ -16,6 +16,14 @@ import (
 	"strings"
 )
 
+var cfgDir = func() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return filepath.Dir(exe)
+}
+
 const (
 	// BootAuto 表示自动修复引导。
 	BootAuto = "auto"
@@ -46,6 +54,8 @@ type Config struct {
 	BackupDriver BackupDriver `json:"backup_driver"`
 	Format       Format       `json:"format"`
 	File         FileConfig   `json:"file"`
+	Shortcut     Shortcut     `json:"shortcut"`
+	Win7Fix      Win7Fix      `json:"win7fix"`
 }
 
 // Boot 是引导修复相关配置。
@@ -90,6 +100,27 @@ type FileItem struct {
 	Required  bool   `json:"required"`
 }
 
+// Shortcut 定义安装后创建的快捷方式。
+type Shortcut struct {
+	State bool           `json:"state"`
+	Items []ShortcutItem `json:"items"`
+}
+
+// ShortcutItem 描述单个快捷方式。
+type ShortcutItem struct {
+	Target string `json:"target"`
+	Name   string `json:"name"`
+	Dir    string `json:"dir"`
+}
+
+// Win7Fix 定义 Win7 修复资源路径。
+type Win7Fix struct {
+	NVMe              string `json:"nvme"`
+	StorageController string `json:"storage_controller"`
+	USB3              string `json:"usb3"`
+	UEFI              string `json:"uefi"`
+}
+
 // ParseSource 自动识别 JSON 文本或 JSON 绝对路径，并完成归一化。
 func ParseSource(src string) (Config, error) {
 	text, err := readSource(src)
@@ -112,7 +143,7 @@ func Marshal(cfg Config) (string, error) {
 	if err := cfg.Normalize(); err != nil {
 		return "", err
 	}
-	buf, err := json.MarshalIndent(cfg, "", "    ")
+	buf, err := json.MarshalIndent(cfg, "", "\t")
 	if err != nil {
 		return "", err
 	}
@@ -153,9 +184,9 @@ func (cfg *Config) Normalize() error {
 	}
 	cfg.PEArch = peArch
 
-	cfg.ImagePath = strings.TrimSpace(cfg.ImagePath)
+	cfg.ImagePath = fixPath(cfg.ImagePath)
 	cfg.Partition = strings.TrimSpace(cfg.Partition)
-	cfg.PEWIM = strings.TrimSpace(cfg.PEWIM)
+	cfg.PEWIM = fixPath(cfg.PEWIM)
 
 	if cfg.Index == 0 {
 		cfg.Index = -1
@@ -172,6 +203,10 @@ func (cfg *Config) Normalize() error {
 	if err := cfg.File.normalize(); err != nil {
 		return err
 	}
+	if err := cfg.Shortcut.normalize(); err != nil {
+		return err
+	}
+	cfg.Win7Fix.normalize()
 
 	return nil
 }
@@ -287,6 +322,28 @@ func (f *FileConfig) normalize() error {
 	return nil
 }
 
+func (s *Shortcut) normalize() error {
+	if s == nil {
+		return nil
+	}
+	if s.Items == nil {
+		s.Items = []ShortcutItem{}
+	}
+
+	items := make([]ShortcutItem, 0, len(s.Items))
+	for i := range s.Items {
+		item, ok, err := s.Items[i].normalize()
+		if err != nil {
+			return fmt.Errorf("shortcut.items[%d]: %w", i, err)
+		}
+		if ok {
+			items = append(items, item)
+		}
+	}
+	s.Items = items
+	return nil
+}
+
 func (f FileItem) normalize() (FileItem, bool, error) {
 	f.Src = strings.TrimSpace(f.Src)
 	f.Dst = strings.TrimSpace(f.Dst)
@@ -300,6 +357,35 @@ func (f FileItem) normalize() (FileItem, bool, error) {
 		return FileItem{}, false, fmt.Errorf("dst is required")
 	}
 	return f, true, nil
+}
+
+func (s ShortcutItem) normalize() (ShortcutItem, bool, error) {
+	s.Target = strings.TrimSpace(s.Target)
+	s.Name = strings.TrimSpace(s.Name)
+	s.Dir = strings.TrimSpace(s.Dir)
+	if s.Target == "" && s.Name == "" && s.Dir == "" {
+		return ShortcutItem{}, false, nil
+	}
+	if s.Target == "" {
+		return ShortcutItem{}, false, fmt.Errorf("target is required")
+	}
+	if s.Name == "" {
+		return ShortcutItem{}, false, fmt.Errorf("name is required")
+	}
+	if s.Dir == "" {
+		return ShortcutItem{}, false, fmt.Errorf("dir is required")
+	}
+	return s, true, nil
+}
+
+func (w *Win7Fix) normalize() {
+	if w == nil {
+		return
+	}
+	w.NVMe = fixPath(w.NVMe)
+	w.StorageController = fixPath(w.StorageController)
+	w.USB3 = fixPath(w.USB3)
+	w.UEFI = fixPath(w.UEFI)
 }
 
 func normalizeArch(arch string) (string, error) {
@@ -318,6 +404,23 @@ func normalizeArch(arch string) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported arch: %s", arch)
 	}
+}
+
+// fixPath 把相对路径转换为相对程序目录的绝对路径。
+func fixPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+
+	dir := strings.TrimSpace(cfgDir())
+	if dir == "" {
+		return path
+	}
+	return filepath.Join(dir, filepath.FromSlash(strings.ReplaceAll(path, `\`, "/")))
 }
 
 func readSource(src string) (string, error) {

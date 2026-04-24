@@ -17,6 +17,10 @@ import (
 	"strings"
 )
 
+var detectImageInfos = image.DetectImageInfos
+var findLocalImage = image.FindLocalImage
+var downloadImage = DownloadImage
+
 // 安装镜像获取相关辅助函数。
 
 // AcquireInstallImage 为当前安装计划准备可用的安装镜像。
@@ -56,11 +60,35 @@ func RecoverOrAcquireInstallImage(plan *InstallPlan) (string, error) {
 
 // findInstallImage 先尝试本地镜像，找不到时再触发下载。
 func findInstallImage(plan *InstallPlan) (string, error) {
-	if local, err := image.FindLocalImage(plan.TargetOS, plan.ImageArch); err == nil && strings.TrimSpace(local) != "" {
+	if path, ok := planImage(plan); ok {
+		return path, nil
+	}
+
+	if local, err := findLocalImage(plan.TargetOS, plan.ImageArch); err == nil && strings.TrimSpace(local) != "" {
 		return local, nil
 	}
 
-	return DownloadImage(plan.TargetOS, plan.ImageArch)
+	return downloadImage(plan.TargetOS, plan.ImageArch)
+}
+
+func planImage(plan *InstallPlan) (string, bool) {
+	if plan == nil {
+		return "", false
+	}
+
+	path := strings.TrimSpace(plan.ImagePath)
+	if path == "" {
+		return "", false
+	}
+	if _, err := os.Stat(path); err != nil {
+		log.LogWrite(0, "[findInstallImage] configured image path unavailable: %s err=%v", path, err)
+		return "", false
+	}
+	if _, err := detectImageInfos(path); err != nil {
+		log.LogWrite(0, "[findInstallImage] configured image path invalid: %s err=%v", path, err)
+		return "", false
+	}
+	return path, true
 }
 
 // RecoverInstallImagePath 根据安装计划中持久化的信息恢复镜像路径。
