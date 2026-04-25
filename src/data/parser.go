@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -584,18 +585,12 @@ func fetchRuleBytesViaPowerShell(rf ruleFile, rawURL string, extraCookie string)
 	if method == http.MethodPost && len(rf.Data) > 0 {
 		b, err := json.Marshal(rf.Data)
 		if err != nil {
-				return nil, fmt.Errorf("序列化 POST 数据失败: %w", err)
+			return nil, fmt.Errorf("序列化 POST 数据失败: %w", err)
 		}
 		body = string(b)
 	}
 
-	cmd := exec.Command(
-		"powershell",
-		"-NoProfile",
-		"-ExecutionPolicy", "Bypass",
-		"-Command",
-		buildPowerShellRequestScript(rawURL, method, headers, body),
-	)
+	cmd := buildPowerShellRequestCommand(rawURL, method, headers, body)
 	output, err := cmd.Output()
 	if err == nil {
 		return output, nil
@@ -605,6 +600,23 @@ func fetchRuleBytesViaPowerShell(rf ruleFile, rawURL string, extraCookie string)
 		return nil, fmt.Errorf("PowerShell 请求失败: %s", strings.TrimSpace(string(exitErr.Stderr)))
 	}
 	return nil, err
+}
+
+func buildPowerShellRequestCommand(rawURL string, method string, headers map[string]string, body string) *exec.Cmd {
+	cmd := exec.Command(
+		"powershell",
+		"-NoProfile",
+		"-ExecutionPolicy", "Bypass",
+		"-Command",
+		buildPowerShellRequestScript(rawURL, method, headers, body),
+	)
+	if runtime.GOOS == "windows" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			HideWindow:    true,
+			CreationFlags: 0x08000000, // CREATE_NO_WINDOW
+		}
+	}
+	return cmd
 }
 
 func buildPowerShellRequestScript(rawURL string, method string, headers map[string]string, body string) string {
@@ -1392,7 +1404,7 @@ func captureByRegex(source string, pattern string) (string, error) {
 		return source, nil
 	}
 
-	rx, err := regexp.Compile(pattern)
+	rx, err := regexp.Compile(normalizeExtractPattern(pattern))
 	if err != nil {
 		return "", err
 	}
@@ -1404,6 +1416,35 @@ func captureByRegex(source string, pattern string) (string, error) {
 		return strings.TrimSpace(matches[1]), nil
 	}
 	return strings.TrimSpace(matches[0]), nil
+}
+
+func normalizeExtractPattern(pattern string) string {
+	var sb strings.Builder
+	for i := 0; i < len(pattern); {
+		if pattern[i] != '\\' {
+			sb.WriteByte(pattern[i])
+			i++
+			continue
+		}
+
+		j := i
+		for j < len(pattern) && pattern[j] == '\\' {
+			j++
+		}
+		if j < len(pattern) && pattern[j] == 'N' {
+			sb.WriteString(pattern[i:j])
+			if (j-i)%2 == 1 {
+				sb.WriteByte('\\')
+			}
+			sb.WriteByte('N')
+			i = j + 1
+			continue
+		}
+
+		sb.WriteString(pattern[i:j])
+		i = j
+	}
+	return sb.String()
 }
 
 func normalizeExtractValue(value string, valueType string) string {
