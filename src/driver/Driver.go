@@ -27,6 +27,8 @@ var dism, _ = t.GetDismCmd()
 const (
 	DIGCF_PRESENT    = 0x00000002
 	DIGCF_ALLCLASSES = 0x00000004
+	DICS_FLAG_GLOBAL = 0x00000001
+	DIREG_DRV        = 0x00000002
 
 	SPDRP_HARDWAREID  = 0x00000001
 	SPDRP_DEVICEDESC  = 0x00000000
@@ -34,7 +36,6 @@ const (
 	SPDRP_CLASS       = 0x00000007
 	SPDRP_CLASSGUID   = 0x00000008
 	SPDRP_DRIVER      = 0x00000009
-	SPDRP_INF_PATH    = 0x00000010
 	ERROR_NO_MORE     = 259
 	ERROR_INSUFF_BUFS = 122
 
@@ -82,6 +83,7 @@ type setupAPI struct {
 	pSetupDiEnumDeviceInfo             *windows.LazyProc
 	pSetupDiGetDeviceRegistryPropertyW *windows.LazyProc
 	pSetupDiDestroyDeviceInfoList      *windows.LazyProc
+	pSetupDiOpenDevRegKey              *windows.LazyProc
 	pSetupCopyOEMInfW                  *windows.LazyProc
 	pSetupUninstallOEMInfW             *windows.LazyProc
 
@@ -98,6 +100,7 @@ func newSetupAPI() *setupAPI {
 		pSetupDiEnumDeviceInfo:             d.NewProc("SetupDiEnumDeviceInfo"),
 		pSetupDiGetDeviceRegistryPropertyW: d.NewProc("SetupDiGetDeviceRegistryPropertyW"),
 		pSetupDiDestroyDeviceInfoList:      d.NewProc("SetupDiDestroyDeviceInfoList"),
+		pSetupDiOpenDevRegKey:              d.NewProc("SetupDiOpenDevRegKey"),
 		pSetupCopyOEMInfW:                  d.NewProc("SetupCopyOEMInfW"),
 		pSetupUninstallOEMInfW:             d.NewProc("SetupUninstallOEMInfW"),
 		pSetupGetInfDriverStoreLocationW:   d.NewProc("SetupGetInfDriverStoreLocationW"),
@@ -184,8 +187,7 @@ func (s *setupAPI) getDeviceRegistryPropertyString(hDevInfo windows.Handle, devI
 		}
 
 		// 失败：判断是否需要扩容重试
-		last := windows.GetLastError()
-		if errno, ok := last.(syscall.Errno); ok && uint32(errno) == ERROR_INSUFF_BUFS && required > bufSize {
+		if isWindowsErrorCode(e1, ERROR_INSUFF_BUFS) && required > bufSize {
 			bufSize = required + 2
 			continue
 		}
@@ -195,41 +197,84 @@ func (s *setupAPI) getDeviceRegistryPropertyString(hDevInfo windows.Handle, devI
 	return "", regType, errors.New("SetupDiGetDeviceRegistryPropertyW: buffer retry exhausted")
 }
 
-// enumerateDrivers 使用 SetupAPI 枚举“当前在线系统”所有已存在设备，并读出它们关联的 INF、描述、硬件 ID 等信息。
-func (s *setupAPI) enumerateDrivers() ([]DriverInfo, error) {
+func (s *setupAPI) getDevicePublishedInfPath(hDevInfo windows.Handle, devInfoData *SP_DEVINFO_DATA) (string, error) {
 	if err := s.dll.Load(); err != nil {
-		return nil, err
+		return "", err
 	}
 
+	r1, _, e1 := s.pSetupDiOpenDevRegKey.Call(
+		uintptr(hDevInfo),
+		uintptr(unsafe.Pointer(devInfoData)),
+		uintptr(DICS_FLAG_GLOBAL),
+		0,
+		uintptr(DIREG_DRV),
+		uintptr(registry.QUERY_VALUE),
+	)
+	if r1 == 0 || r1 == uintptr(windows.InvalidHandle) {
+		return "", e1
+	}
+
+	key := registry.Key(r1)
+	defer key.Close()
+
+	infPath, _, err := key.GetStringValue("InfPath")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(filepath.Base(infPath)), nil
+}
+
+// enumerateDrivers 使用 SetupAPI 枚举“当前在线系统”所有已存在设备，并读出它们关联的 INF、描述、硬件 ID 等信息。
+func (s *setupAPI) enumerateDrivers() ([]DriverInfo, error) {
+	emitDriverProbeLogf(0, "[setup.enumerateDrivers] enter")
+	if err := s.dll.Load(); err != nil {
+		emitDriverProbeLogf(-2, "[setup.enumerateDrivers] setupapi.dll load failed: err=%v", err)
+		return nil, err
+	}
+	emitDriverProbeLogf(0, "[setup.enumerateDrivers] setupapi.dll loaded")
+
 	// HDEVINFO SetupDiGetClassDevsW(NULL,NULL,NULL, DIGCF_PRESENT|DIGCF_ALLCLASSES)
+	emitDriverProbeLogf(0, "[setup.enumerateDrivers] call SetupDiGetClassDevsW flags=%d", DIGCF_PRESENT|DIGCF_ALLCLASSES)
 	r1, _, e1 := s.pSetupDiGetClassDevsW.Call(0, 0, 0, uintptr(DIGCF_PRESENT|DIGCF_ALLCLASSES))
 	hDevInfo := windows.Handle(r1)
 	if hDevInfo == windows.InvalidHandle || hDevInfo == 0 {
-		return nil, fmt.Errorf("SetupDiGetClassDevsW failed: %v", e1)
+		emitDriverProbeLogf(-2, "[setup.enumerateDrivers] SetupDiGetClassDevsW failed: err=%v", e1)
+		return nil, fmt.Errorf("SetupDiGetClassDevsW failed: %w", e1)
 	}
+	emitDriverProbeLogf(0, "[setup.enumerateDrivers] SetupDiGetClassDevsW ok: handle=%v", hDevInfo)
 	defer s.pSetupDiDestroyDeviceInfoList.Call(uintptr(hDevInfo))
 
 	var out []DriverInfo
 	for idx := uint32(0); ; idx++ {
+		if idx < 5 || idx%100 == 0 {
+			emitDriverProbeLogf(0, "[setup.enumerateDrivers] enum call idx=%d", idx)
+		}
 		var dev SP_DEVINFO_DATA
 		dev.CbSize = uint32(unsafe.Sizeof(dev))
 
-		r2, _, _ := s.pSetupDiEnumDeviceInfo.Call(
+		r2, _, e2 := s.pSetupDiEnumDeviceInfo.Call(
 			uintptr(hDevInfo),
 			uintptr(idx),
 			uintptr(unsafe.Pointer(&dev)),
 		)
 		if r2 == 0 {
-			last := windows.GetLastError()
-			if errno, ok := last.(syscall.Errno); ok && uint32(errno) == ERROR_NO_MORE {
+			if isWindowsErrorCode(e2, ERROR_NO_MORE) {
+				emitDriverProbeLogf(0, "[setup.enumerateDrivers] no more devices at idx=%d total=%d", idx, len(out))
 				break
 			}
-			continue
+			emitDriverProbeLogf(-2, "[setup.enumerateDrivers] SetupDiEnumDeviceInfo failed: idx=%d err=%v", idx, e2)
+			return nil, fmt.Errorf("SetupDiEnumDeviceInfo failed at idx=%d: %w", idx, e2)
 		}
 
 		// INF_PATH 为空的设备跳过
-		inf, _, _ := s.getDeviceRegistryPropertyString(hDevInfo, &dev, SPDRP_INF_PATH)
+		/*
+			// legacy broken line kept here only to preserve nearby comments during patching
+		*/
+		inf, infErr := s.getDevicePublishedInfPath(hDevInfo, &dev)
 		if strings.TrimSpace(inf) == "" {
+			if idx < 5 || idx%100 == 0 {
+				emitDriverProbeLogf(0, "[setup.enumerateDrivers] skip empty inf: idx=%d err=%v", idx, infErr)
+			}
 			continue
 		}
 
@@ -242,8 +287,17 @@ func (s *setupAPI) enumerateDrivers() ([]DriverInfo, error) {
 		driverKey, _, _ := s.getDeviceRegistryPropertyString(hDevInfo, &dev, SPDRP_DRIVER)
 
 		// 简单判断 INF 是否为 oemXX.inf
-		base := strings.ToLower(filepath.Base(inf))
-		isOEM := strings.HasPrefix(base, "oem") && strings.HasSuffix(base, ".inf")
+		isOEM := strings.HasPrefix(strings.ToLower(filepath.Base(inf)), "oem") && strings.HasSuffix(strings.ToLower(filepath.Base(inf)), ".inf")
+		emitDriverProbeLogf(
+			0,
+			"[setup.enumerateDrivers] item idx=%d inf=%s isOEM=%t class=%s classGuid=%s desc=%s",
+			idx,
+			inf,
+			isOEM,
+			class,
+			cguid,
+			desc,
+		)
 
 		out = append(out, DriverInfo{
 			Description:  desc,
@@ -256,6 +310,7 @@ func (s *setupAPI) enumerateDrivers() ([]DriverInfo, error) {
 			DriverRegKey: driverKey,
 		})
 	}
+	emitDriverProbeLogf(0, "[setup.enumerateDrivers] completed total=%d", len(out))
 	return out, nil
 }
 
@@ -411,10 +466,13 @@ type DriverManager struct {
 // NewDriverManager 创建驱动管理器：SetupAPI 必有；NewDev 可选（加载失败则为 nil）。
 func NewDriverManager() (*DriverManager, error) {
 	s := newSetupAPI()
+	emitDriverProbeLogf(0, "[NewDriverManager] setup initialized")
 	n, nErr := newNewDevAPI() // 允许缺失
 	if nErr != nil {
+		emitDriverProbeLogf(-1, "[NewDriverManager] newdev unavailable, fallback path enabled: err=%v", nErr)
 		log.LogWrite(-1, "[NewDriverManager]newdev不可用，回退兼容流程: err=%v", nErr)
 	}
+	emitDriverProbeLogf(0, "[NewDriverManager] ready: newdev=%t", n != nil)
 	return &DriverManager{setup: s, newdev: n}, nil
 }
 
@@ -466,17 +524,153 @@ func normalizeClassGUID(classGUID string) (string, error) {
 
 // EnumerateOEMDrivers 枚举当前在线系统中 INF 为 oemXX.inf 的第三方驱动条目。
 func (m *DriverManager) EnumerateOEMDrivers() ([]DriverInfo, error) {
+	emitDriverProbeLogf(0, "[EnumerateOEMDrivers] start")
 	all, err := m.setup.enumerateDrivers()
 	if err != nil {
+		emitDriverProbeLogf(-2, "[EnumerateOEMDrivers] enumerate all drivers failed: err=%v", err)
 		return nil, err
 	}
+	emitDriverProbeLogf(0, "[EnumerateOEMDrivers] enumerated all drivers: total=%d", len(all))
 	var out []DriverInfo
 	for _, d := range all {
 		if d.IsOEM {
 			out = append(out, d)
 		}
 	}
+	emitDriverProbeLogf(0, "[EnumerateOEMDrivers] completed: oem=%d skipped_non_oem=%d", len(out), len(all)-len(out))
 	return out, nil
+}
+
+// trimPat 规范化并去重 INF 通配规则，统一转成小写文件名形式。
+func trimPat(pats []string) []string {
+	if len(pats) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(pats))
+	seen := map[string]struct{}{}
+	for _, pat := range pats {
+		pat = strings.ToLower(strings.TrimSpace(filepath.Base(pat)))
+		if pat == "" || pat == "." {
+			continue
+		}
+		if _, ok := seen[pat]; ok {
+			continue
+		}
+		seen[pat] = struct{}{}
+		out = append(out, pat)
+	}
+	return out
+}
+
+// matchPat 判断给定 INF 文件名是否命中任一发布名规则。
+func matchPat(name string, pats []string) bool {
+	name = strings.ToLower(strings.TrimSpace(filepath.Base(name)))
+	if name == "" {
+		return false
+	}
+	for _, pat := range pats {
+		if ok, err := filepath.Match(pat, name); err == nil && ok {
+			return true
+		}
+	}
+	return false
+}
+
+// pickPat 从驱动列表中筛出发布 INF 名匹配规则的条目。
+func pickPat(list []DriverInfo, pats []string) []DriverInfo {
+	pats = trimPat(pats)
+	if len(pats) == 0 {
+		return append([]DriverInfo{}, list...)
+	}
+
+	out := make([]DriverInfo, 0, len(list))
+	for _, drv := range list {
+		if matchPat(drv.InfPath, pats) {
+			out = append(out, drv)
+		}
+	}
+	return out
+}
+
+// ExportByINFs 按系统里的发布 INF 名规则导出 OEM 驱动包。
+func (m *DriverManager) ExportByINFs(dst string, pats []string) (int, error) {
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		emitDriverProbeLogf(-2, "[ExportByINFs] create dir failed: dir=%s err=%v", dst, err)
+		return 0, err
+	}
+
+	pats = trimPat(pats)
+	emitDriverProbeLogf(0, "[ExportByINFs] enumerate start: destination=%s patterns=%v", dst, pats)
+	list, err := m.EnumerateOEMDrivers()
+	if err != nil {
+		emitDriverProbeLogf(-2, "[ExportByINFs] enumerate OEM drivers failed: err=%v", err)
+		return 0, err
+	}
+	emitDriverProbeLogf(0, "[ExportByINFs] start: destination=%s patterns=%v enumerated=%d", dst, pats, len(list))
+
+	hits := pickPat(list, pats)
+	emitDriverProbeLogf(0, "[ExportByINFs] selected=%d skipped=%d", len(hits), len(list)-len(hits))
+
+	seen := map[string]struct{}{}
+	okCnt := 0
+
+	for idx, drv := range list {
+		pub := filepath.Base(drv.InfPath)
+		hit := matchPat(pub, pats)
+		emitDriverProbeLogf(
+			0,
+			"[ExportByINFs] item[%d/%d]: publishedInf=%s matched=%t desc=%s class=%s",
+			idx+1,
+			len(list),
+			pub,
+			hit,
+			drv.Description,
+			drv.DeviceClass,
+		)
+		if !hit {
+			continue
+		}
+
+		key := strings.ToLower(filepath.Base(drv.InfPath))
+		if _, ok := seen[key]; ok {
+			emitDriverProbeLogf(0, "[ExportByINFs] skip duplicate: publishedInf=%s", pub)
+			continue
+		}
+		seen[key] = struct{}{}
+
+		src := m.resolveDriverStoreInfPath(drv.InfPath)
+		if src == "" {
+			emitDriverProbeLogf(0, "[ExportByINFs] resolve store inf empty, fallback to Windows\\INF: publishedInf=%s", pub)
+			src = filepath.Join(filepath.Join(utils.WindowsDir(), "INF"), filepath.Base(drv.InfPath))
+		} else {
+			emitDriverProbeLogf(0, "[ExportByINFs] resolved store inf: publishedInf=%s storeInf=%s", pub, src)
+		}
+		if _, err := os.Stat(src); err != nil {
+			emitDriverProbeLogf(-1, "[ExportByINFs] skip missing source: publishedInf=%s storeInf=%s err=%v", pub, src, err)
+			continue
+		}
+
+		stem := strings.TrimSuffix(filepath.Base(drv.InfPath), filepath.Ext(drv.InfPath))
+		pkgDir := filepath.Join(dst, stem)
+		_ = os.MkdirAll(pkgDir, 0o755)
+		emitDriverProbeLogf(0, "[ExportByINFs] copy start: publishedInf=%s source=%s dst=%s", pub, src, pkgDir)
+
+		if err := m.copyDriverPackage(src, pkgDir); err == nil {
+			okCnt++
+			infs, findErr := findInfFiles(pkgDir)
+			if findErr != nil {
+				emitDriverProbeLogf(-1, "[ExportByINFs] copy done but count inf failed: publishedInf=%s dst=%s err=%v", pub, pkgDir, findErr)
+			}
+			emitDriverProbeLogf(0, "[ExportByINFs] copy done: publishedInf=%s dst=%s infs=%d", pub, pkgDir, len(infs))
+			continue
+		} else {
+			emitDriverProbeLogf(-2, "[ExportByINFs] copy failed: publishedInf=%s source=%s dst=%s err=%v", pub, src, pkgDir, err)
+		}
+	}
+
+	emitDriverProbeLogf(0, "[ExportByINFs] completed: destination=%s exported=%d", dst, okCnt)
+	return okCnt, nil
 }
 
 // ExportDrivers 导出驱动包到 destination：
@@ -540,38 +734,66 @@ func (m *DriverManager) ExportDriversByClassGUID(destination string, classGUID s
 		return 0, err
 	}
 
+	emitDriverProbeLogf(0, "[ExportDriversByClassGUID] start: guid=%s destination=%s", classGUID, destination)
 	drivers, err := m.EnumerateDriversByClassGUID(classGUID)
 	if err != nil {
+		emitDriverProbeLogf(-2, "[ExportDriversByClassGUID] enumerate failed: guid=%s err=%v", classGUID, err)
 		return 0, err
 	}
+	emitDriverProbeLogf(0, "[ExportDriversByClassGUID] enumerated: guid=%s drivers=%d destination=%s", classGUID, len(drivers), destination)
 
 	seen := map[string]struct{}{}
 	okCount := 0
 
-	for _, d := range drivers {
+	for idx, d := range drivers {
+		emitDriverProbeLogf(
+			0,
+			"[ExportDriversByClassGUID] item[%d/%d]: guid=%s inf=%s classGuid=%s class=%s desc=%s",
+			idx+1,
+			len(drivers),
+			classGUID,
+			d.InfPath,
+			d.ClassGUID,
+			d.DeviceClass,
+			d.Description,
+		)
 		key := strings.ToLower(filepath.Base(d.InfPath))
 		if _, exists := seen[key]; exists {
+			emitDriverProbeLogf(0, "[ExportDriversByClassGUID] skip duplicate: guid=%s inf=%s key=%s", classGUID, d.InfPath, key)
 			continue
 		}
 		seen[key] = struct{}{}
 
 		storeInf := m.resolveDriverStoreInfPath(d.InfPath)
 		if storeInf == "" {
+			emitDriverProbeLogf(0, "[ExportDriversByClassGUID] resolve store inf empty, fallback to Windows\\INF: guid=%s inf=%s", classGUID, d.InfPath)
 			storeInf = filepath.Join(filepath.Join(utils.WindowsDir(), "INF"), filepath.Base(d.InfPath))
+		} else {
+			emitDriverProbeLogf(0, "[ExportDriversByClassGUID] resolved store inf: guid=%s inf=%s storeInf=%s", classGUID, d.InfPath, storeInf)
 		}
 		if _, err := os.Stat(storeInf); err != nil {
+			emitDriverProbeLogf(-1, "[ExportDriversByClassGUID] skip missing source: guid=%s inf=%s storeInf=%s err=%v", classGUID, d.InfPath, storeInf, err)
 			continue
 		}
 
 		infStem := strings.TrimSuffix(filepath.Base(d.InfPath), filepath.Ext(d.InfPath))
 		dstDir := filepath.Join(destination, infStem)
 		_ = os.MkdirAll(dstDir, 0755)
+		emitDriverProbeLogf(0, "[ExportDriversByClassGUID] copy start: guid=%s source=%s dst=%s", classGUID, storeInf, dstDir)
 
-		if err := m.copyDriverPackage(storeInf, dstDir); err == nil {
+		if copyErr := m.copyDriverPackage(storeInf, dstDir); copyErr == nil {
 			okCount++
+			infFiles, findErr := findInfFiles(dstDir)
+			if findErr != nil {
+				emitDriverProbeLogf(-1, "[ExportDriversByClassGUID] copy done but count inf failed: guid=%s dst=%s err=%v", classGUID, dstDir, findErr)
+			}
+			emitDriverProbeLogf(0, "[ExportDriversByClassGUID] copy done: guid=%s dst=%s infs=%d", classGUID, dstDir, len(infFiles))
+		} else {
+			emitDriverProbeLogf(-2, "[ExportDriversByClassGUID] copy failed: guid=%s source=%s dst=%s err=%v", classGUID, storeInf, dstDir, copyErr)
 		}
 	}
 
+	emitDriverProbeLogf(0, "[ExportDriversByClassGUID] completed: guid=%s exported=%d enumerated=%d destination=%s", classGUID, okCount, len(drivers), destination)
 	return okCount, nil
 }
 
@@ -685,14 +907,22 @@ func parseCatalogFileFromINF(infPath string) string {
 func (m *DriverManager) copyDriverPackage(infPath string, destDir string) error {
 	parent := filepath.Dir(infPath)
 	if strings.Contains(strings.ToLower(parent), "filerepository") {
+		emitDriverProbeLogf(0, "[copyDriverPackage] copy repository dir: inf=%s srcDir=%s dstDir=%s", infPath, parent, destDir)
 		return copyDirRecursive(parent, destDir)
 	}
 
 	dstInf := filepath.Join(destDir, filepath.Base(infPath))
+	emitDriverProbeLogf(0, "[copyDriverPackage] copy fallback inf: inf=%s dstInf=%s", infPath, dstInf)
 	if err := file.Copy(infPath, dstInf, true, true); err != nil {
+		emitDriverProbeLogf(-2, "[copyDriverPackage] copy fallback inf failed: inf=%s dstInf=%s err=%v", infPath, dstInf, err)
 		return err
 	}
-	return tryCopyAssociatedFiles(infPath, destDir)
+	if err := tryCopyAssociatedFiles(infPath, destDir); err != nil {
+		emitDriverProbeLogf(-2, "[copyDriverPackage] copy associated files failed: inf=%s dstDir=%s err=%v", infPath, destDir, err)
+		return err
+	}
+	emitDriverProbeLogf(0, "[copyDriverPackage] fallback package completed: inf=%s dstDir=%s", infPath, destDir)
+	return nil
 }
 
 // copyDirRecursive 递归复制目录树：把 src 的内容完整复制到 dst。
@@ -1180,6 +1410,17 @@ func ExportDrivers(destination string) (int, error) {
 	return m.ExportDrivers(destination, true)
 }
 
+// ExportByINFs 创建驱动管理器后执行按发布 INF 名导出。
+func ExportByINFs(dst string, pats []string) (int, error) {
+	emitDriverProbeLogf(0, "[ExportByINFs] wrapper start: destination=%s patterns=%v", dst, pats)
+	m, err := NewDriverManager()
+	if err != nil {
+		emitDriverProbeLogf(-2, "[ExportByINFs] create manager failed: err=%v", err)
+		return 0, err
+	}
+	return m.ExportByINFs(dst, pats)
+}
+
 // ExportDriversFromSystem 从“另一个系统分区”(PE 场景)导出第三方驱动目录：
 // 直接遍历 <systemPartition>\Windows\System32\DriverStore\FileRepository。
 func ExportDriversFromSystem(systemPartition, destination string) (int, error) {
@@ -1255,8 +1496,10 @@ func ListDriversByClassGUID(classGUID string) ([]DriverInfo, error) {
 // isThirdPartyDriverDir 用目录名粗略判断 DriverStore\FileRepository 下是否为第三方驱动目录。
 // 规则：包含 oem 认为是第三方；对一些常见系统前缀返回 false；其它默认 true。
 func ExportDriversByClassGUID(destination string, classGUID string) (int, error) {
+	emitDriverProbeLogf(0, "[ExportDriversByClassGUID] wrapper start: destination=%s guid=%s", destination, classGUID)
 	m, err := NewDriverManager()
 	if err != nil {
+		emitDriverProbeLogf(-2, "[ExportDriversByClassGUID] create manager failed: guid=%s err=%v", classGUID, err)
 		return 0, err
 	}
 	return m.ExportDriversByClassGUID(destination, classGUID)

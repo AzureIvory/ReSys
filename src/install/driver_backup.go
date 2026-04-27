@@ -2,7 +2,6 @@ package install
 
 import (
 	"ReSys/src/disk"
-	"ReSys/src/dism"
 	driversvc "ReSys/src/driver"
 	"ReSys/src/log"
 	"ReSys/src/ui"
@@ -18,7 +17,7 @@ import (
 // 当前支持两类规则：
 // 1. file: 按 OEM INF 文件名通配符筛选；
 // 2. guid: 按设备类 GUID 单独导出。
-func backupDriversBeforeEnterPE(ctx *InstallContext) error {
+func backupDriversBeforeEnterPE(ctx *InstallContext) (err error) {
 	if ctx == nil || ctx.Plan == nil {
 		return fmt.Errorf("install context is nil")
 	}
@@ -26,18 +25,28 @@ func backupDriversBeforeEnterPE(ctx *InstallContext) error {
 		log.LogWrite(0, "[backupDriversBeforeEnterPE] skip: backup not requested")
 		return nil
 	}
+	logDriverBackupPlan("backup-start", ctx.Plan)
 
 	if err := ensureDriverBackupWorkspace(ctx.Plan); err != nil {
 		return err
 	}
+	logDriverBackupPlan("backup-after-workspace", ctx.Plan)
 
 	backupRoot, err := driverBackupRoot(ctx.Plan)
 	if err != nil {
 		return err
 	}
+	defer func() {
+		logDriverBackupSnapshot("backup-exit", backupRoot)
+		if err != nil {
+			emitDriverBackupProbef("[backupDriversBeforeEnterPE] exit error: %v", err)
+		}
+	}()
+	logDriverBackupSnapshot("backup-before-reset", backupRoot)
 	if err := resetDriverBackupRoot(backupRoot); err != nil {
 		return err
 	}
+	logDriverBackupSnapshot("backup-after-reset", backupRoot)
 
 	fileRules := trimDriverRules(ctx.Plan.DriverFiles)
 	guidRules := trimDriverRules(ctx.Plan.DriverGUIDs)
@@ -50,27 +59,39 @@ func backupDriversBeforeEnterPE(ctx *InstallContext) error {
 		oemDir := filepath.Join(backupRoot, driverBackupOEMDir)
 		ui.UiSetStatus(ui.Tr("install.driver.backupOEM"))
 		log.LogWrite(0, "[backupDriversBeforeEnterPE] OEM backup root=%s image=%s dir=%s", backupRoot, ctx.Plan.ImagePath, oemDir)
+		emitDriverBackupProbef("[backupDriversBeforeEnterPE] OEM export start: dir=%s publishedInfPatterns=%v", oemDir, fileRules)
+		logDriverBackupSnapshot("oem-before-export", oemDir)
 
-		dismSvc := dism.NewDism()
-		if err := dismSvc.ExportDriversOnlineCmd(oemDir, nil); err != nil {
-			return fmt.Errorf("backup online OEM drivers failed: %w", err)
+		count, exportErr := driversvc.ExportByINFs(oemDir, fileRules)
+		if exportErr != nil {
+			return fmt.Errorf("backup online OEM drivers by published inf failed: %w", exportErr)
 		}
-		if err := filterDriverDirs(oemDir, fileRules); err != nil {
-			return err
-		}
+		emitDriverBackupProbef("[backupDriversBeforeEnterPE] OEM export done: dir=%s exported=%d", oemDir, count)
+		logDriverBackupSnapshot("oem-after-export", oemDir)
+		emitDriverBackupProbef("[backupDriversBeforeEnterPE] OEM filter semantics applied before copy using published inf patterns=%v", fileRules)
+		logDriverBackupSnapshot("oem-after-filter", oemDir)
 	}
 
 	if len(guidRules) > 0 {
 		guidRoot := filepath.Join(backupRoot, driverBackupGUIDDir)
+		logDriverBackupSnapshot("guid-before-export", guidRoot)
 		for _, guid := range guidRules {
 			dirName := driverGUIDDirName(guid)
 			dstDir := filepath.Join(guidRoot, dirName)
+			emitDriverBackupProbef("[backupDriversBeforeEnterPE] guid export start: guid=%s dir=%s", guid, dstDir)
 			count, err := driversvc.ExportDriversByClassGUID(dstDir, guid)
 			if err != nil {
 				return fmt.Errorf("backup guid %s drivers failed: %w", guid, err)
 			}
+			dirINFCount, countErr := countINFUnderDir(dstDir)
+			if countErr != nil {
+				emitDriverBackupProbef("[backupDriversBeforeEnterPE] guid export count failed: guid=%s dir=%s err=%v", guid, dstDir, countErr)
+			}
 			log.LogWrite(0, "[backupDriversBeforeEnterPE] guid backup completed: guid=%s count=%d dir=%s", guid, count, dstDir)
+			emitDriverBackupProbef("[backupDriversBeforeEnterPE] guid export done: guid=%s exported=%d infs=%d dir=%s", guid, count, dirINFCount, dstDir)
+			logDriverBackupSnapshot("guid-after-"+dirName, dstDir)
 		}
+		logDriverBackupSnapshot("guid-after-export", guidRoot)
 	}
 
 	infCount, err := countINFUnderDir(backupRoot)
@@ -78,10 +99,12 @@ func backupDriversBeforeEnterPE(ctx *InstallContext) error {
 		return err
 	}
 	log.LogWrite(0, "[backupDriversBeforeEnterPE] backup completed: dir=%s infCount=%d", backupRoot, infCount)
+	emitDriverBackupProbef("[backupDriversBeforeEnterPE] backup completed: dir=%s infCount=%d", backupRoot, infCount)
+	logDriverBackupSnapshot("backup-final", backupRoot)
 	return SaveInstallPlan(ctx.Plan)
 }
 
-func restoreBackedUpDrivers(ctx *InstallContext) error {
+func restoreBackedUpDrivers(ctx *InstallContext) (err error) {
 	if ctx == nil || ctx.Plan == nil {
 		return fmt.Errorf("install context is nil")
 	}
@@ -92,14 +115,22 @@ func restoreBackedUpDrivers(ctx *InstallContext) error {
 	if ctx.Plan.TargetRoot == "" {
 		return fmt.Errorf("install target root is empty")
 	}
+	logDriverBackupPlan("restore-start", ctx.Plan)
 
 	backupRoot, err := driverBackupRoot(ctx.Plan)
 	if err != nil {
 		return err
 	}
+	defer func() {
+		logDriverBackupSnapshot("restore-exit-source", backupRoot)
+		if err != nil {
+			emitDriverBackupProbef("[restoreBackedUpDrivers] exit error: %v", err)
+		}
+	}()
 	if st, err := os.Stat(backupRoot); err != nil || !st.IsDir() {
 		return fmt.Errorf("driver backup directory not found: %s", backupRoot)
 	}
+	logDriverBackupSnapshot("restore-before-import", backupRoot)
 
 	infCount, err := countINFUnderDir(backupRoot)
 	if err != nil {
@@ -112,6 +143,7 @@ func restoreBackedUpDrivers(ctx *InstallContext) error {
 
 	ui.UiSetStatus(ui.Tr("install.driver.restore"))
 	log.LogWrite(0, "[restoreBackedUpDrivers] restore start: offlineRoot=%s backupRoot=%s infCount=%d", ctx.Plan.TargetRoot, backupRoot, infCount)
+	emitDriverBackupProbef("[restoreBackedUpDrivers] import start: offlineRoot=%s backupRoot=%s infCount=%d", ctx.Plan.TargetRoot, backupRoot, infCount)
 
 	success, fail, err := driversvc.ImportDriversOffline(ctx.Plan.TargetRoot, backupRoot)
 	if err != nil {
@@ -119,6 +151,8 @@ func restoreBackedUpDrivers(ctx *InstallContext) error {
 	}
 
 	log.LogWrite(0, "[restoreBackedUpDrivers] restore completed: success=%d fail=%d backupRoot=%s", success, fail, backupRoot)
+	emitDriverBackupProbef("[restoreBackedUpDrivers] restore completed: success=%d fail=%d backupRoot=%s", success, fail, backupRoot)
+	logDriverBackupSnapshot("restore-after-import", backupRoot)
 	return nil
 }
 
