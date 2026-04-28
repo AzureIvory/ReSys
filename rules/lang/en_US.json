@@ -85,13 +85,17 @@
       "autoPE": "Handle PE Automatically",
       "formatTarget": "Format Target Partition",
       "backupDrivers": "Backup Drivers",
+      "postProcess": "Post-Install Tasks",
       "autoDeploy": "Unattended Setup",
       "autoReboot": "Auto Reboot",
+      "win7Fix": "Win7 Fix",
       "short": {
         "format": "Format",
         "backupDrivers": "Driver Backup",
+        "postProcess": "Post-Install",
         "autoDeploy": "Unattended",
-        "autoReboot": "Auto Reboot"
+        "autoReboot": "Auto Reboot",
+        "win7Fix": "Win7 Fix"
       }
     },
     "pe": {

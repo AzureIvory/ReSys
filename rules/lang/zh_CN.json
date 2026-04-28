@@ -85,13 +85,17 @@
       "autoPE": "自动处理 PE",
       "formatTarget": "格式化目标分区",
       "backupDrivers": "备份驱动",
+      "postProcess": "安装完成后处理",
       "autoDeploy": "无人值守",
       "autoReboot": "自动重启",
+      "win7Fix": "Win7 修复",
       "short": {
         "format": "格式化",
         "backupDrivers": "备份驱动",
+        "postProcess": "后处理",
         "autoDeploy": "无人值守",
-        "autoReboot": "自动重启"
+        "autoReboot": "自动重启",
+        "win7Fix": "Win7 修复"
       }
     },
     "pe": {
