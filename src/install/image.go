@@ -18,7 +18,7 @@ import (
 )
 
 var detectImageInfos = image.DetectImageInfos
-var findLocalImage = image.FindLocalImage
+var findLocalHit = image.FindLocalHit
 var downloadImage = DownloadImage
 
 // 安装镜像获取相关辅助函数。
@@ -64,7 +64,7 @@ func findInstallImage(plan *InstallPlan) (string, error) {
 		return path, nil
 	}
 
-	if local, err := findLocalImage(plan.TargetOS, plan.ImageArch); err == nil && strings.TrimSpace(local) != "" {
+	if local, err := findLocalHit(plan.TargetOS, plan.ImageArch); err == nil && strings.TrimSpace(local) != "" {
 		return local, nil
 	}
 

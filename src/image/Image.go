@@ -1,6 +1,7 @@
 package image
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,7 +26,15 @@ const (
 	targetWin11 = "win11"
 )
 
-var t = dism.NewDism()
+var (
+	t = dism.NewDism()
+
+	findImg   = Findimg
+	hitTarget = targetMatchesImage
+	hintArch  = DetectImageArchHint
+
+	errNoHit = errors.New("no target image")
+)
 
 func Findimg() ([]string, error) {
 	drives, err := disk.ListDrive()
@@ -237,6 +246,52 @@ func FindLocalImage(target, arch string) (string, error) {
 	return byArch[0], nil
 }
 
+// FindLocalHit 只返回命中目标系统的本地镜像。
+// 找不到命中项时返回 errNoHit，不再回退到其他系统镜像。
+func FindLocalHit(target, arch string) (string, error) {
+	imgs, err := findImg()
+	if len(imgs) == 0 {
+		if err != nil {
+			log.LogWrite(0, "[findLocalHit] local image scan failed: %v", err)
+			return "", err
+		}
+
+		log.LogWrite(0, "[findLocalHit] no local image found")
+		return "", errNoHit
+	}
+
+	if err != nil {
+		log.LogWrite(0, "[findLocalHit] skipped inaccessible volume(s): %v", err)
+	}
+
+	log.LogWrite(0, "[findLocalHit] candidates: %s", strings.Join(imgs, " | "))
+
+	hits := make([]string, 0, len(imgs))
+	for _, path := range imgs {
+		if hitTarget(path, target) {
+			hits = append(hits, path)
+		}
+	}
+	if len(hits) == 0 {
+		log.LogWrite(0, "[findLocalHit] no target image hit: target=%s", target)
+		return "", errNoHit
+	}
+
+	base := hits
+	hits = filterArch(base, arch)
+	if len(hits) == 0 && arch == "32" {
+		// 32 位镜像缺失时，允许回退到 64 位镜像。
+		hits = filterArch(base, "64")
+	}
+	if len(hits) == 0 {
+		log.LogWrite(0, "[findLocalHit] no arch image hit: target=%s arch=%s", target, arch)
+		return "", errNoHit
+	}
+
+	log.LogWrite(0, "[findLocalHit] selected local image: %s", hits[0])
+	return hits[0], nil
+}
+
 func DetectImageInfos(imagePath string) ([]dism.ImageMeta, error) {
 	ext := strings.ToLower(filepath.Ext(imagePath))
 	if ext != ".iso" {
@@ -301,6 +356,17 @@ func DetectImageArchHint(imagePath string) string {
 	}
 
 	return ""
+}
+
+func filterArch(paths []string, want string) []string {
+	out := make([]string, 0, len(paths))
+	for _, path := range paths {
+		arch := hintArch(path)
+		if arch == "" || arch == want {
+			out = append(out, path)
+		}
+	}
+	return out
 }
 
 func targetMatchesImage(imagePath, target string) bool {
