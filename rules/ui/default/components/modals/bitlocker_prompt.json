@@ -1,0 +1,396 @@
+{
+    "_comment_zh": "组件模板：BitLocker 解锁弹窗。",
+    "component": "prompt-bitlocker",
+    "node": {
+        "_comment_zh": "页面：BitLocker 解锁弹层。",
+        "backdrop": {
+            "blur": 0,
+            "color": "#0f172a",
+            "dismissOnClick": false,
+            "opacity": 112
+        },
+        "children": [
+            {
+                "children": [
+                    {
+                        "children": [
+                            {
+                                "frame": {
+                                    "h": 24,
+                                    "w": 1,
+                                    "x": 0,
+                                    "y": 0
+                                },
+                                "text": "",
+                                "type": "label"
+                            }
+                        ],
+                        "type": "panel"
+                    },
+                    {
+                        "children": [
+                            {
+                                "frame": {
+                                    "h": 30,
+                                    "w": 512,
+                                    "x": 24,
+                                    "y": 0
+                                },
+                                "id": "prompt-title",
+                                "style": {
+                                    "align": "start",
+                                    "fg": "#0f172a",
+                                    "font": "Microsoft YaHei UI",
+                                    "size": 20,
+                                    "weight": 700
+                                },
+                                "text": {
+                                    "bind": "prompt.title",
+                                    "default": "BitLocker 解锁"
+                                },
+                                "type": "label"
+                            }
+                        ],
+                        "type": "panel"
+                    },
+                    {
+                        "children": [
+                            {
+                                "frame": {
+                                    "h": 10,
+                                    "w": 1,
+                                    "x": 0,
+                                    "y": 0
+                                },
+                                "text": "",
+                                "type": "label"
+                            }
+                        ],
+                        "type": "panel"
+                    },
+                    {
+                        "children": [
+                            {
+                                "frame": {
+                                    "h": 106,
+                                    "w": 512,
+                                    "x": 24,
+                                    "y": 0
+                                },
+                                "id": "prompt-text",
+                                "multiline": true,
+                                "style": {
+                                    "align": "start",
+                                    "fg": "#334155",
+                                    "font": "Microsoft YaHei UI",
+                                    "size": 14
+                                },
+                                "text": {
+                                    "bind": "prompt.text",
+                                    "default": ""
+                                },
+                                "type": "label",
+                                "wordWrap": true
+                            }
+                        ],
+                        "type": "panel"
+                    },
+                    {
+                        "children": [
+                            {
+                                "frame": {
+                                    "h": 8,
+                                    "w": 1,
+                                    "x": 0,
+                                    "y": 0
+                                },
+                                "text": "",
+                                "type": "label"
+                            }
+                        ],
+                        "type": "panel"
+                    },
+                    {
+                        "children": [
+                            {
+                                "frame": {
+                                    "h": 40,
+                                    "w": 512,
+                                    "x": 24,
+                                    "y": 0
+                                },
+                                "id": "prompt-input",
+                                "onChange": "prompt-input-change",
+                                "onSubmit": "prompt-submit-password",
+                                "placeholder": {
+                                    "bind": "i18n.prompt.inputPlaceholder",
+                                    "default": "请输入密码或 48 位恢复密钥"
+                                },
+                                "style": {
+                                    "bg": "#ffffff",
+                                    "border": "#cbd5e1",
+                                    "fg": "#1e293b",
+                                    "focusBorder": "#2563eb",
+                                    "font": "Microsoft YaHei UI",
+                                    "hoverBorder": "#3b82f6",
+                                    "pad": 8,
+                                    "ph": "#94a3b8",
+                                    "radius": 10,
+                                    "size": 14
+                                },
+                                "type": "input",
+                                "value": {
+                                    "bind": "prompt.credential",
+                                    "default": ""
+                                }
+                            }
+                        ],
+                        "type": "panel"
+                    },
+                    {
+                        "children": [
+                            {
+                                "frame": {
+                                    "h": 8,
+                                    "w": 1,
+                                    "x": 0,
+                                    "y": 0
+                                },
+                                "text": "",
+                                "type": "label"
+                            }
+                        ],
+                        "type": "panel"
+                    },
+                    {
+                        "children": [
+                            {
+                                "frame": {
+                                    "h": 24,
+                                    "w": 512,
+                                    "x": 24,
+                                    "y": 0
+                                },
+                                "id": "prompt-error",
+                                "style": {
+                                    "align": "start",
+                                    "fg": "#dc2626",
+                                    "font": "Microsoft YaHei UI",
+                                    "size": 14
+                                },
+                                "text": {
+                                    "bind": "prompt.error",
+                                    "default": ""
+                                },
+                                "type": "label"
+                            }
+                        ],
+                        "type": "panel"
+                    },
+                    {
+                        "children": [
+                            {
+                                "frame": {
+                                    "h": 8,
+                                    "w": 1,
+                                    "x": 0,
+                                    "y": 0
+                                },
+                                "text": "",
+                                "type": "label"
+                            }
+                        ],
+                        "type": "panel"
+                    },
+                    {
+                        "children": [
+                            {
+                                "children": [
+                                    {
+                                        "frame": {
+                                            "h": 36,
+                                            "w": 148,
+                                            "x": 0,
+                                            "y": 0
+                                        },
+                                        "id": "prompt-password",
+                                        "onClick": "prompt-submit-password",
+                                        "style": {
+                                            "bg": "#2563eb",
+                                            "disabledBg": "#60a5fa",
+                                            "disabledFg": "#bfdbfe",
+                                            "downFg": "#ffffff",
+                                            "fg": "#ffffff",
+                                            "font": "Microsoft YaHei UI",
+                                            "hoverBg": "#1d4ed8",
+                                            "pad": 12,
+                                            "pressedBg": "#1e40af",
+                                            "radius": 10,
+                                            "size": 14,
+                                            "weight": 700
+                                        },
+                                        "text": {
+                                            "bind": "i18n.prompt.password",
+                                            "default": "用密码解锁"
+                                        },
+                                        "type": "button"
+                                    }
+                                ],
+                                "type": "panel"
+                            },
+                            {
+                                "children": [
+                                    {
+                                        "frame": {
+                                            "h": 36,
+                                            "w": 12,
+                                            "x": 0,
+                                            "y": 0
+                                        },
+                                        "text": "",
+                                        "type": "label"
+                                    }
+                                ],
+                                "type": "panel"
+                            },
+                            {
+                                "children": [
+                                    {
+                                        "frame": {
+                                            "h": 36,
+                                            "w": 148,
+                                            "x": 0,
+                                            "y": 0
+                                        },
+                                        "id": "prompt-recovery",
+                                        "onClick": "prompt-submit-recovery",
+                                        "style": {
+                                            "bg": "#2563eb",
+                                            "disabledBg": "#60a5fa",
+                                            "disabledFg": "#bfdbfe",
+                                            "downFg": "#ffffff",
+                                            "fg": "#ffffff",
+                                            "font": "Microsoft YaHei UI",
+                                            "hoverBg": "#1d4ed8",
+                                            "pad": 12,
+                                            "pressedBg": "#1e40af",
+                                            "radius": 10,
+                                            "size": 14,
+                                            "weight": 700
+                                        },
+                                        "text": {
+                                            "bind": "i18n.prompt.recovery",
+                                            "default": "用恢复密钥"
+                                        },
+                                        "type": "button"
+                                    }
+                                ],
+                                "type": "panel"
+                            },
+                            {
+                                "children": [
+                                    {
+                                        "frame": {
+                                            "h": 36,
+                                            "w": 104,
+                                            "x": 0,
+                                            "y": 0
+                                        },
+                                        "text": "",
+                                        "type": "label"
+                                    }
+                                ],
+                                "type": "panel"
+                            },
+                            {
+                                "children": [
+                                    {
+                                        "frame": {
+                                            "h": 36,
+                                            "w": 100,
+                                            "x": 0,
+                                            "y": 0
+                                        },
+                                        "id": "prompt-cancel",
+                                        "onClick": "prompt-cancel",
+                                        "style": {
+                                            "bg": "#ffffff",
+                                            "border": "#e2e8f0",
+                                            "disabledBg": "#f1f5f9",
+                                            "downFg": "#ffffff",
+                                            "fg": "#475569",
+                                            "font": "Microsoft YaHei",
+                                            "hoverBg": "#f8fafc",
+                                            "pad": 12,
+                                            "pressedBg": "#0f172a",
+                                            "radius": 10,
+                                            "size": 14,
+                                            "weight": 400
+                                        },
+                                        "text": {
+                                            "bind": "i18n.prompt.cancel",
+                                            "default": "取消"
+                                        },
+                                        "type": "button"
+                                    }
+                                ],
+                                "type": "panel"
+                            }
+                        ],
+                        "layout": {
+                            "cross": "center",
+                            "pad": [
+                                0,
+                                24,
+                                0,
+                                24
+                            ],
+                            "type": "row"
+                        },
+                        "type": "panel"
+                    },
+                    {
+                        "children": [
+                            {
+                                "frame": {
+                                    "h": 6,
+                                    "w": 1,
+                                    "x": 0,
+                                    "y": 0
+                                },
+                                "text": "",
+                                "type": "label"
+                            }
+                        ],
+                        "type": "panel"
+                    }
+                ],
+                "frame": {
+                    "h": 300,
+                    "w": 560,
+                    "x": "50%-280",
+                    "y": "50%-150"
+                },
+                "id": "prompt-card",
+                "layout": {
+                    "cross": "stretch",
+                    "type": "col"
+                },
+                "style": {
+                    "bg": "#ffffff",
+                    "border": "#cbd5e1",
+                    "borderW": 1,
+                    "radius": 14
+                },
+                "type": "panel"
+            }
+        ],
+        "id": "prompt-bitlocker",
+        "onDismiss": "prompt-cancel",
+        "type": "modal",
+        "visible": {
+            "bind": "prompt.visible",
+            "default": false
+        }
+    }
+}

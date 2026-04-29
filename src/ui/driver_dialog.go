@@ -24,6 +24,7 @@ type manualDriverGUIDOption struct {
 	Name    string
 	GUID    string
 	CheckID string
+	Enabled bool
 }
 
 func parseDriverFilePatterns(raw string) []string {
@@ -70,6 +71,7 @@ func EnsureDriverDialogInit() {
 			manual.driverGUIDOptions = items
 		}
 	}
+	manualDropDisabledDriverGUIDSelections()
 	manualSetState("manual.driver.infPatterns", manual.driverINFPatterns)
 	RenderDriverGUIDOptions()
 	UpdateDriverDialogSummary()
@@ -79,15 +81,18 @@ func RenderDriverGUIDOptions() {
 	if ui.window == nil {
 		return
 	}
-	widget := ui.window.FindWidget("manual-driver-guid-list")
-	panel, ok := widget.(*widgets.Panel)
-	if !ok || panel == nil {
+	widget := ui.window.FindWidget("manual-driver-guid-scroll")
+	scroll, ok := widget.(*widgets.ScrollView)
+	if !ok || scroll == nil {
 		return
 	}
 
-	for _, child := range panel.Children() {
-		panel.Remove(child.ID())
-	}
+	panel := widgets.NewPanel("manual-driver-guid-list")
+	panel.SetLayout(widgets.ColumnLayout{
+		Gap:        6,
+		Padding:    widgets.UniformInsets(8),
+		CrossAlign: widgets.AlignStretch,
+	})
 
 	for _, item := range manual.driverGUIDOptions {
 		guid := item.GUID
@@ -104,6 +109,7 @@ func RenderDriverGUIDOptions() {
 		})
 		panel.Add(check)
 	}
+	scroll.SetContent(panel)
 }
 
 func NewDriverGUIDCheckBox(
@@ -113,8 +119,10 @@ func NewDriverGUIDCheckBox(
 ) *widgets.CheckBox {
 	check := widgets.NewCheckBox(item.CheckID, item.Name, widgets.ModeCustom)
 	check.SetStyle(widgets.ChoiceStyle{IndicatorStyle: widgets.ChoiceIndicatorCheck})
-	widgets.SetPreferredSize(check, core.Size{Width: 0, Height: 28})
-	check.SetChecked(checked)
+	widgets.SetPreferredSize(check, core.Size{Width: 500, Height: 28})
+	check.SetLayoutData(widgets.FlexLayoutData{Align: widgets.AlignStretch})
+	check.SetChecked(item.Enabled && checked)
+	check.SetEnabled(item.Enabled)
 	check.SetOnChange(onChange)
 	return check
 }
@@ -167,7 +175,7 @@ func SelectedDriverGUIDs() []string {
 
 	out := make([]string, 0, len(manual.driverGUIDSelected))
 	for _, item := range manual.driverGUIDOptions {
-		if manual.driverGUIDSelected[item.GUID] {
+		if item.Enabled && manual.driverGUIDSelected[item.GUID] {
 			out = append(out, item.GUID)
 		}
 	}
@@ -186,6 +194,24 @@ func UpdateDriverDialogSummary() {
 		summary = fmt.Sprintf(T("manual.driver.summary.selected"), fileCount, guidCount)
 	}
 	manualSetState("manual.driver.summary", summary)
+}
+
+func manualDropDisabledDriverGUIDSelections() {
+	if len(manual.driverGUIDOptions) == 0 || len(manual.driverGUIDSelected) == 0 {
+		return
+	}
+
+	enabled := make(map[string]struct{}, len(manual.driverGUIDOptions))
+	for _, item := range manual.driverGUIDOptions {
+		if item.Enabled {
+			enabled[item.GUID] = struct{}{}
+		}
+	}
+	for guid := range manual.driverGUIDSelected {
+		if _, ok := enabled[guid]; !ok {
+			delete(manual.driverGUIDSelected, guid)
+		}
+	}
 }
 
 func ExportInstallJSON(text string) (string, error) {

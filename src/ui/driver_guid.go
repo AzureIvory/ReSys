@@ -13,6 +13,8 @@ type driverGUID struct {
 	FallbackName string
 }
 
+const monitorDriverGUIDValue = "4D36E96E-E325-11CE-BFC1-08002BE10318"
+
 var driverGUIDCata = []driverGUID{
 	{Key: "audio_processing_object", GUID: "5989FCE8-9CD0-467D-8A6A-5419E31529D4", FallbackName: "Audio Processing Object (APO)"},
 	{Key: "battery", GUID: "72631E54-78A4-11D0-BCF7-00AA00B7B32A", FallbackName: "Battery Device"},
@@ -90,6 +92,7 @@ func loadDriverGUIDOptions() ([]manualDriverGUIDOption, error) {
 			Name:    localizedDriverGUIDLabel(entry),
 			GUID:    guid,
 			CheckID: driverGUIDCheckID(guid),
+			Enabled: !strings.EqualFold(strings.TrimSpace(entry.GUID), monitorDriverGUIDValue),
 		})
 	}
 

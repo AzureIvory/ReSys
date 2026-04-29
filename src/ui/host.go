@@ -135,20 +135,45 @@ func defaultUIState() map[string]any {
 				"placeholder":   T("manual.boot.placeholder.auto"),
 			},
 			"options": map[string]any{
-				"autoPE":        true,
-				"autoPEEnabled": false,
-				"pePath":        "",
-				"peEnabled":     false,
-				"formatTarget":  true,
-				"backupDrivers": false,
-				"autoDeploy":    true,
-				"autoReboot":    true,
-				"startEnabled":  false,
+				"autoPE":         true,
+				"autoPEEnabled":  false,
+				"pePath":         "",
+				"peEnabled":      false,
+				"formatTarget":   true,
+				"backupDrivers":  false,
+				"autoDeploy":     true,
+				"autoReboot":     true,
+				"win7Fix":        false,
+				"win7FixEnabled": true,
+				"postProcess":    false,
+				"startEnabled":   false,
 			},
 			"driver": map[string]any{
 				"visible":     false,
 				"infPatterns": "",
 				"summary":     T("manual.driver.summary.empty"),
+			},
+			"postprocess": map[string]any{
+				"visible": false,
+				"files": map[string]any{
+					"items":    []widgets.ListItem{},
+					"selected": "",
+					"form": map[string]any{
+						"src":       "",
+						"dst":       "",
+						"overwrite": true,
+						"required":  false,
+					},
+				},
+				"shortcuts": map[string]any{
+					"items":    []widgets.ListItem{},
+					"selected": "",
+					"form": map[string]any{
+						"target": "",
+						"name":   "",
+						"dir":    `\Users\Public\Desktop`,
+					},
+				},
 			},
 		},
 		"prompt": map[string]any{
@@ -186,9 +211,52 @@ func ensureUIAssets() (string, error) {
 				return
 			}
 		}
+		if err := copyUIComponentAssets(uiAssetsDir); err != nil {
+			uiAssetsErr = err
+			return
+		}
 	})
 
 	return uiAssetsDir, uiAssetsErr
+}
+
+func copyUIComponentAssets(dstRoot string) error {
+	srcDir, err := utils.ProjectDir("rules", "ui", "default", "components")
+	if err != nil {
+		return err
+	}
+	dstDir := filepath.Join(dstRoot, "components")
+	return copyUIDir(srcDir, dstDir)
+}
+
+func copyUIDir(srcDir, dstDir string) error {
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		return fmt.Errorf("read ui dir %q: %w", srcDir, err)
+	}
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		return fmt.Errorf("create ui dir %q: %w", dstDir, err)
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(srcDir, entry.Name())
+		dstPath := filepath.Join(dstDir, entry.Name())
+		if entry.IsDir() {
+			if err := copyUIDir(srcPath, dstPath); err != nil {
+				return err
+			}
+			continue
+		}
+
+		data, err := os.ReadFile(srcPath)
+		if err != nil {
+			return fmt.Errorf("read ui file %q: %w", srcPath, err)
+		}
+		if err := os.WriteFile(dstPath, data, 0o600); err != nil {
+			return fmt.Errorf("write ui file %q: %w", dstPath, err)
+		}
+	}
+	return nil
 }
 
 // uiActionHandlers 返回 action 名称到回调函数的映射表。
@@ -253,6 +321,66 @@ func uiActionHandlers() map[string]func(jsonui.ActionContext) {
 		},
 		"manual-reboot-change": func(ctx jsonui.ActionContext) {
 			HandleOptionChange("manual.options.autoReboot", ctx.Checked)
+		},
+		"manual-win7-fix-change": func(ctx jsonui.ActionContext) {
+			HandleOptionChange("manual.options.win7Fix", ctx.Checked)
+		},
+		"manual-postprocess-change": func(ctx jsonui.ActionContext) {
+			HandlePostProcessChange(ctx.Checked)
+		},
+		"manual-postprocess-file-select": func(ctx jsonui.ActionContext) {
+			HandlePostProcessFileSelect(ctx.Value)
+		},
+		"manual-postprocess-file-src-change": func(ctx jsonui.ActionContext) {
+			manualSetState("manual.postprocess.files.form.src", ctx.Value)
+		},
+		"manual-postprocess-file-dst-change": func(ctx jsonui.ActionContext) {
+			manualSetState("manual.postprocess.files.form.dst", ctx.Value)
+		},
+		"manual-postprocess-file-overwrite-change": func(ctx jsonui.ActionContext) {
+			manualSetState("manual.postprocess.files.form.overwrite", ctx.Checked)
+		},
+		"manual-postprocess-file-required-change": func(ctx jsonui.ActionContext) {
+			manualSetState("manual.postprocess.files.form.required", ctx.Checked)
+		},
+		"manual-postprocess-file-add": func(jsonui.ActionContext) {
+			HandlePostProcessFileAdd()
+		},
+		"manual-postprocess-file-save": func(jsonui.ActionContext) {
+			HandlePostProcessFileSave()
+		},
+		"manual-postprocess-file-delete": func(jsonui.ActionContext) {
+			HandlePostProcessFileDelete()
+		},
+		"manual-postprocess-shortcut-select": func(ctx jsonui.ActionContext) {
+			HandlePostProcessShortcutSelect(ctx.Value)
+		},
+		"manual-postprocess-shortcut-target-change": func(ctx jsonui.ActionContext) {
+			manualSetState("manual.postprocess.shortcuts.form.target", ctx.Value)
+		},
+		"manual-postprocess-shortcut-name-change": func(ctx jsonui.ActionContext) {
+			manualSetState("manual.postprocess.shortcuts.form.name", ctx.Value)
+		},
+		"manual-postprocess-shortcut-dir-change": func(ctx jsonui.ActionContext) {
+			manualSetState("manual.postprocess.shortcuts.form.dir", ctx.Value)
+		},
+		"manual-postprocess-shortcut-add": func(jsonui.ActionContext) {
+			HandlePostProcessShortcutAdd()
+		},
+		"manual-postprocess-shortcut-save": func(jsonui.ActionContext) {
+			HandlePostProcessShortcutSave()
+		},
+		"manual-postprocess-shortcut-delete": func(jsonui.ActionContext) {
+			HandlePostProcessShortcutDelete()
+		},
+		"manual-postprocess-reset": func(jsonui.ActionContext) {
+			HandlePostProcessReset()
+		},
+		"manual-postprocess-confirm": func(jsonui.ActionContext) {
+			HandlePostProcessConfirm()
+		},
+		"manual-postprocess-cancel": func(jsonui.ActionContext) {
+			HandlePostProcessCancel()
 		},
 		"manual-start": func(jsonui.ActionContext) {
 			HandleStart()

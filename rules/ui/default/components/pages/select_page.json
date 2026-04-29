@@ -1,0 +1,244 @@
+{
+    "_comment_zh": "组件模板：自动重装系统选择页。",
+    "component": "page-select",
+    "node": {
+        "_comment_zh": "页面：主页面（系统版本选择）。",
+        "children": [
+            {
+                "children": [
+                    {
+                        "children": [
+                            {
+                                "frame": {
+                                    "h": 54,
+                                    "w": 1,
+                                    "x": 0,
+                                    "y": 0
+                                },
+                                "text": "",
+                                "type": "label"
+                            }
+                        ],
+                        "type": "panel"
+                    },
+                    {
+                        "children": [
+                            {
+                                "frame": {
+                                    "h": 40,
+                                    "w": 1,
+                                    "x": 0,
+                                    "y": 0
+                                },
+                                "text": "",
+                                "type": "label"
+                            },
+                            {
+                                "frame": {
+                                    "h": 40,
+                                    "r": 20,
+                                    "x": 20,
+                                    "y": 0
+                                },
+                                "id": "select-title",
+                                "scale": "px",
+                                "style": {
+                                    "align": "center",
+                                    "fg": "#0f172a",
+                                    "font": "Microsoft YaHei UI",
+                                    "size": 20,
+                                    "weight": 700
+                                },
+                                "text": {
+                                    "bind": "i18n.select.title",
+                                    "default": "请选择要安装的操作系统"
+                                },
+                                "type": "label"
+                            }
+                        ],
+                        "type": "panel"
+                    },
+                    {
+                        "children": [
+                            {
+                                "frame": {
+                                    "h": 40,
+                                    "w": 1,
+                                    "x": 0,
+                                    "y": 0
+                                },
+                                "text": "",
+                                "type": "label"
+                            }
+                        ],
+                        "type": "panel"
+                    },
+                    {
+                        "children": [
+                            {
+                                "frame": {
+                                    "h": 120,
+                                    "w": 1,
+                                    "x": 0,
+                                    "y": 0
+                                },
+                                "text": "",
+                                "type": "label"
+                            },
+                            {
+                                "children": [
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 120,
+                                                    "w": 120,
+                                                    "x": 0,
+                                                    "y": 0
+                                                },
+                                                "id": "btn-win7",
+                                                "image": "win7.png",
+                                                "imagePos": "top",
+                                                "imageSizeDP": 48,
+                                                "onClick": "install-win7",
+                                                "style": {
+                                                    "pressedBg": "#43cd80"
+                                                },
+                                                "text": {
+                                                    "bind": "i18n.select.win7",
+                                                    "default": "重装 Win7"
+                                                },
+                                                "type": "button"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    },
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 120,
+                                                    "w": 120,
+                                                    "x": 0,
+                                                    "y": 0
+                                                },
+                                                "id": "btn-win10",
+                                                "image": "win10.png",
+                                                "imagePos": "top",
+                                                "imageSizeDP": 48,
+                                                "onClick": "install-win10",
+                                                "text": {
+                                                    "bind": "i18n.select.win10",
+                                                    "default": "重装 Win10"
+                                                },
+                                                "type": "button"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    },
+                                    {
+                                        "children": [
+                                            {
+                                                "frame": {
+                                                    "h": 120,
+                                                    "w": 120,
+                                                    "x": 0,
+                                                    "y": 0
+                                                },
+                                                "id": "btn-win11",
+                                                "image": "win11.png",
+                                                "imagePos": "top",
+                                                "imageSizeDP": 48,
+                                                "onClick": "install-win11",
+                                                "style": {
+                                                    "pressedBg": "#00bfff"
+                                                },
+                                                "text": {
+                                                    "bind": "i18n.select.win11",
+                                                    "default": "重装 Win11"
+                                                },
+                                                "type": "button"
+                                            }
+                                        ],
+                                        "type": "panel"
+                                    }
+                                ],
+                                "frame": {
+                                    "h": 120,
+                                    "w": 456,
+                                    "x": "(parentW-456)/2",
+                                    "y": 0
+                                },
+                                "id": "select-actions-grid",
+                                "layout": {
+                                    "colGap": 48,
+                                    "cols": 3,
+                                    "type": "grid"
+                                },
+                                "scale": "px",
+                                "type": "panel"
+                            }
+                        ],
+                        "type": "panel"
+                    }
+                ],
+                "frame": {
+                    "b": 0,
+                    "r": 0,
+                    "x": 0,
+                    "y": 0
+                },
+                "id": "select-content",
+                "layout": {
+                    "cross": "stretch",
+                    "type": "col"
+                },
+                "type": "panel"
+            },
+            {
+                "frame": {
+                    "h": 36,
+                    "r": 20,
+                    "w": 96,
+                    "y": 20
+                },
+                "id": "btn-advanced",
+                "onClick": "open-manual",
+                "scale": "px",
+                "style": {
+                    "bg": "#ffffff",
+                    "border": "#e2e8f0",
+                    "disabledBg": "#f1f5f9",
+                    "downFg": "#ffffff",
+                    "fg": "#475569",
+                    "font": "Microsoft YaHei",
+                    "hoverBg": "#f8fafc",
+                    "pad": 12,
+                    "pressedBg": "#0f172a",
+                    "radius": 10,
+                    "size": 14,
+                    "weight": 400
+                },
+                "text": {
+                    "bind": "i18n.select.advanced",
+                    "default": "楂樼骇妯″紡"
+                },
+                "type": "button"
+            }
+        ],
+        "frame": {
+            "b": 0,
+            "r": 0,
+            "x": 0,
+            "y": 0
+        },
+        "id": "page-select",
+        "layout": "abs",
+        "scale": "px",
+        "type": "panel",
+        "visible": {
+            "bind": "pages.selectVisible",
+            "default": true
+        }
+    }
+}

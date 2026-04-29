@@ -1,0 +1,148 @@
+{
+    "_comment_zh": "组件模板：安装进度页。",
+    "component": "page-progress",
+    "node": {
+        "_comment_zh": "页面：安装进度页面。",
+        "children": [
+            {
+                "children": [
+                    {
+                        "frame": {
+                            "h": 146,
+                            "w": 1,
+                            "x": 0,
+                            "y": 0
+                        },
+                        "text": "",
+                        "type": "label"
+                    }
+                ],
+                "type": "panel"
+            },
+            {
+                "children": [
+                    {
+                        "autoplay": {
+                            "bind": "progress.spinnerPlaying",
+                            "default": false
+                        },
+                        "fit": "contain",
+                        "frame": {
+                            "h": 88,
+                            "w": 88,
+                            "x": 336,
+                            "y": 0
+                        },
+                        "id": "progress-spinner",
+                        "src": "wait.gif",
+                        "type": "animimg"
+                    }
+                ],
+                "type": "panel"
+            },
+            {
+                "children": [
+                    {
+                        "frame": {
+                            "h": 20,
+                            "w": 1,
+                            "x": 0,
+                            "y": 0
+                        },
+                        "text": "",
+                        "type": "label"
+                    }
+                ],
+                "type": "panel"
+            },
+            {
+                "children": [
+                    {
+                        "frame": {
+                            "h": 30,
+                            "w": 720,
+                            "x": 20,
+                            "y": 0
+                        },
+                        "id": "progress-status",
+                        "style": {
+                            "align": "center",
+                            "fg": "#0f172a",
+                            "font": "Microsoft YaHei UI",
+                            "size": 18,
+                            "weight": 700
+                        },
+                        "text": {
+                            "bind": "progress.status",
+                            "default": "正在准备..."
+                        },
+                        "type": "label"
+                    }
+                ],
+                "type": "panel"
+            },
+            {
+                "children": [
+                    {
+                        "frame": {
+                            "h": 48,
+                            "w": 1,
+                            "x": 0,
+                            "y": 0
+                        },
+                        "text": "",
+                        "type": "label"
+                    }
+                ],
+                "type": "panel"
+            },
+            {
+                "children": [
+                    {
+                        "frame": {
+                            "h": 12,
+                            "w": 532,
+                            "x": 114,
+                            "y": 0
+                        },
+                        "id": "progress-bar",
+                        "style": {
+                            "bubble": "#16a34a",
+                            "fg": "#ffffff",
+                            "fill": "#22c55e",
+                            "font": "Microsoft YaHei UI",
+                            "radius": 12,
+                            "showPct": true,
+                            "size": 14,
+                            "track": "#f3f4f6",
+                            "weight": 700
+                        },
+                        "type": "progress",
+                        "value": {
+                            "bind": "progress.value",
+                            "default": 0
+                        }
+                    }
+                ],
+                "type": "panel"
+            }
+        ],
+        "frame": {
+            "b": 0,
+            "r": 0,
+            "x": 0,
+            "y": 0
+        },
+        "id": "page-progress",
+        "layout": {
+            "cross": "stretch",
+            "type": "col"
+        },
+        "scale": "px",
+        "type": "panel",
+        "visible": {
+            "bind": "pages.progressVisible",
+            "default": false
+        }
+    }
+}

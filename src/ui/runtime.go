@@ -13,6 +13,7 @@
 package ui
 
 import (
+	"ReSys/src/config"
 	"ReSys/src/dism"
 	imgsvc "ReSys/src/image"
 	"fmt"
@@ -33,18 +34,23 @@ var StartManualInstall = func(src string) {}
 // - imageInfos/partitionRows/bootRows：避免每次读取 Store 都要重复解析/计算；
 // - partitionLoadID：用于异步加载的“代号”，防止慢请求覆盖新请求的结果。
 type UIState struct {
-	imagePath          string
-	imageInfos         []dism.ImageMeta
-	imageParseErr      string
-	partitionRows      []PartitionRow
-	bootRows           []PartitionRow
-	partitionError     string
-	bootTargets        []BootTargetOption
-	partitionLoading   bool
-	partitionLoadID    uint64
-	driverGUIDOptions  []manualDriverGUIDOption
-	driverGUIDSelected map[string]bool
-	driverINFPatterns  string
+	imagePath                 string
+	imageInfos                []dism.ImageMeta
+	imageParseErr             string
+	partitionRows             []PartitionRow
+	bootRows                  []PartitionRow
+	partitionError            string
+	bootTargets               []BootTargetOption
+	partitionLoading          bool
+	partitionLoadID           uint64
+	driverGUIDOptions         []manualDriverGUIDOption
+	driverGUIDSelected        map[string]bool
+	driverINFPatterns         string
+	postProcessFiles          []config.FileItem
+	postProcessDraftFiles     []config.FileItem
+	postProcessShortcuts      []config.ShortcutItem
+	postProcessDraftShortcuts []config.ShortcutItem
+	postProcessOpen           postProcessModalSnapshot
 }
 
 // PartitionRow 是手动模式里展示分区/卷信息的行模型。

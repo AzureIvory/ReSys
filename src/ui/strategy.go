@@ -25,6 +25,12 @@ var manualConfigPath = func() (string, error) {
 	return utils.ProjectFile(filepath.Join("rules", "install", "default.json"))
 }
 
+var manualAutoConfigPath = func(targetOS string) (string, error) {
+	return utils.ProjectFile(
+		filepath.Join("rules", "install", "auto", manualTemplateTargetOS(targetOS)+".json"),
+	)
+}
+
 // manualDefaultConfig 读取手动重装的默认 JSON 配置。
 func manualDefaultConfig() (config.Config, error) {
 	path, err := manualConfigPath()
@@ -32,6 +38,25 @@ func manualDefaultConfig() (config.Config, error) {
 		return config.Config{}, err
 	}
 	return config.ParseSource(path)
+}
+
+func manualAutoTemplateConfig(targetOS string) (config.Config, error) {
+	path, err := manualAutoConfigPath(targetOS)
+	if err != nil {
+		return config.Config{}, err
+	}
+	return config.ParseSource(path)
+}
+
+func manualTemplateTargetOS(targetOS string) string {
+	switch strings.ToLower(strings.TrimSpace(targetOS)) {
+	case targetWin7:
+		return targetWin7
+	case targetWin11:
+		return targetWin11
+	default:
+		return targetWin10
+	}
 }
 
 // manualUpdateDetail 根据当前选择生成“分区详情”文本。
@@ -178,6 +203,10 @@ func manualUpdateActionState() {
 	manualSetState("manual.options.startEnabled", manualValidationReason() == "")
 }
 
+func manualSyncDerivedOptionState() {
+	manualSetState("manual.options.win7FixEnabled", true)
+}
+
 // manualUpdateSummary 更新底部汇总提示。
 //
 // 汇总内容来源于当前缓存 + Store：
@@ -190,6 +219,8 @@ func manualUpdateSummary() {
 	if ui.store == nil {
 		return
 	}
+
+	manualSyncDerivedOptionState()
 
 	parts := make([]string, 0, 8)
 	if manual.partitionLoading {
@@ -236,7 +267,7 @@ func manualUpdateSummary() {
 		parts = append(parts, bootSummary)
 	}
 
-	options := make([]string, 0, 4)
+	options := make([]string, 0, 6)
 	if manualOptionFormatTarget() {
 		options = append(options, T("manual.option.short.format"))
 	}
@@ -248,6 +279,12 @@ func manualUpdateSummary() {
 	}
 	if manualOptionAutoReboot() {
 		options = append(options, T("manual.option.short.autoReboot"))
+	}
+	if manualOptionWin7Fix() {
+		options = append(options, T("manual.option.short.win7Fix"))
+	}
+	if manualOptionPostProcess() {
+		options = append(options, T("manual.option.short.postProcess"))
 	}
 	if len(options) > 0 {
 		parts = append(parts, T("manual.summary.optionsPrefix")+strings.Join(options, "/"))
@@ -297,7 +334,20 @@ func manualBuildJSON() (string, error) {
 	}
 
 	targetOS := mSelectedTargetOS()
-	files := manualDefaultFiles(targetOS, manualOptionAutoDeploy())
+	postProcessEnabled := manualOptionPostProcess()
+	files := []config.FileItem{}
+	shortcuts := []config.ShortcutItem{}
+	if postProcessEnabled {
+		files = normalizePostProcessFileItems(manual.postProcessFiles)
+		shortcuts = cloneShortcutItems(manual.postProcessShortcuts)
+	}
+	win7Fix, err := manualDefaultWin7Fix(targetOS)
+	if err != nil {
+		return "", err
+	}
+	if !manualOptionWin7Fix() {
+		win7Fix = config.Win7Fix{}
+	}
 
 	cfg.Mode = "manual"
 	cfg.TargetOS = targetOS
@@ -331,78 +381,20 @@ func manualBuildJSON() (string, error) {
 		State: len(files) > 0,
 		Items: files,
 	}
+	cfg.Shortcut = config.Shortcut{
+		State: len(shortcuts) > 0,
+		Items: shortcuts,
+	}
+	cfg.Win7Fix = win7Fix
 	return config.Marshal(cfg)
 }
 
-func manualDefaultFiles(targetOS string, copyXML bool) []config.FileItem {
-	files := []config.FileItem{
-		{
-			Src:       `tools\SetupComplete.cmd`,
-			Dst:       `\Windows\Setup\Scripts\SetupComplete.cmd`,
-			Overwrite: true,
-			Required:  false,
-		},
-		{
-			Src:       `tools\drive.exe`,
-			Dst:       `\drive.exe`,
-			Overwrite: true,
-			Required:  false,
-		},
+func manualDefaultWin7Fix(targetOS string) (config.Win7Fix, error) {
+	cfg, err := manualAutoTemplateConfig(targetWin7)
+	if err != nil {
+		return config.Win7Fix{}, err
 	}
-	if copyXML {
-		files = append(
-			[]config.FileItem{
-				{
-					Src:       manualUnattendFile(targetOS),
-					Dst:       `\Windows\Panther\Unattend.xml`,
-					Overwrite: true,
-					Required:  false,
-				},
-				{
-					Src:       `tools\HEU_KMS_Activator.exe`,
-					Dst:       `\HEU_KMS_Activator.exe`,
-					Overwrite: true,
-					Required:  false,
-				},
-			},
-			files...,
-		)
-	}
-	return files
-}
-
-func manualDefaultShortcuts() []config.ShortcutItem {
-	return []config.ShortcutItem{
-		{
-			Target: `\drive.exe`,
-			Name:   `驱动总裁`,
-			Dir:    `\Users\Public\Desktop`,
-		},
-		{
-			Target: `https://store.ttraw.com`,
-			Name:   `应用商店`,
-			Dir:    `\Users\Public\Desktop`,
-		},
-	}
-}
-
-func manualDefaultWin7Fix(targetOS string) config.Win7Fix {
-	if !strings.EqualFold(targetOS, "win7") {
-		return config.Win7Fix{}
-	}
-	return config.Win7Fix{
-		NVMe:              `tools\w7\drivers\nvme`,
-		StorageController: `tools\w7\drivers\storage_controller`,
-		USB3:              `tools\w7\drivers\usb3`,
-		UEFI:              `tools\w7\uefi`,
-	}
-}
-
-func manualUnattendFile(targetOS string) string {
-	if strings.EqualFold(targetOS, "win7") {
-		return `tools\win7.xml`
-	}
-	return `tools\win10.xml`
+	return cfg.Win7Fix, nil
 }
 
 // mSelectedImageInfo 从缓存的 imageInfos 中按 Store 里选中的索引找出对应镜像元信息。
@@ -557,6 +549,14 @@ func manualOptionAutoDeploy() bool {
 // manualOptionAutoReboot 从 Store 读取“自动重启”开关。
 func manualOptionAutoReboot() bool {
 	return manualStoreBool("manual.options.autoReboot", true)
+}
+
+func manualOptionWin7Fix() bool {
+	return manualStoreBool("manual.options.win7Fix", false)
+}
+
+func manualOptionPostProcess() bool {
+	return manualStoreBool("manual.options.postProcess", false)
 }
 
 // manualPEPath 读取“手动指定 PE WIM”的路径。
