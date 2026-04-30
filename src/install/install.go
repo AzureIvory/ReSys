@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -54,9 +53,9 @@ const (
 )
 
 type InstallFlags struct {
-	NeedBitLockerHandling bool
-	NeedBackupBeforePE    bool
-	NeedOfflineDrivers    bool
+	NeedBitLockerHandling bool `json:"need_bitlocker"`
+	NeedBackupBeforePE    bool `json:"need_backup_before_pe"`
+	NeedOfflineDrivers    bool `json:"need_offline_drivers"`
 }
 
 // InstallFile 描述安装完成后的单个复制项。
@@ -81,33 +80,33 @@ type InstallWin7Fix struct {
 }
 
 type InstallPlan struct {
-	Mode          ReinstallMode
-	TargetOS      string
-	ImageArch     string
-	PEArch        string
-	PreparedPEWIM string
-	ImagePath     string
-	ImageIndex    int
-	TargetRoot    string
-	TargetPartRef string
-	DiskPath      string
-	DiskUniqueID  string
-	ImageRel      string
-	AutoPE        bool
-	ManualPEWIM   string
-	FormatTarget  bool
-	FormatFS      string
-	FormatLabel   string
-	FormatQuick   bool
-	AutoReboot    bool
-	BootRepair    BootRepairMode
-	BootPartRef   string
-	DriverFiles   []string
-	DriverGUIDs   []string
-	Files         []InstallFile
-	Shortcuts     []InstallShortcut
-	Win7Fix       InstallWin7Fix
-	Flags         InstallFlags
+	Mode          ReinstallMode     `json:"mode"`
+	TargetOS      string            `json:"target"`
+	ImageArch     string            `json:"arch"`
+	PEArch        string            `json:"pe_arch"`
+	PreparedPEWIM string            `json:"prepared_pe_wim"`
+	ImagePath     string            `json:"image"`
+	ImageIndex    int               `json:"index"`
+	TargetRoot    string            `json:"target_root"`
+	TargetPartRef string            `json:"target_part_ref"`
+	DiskPath      string            `json:"disk"`
+	DiskUniqueID  string            `json:"disk_unique_id"`
+	ImageRel      string            `json:"image_rel"`
+	AutoPE        bool              `json:"auto_pe"`
+	ManualPEWIM   string            `json:"manual_pe_wim"`
+	FormatTarget  bool              `json:"format_target"`
+	FormatFS      string            `json:"format_fs"`
+	FormatLabel   string            `json:"format_label"`
+	FormatQuick   bool              `json:"format_quick"`
+	AutoReboot    bool              `json:"auto_reboot"`
+	BootRepair    BootRepairMode    `json:"boot_repair"`
+	BootPartRef   string            `json:"boot_part_ref"`
+	DriverFiles   []string          `json:"driver_files"`
+	DriverGUIDs   []string          `json:"driver_guids"`
+	Files         []InstallFile     `json:"files"`
+	Shortcuts     []InstallShortcut `json:"shortcuts"`
+	Win7Fix       InstallWin7Fix    `json:"win7fix"`
+	Flags         InstallFlags      `json:"flags"`
 }
 
 type InstallContext struct {
@@ -120,8 +119,8 @@ type HookPoint string
 
 const (
 	HookBeforeEnterPE      HookPoint = "before_enter_pe"
-	HookBeforeResolveDisk  HookPoint = ""
-	HookBeforeFormatTarget HookPoint = "before_forbefore_resolve_diskmat_target"
+	HookBeforeResolveDisk  HookPoint = "before_resolve_disk"
+	HookBeforeFormatTarget HookPoint = "before_format_target"
 	HookBeforeApplyImage   HookPoint = "before_apply_image"
 	HookAfterApplyImage    HookPoint = "after_apply_image"
 	HookAfterRepairBoot    HookPoint = "after_repair_boot"
@@ -338,7 +337,7 @@ func SaveInstallPlan(plan *InstallPlan) error {
 		plan.TargetRoot = root
 	}
 
-	lines, err := formatInstallPlanLines(plan)
+	data, err := encodePlan(plan)
 	if err != nil {
 		return err
 	}
@@ -347,7 +346,7 @@ func SaveInstallPlan(plan *InstallPlan) error {
 	if planPath == "" {
 		return fmt.Errorf("install plan path is empty")
 	}
-	if err := os.WriteFile(planPath, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(planPath, data, 0o644); err != nil {
 		return err
 	}
 	cleanupInstallPlanFiles(planPath)
@@ -364,11 +363,11 @@ func SaveInstallPlan(plan *InstallPlan) error {
 	return nil
 }
 
-// formatInstallPlanLines 将安装计划序列化为 `key=value` 行文本。
+// encodePlan 将安装计划序列化为 JSON 文本。
 //
-// `restall_win.dat` 现在以稳定分区引用为核心，因此这里会强制要求
-// `TargetPartRef` 存在；引导分区在需要手动修复时则额外写入 `BootPartRef`。
-func formatInstallPlanLines(plan *InstallPlan) ([]string, error) {
+// `restall_win.dat` 现在直接保存完整的安装计划对象，
+// 后续流程再统一走 NormalizeInstallPlan 与 ResolveInstallTarget。
+func encodePlan(plan *InstallPlan) ([]byte, error) {
 	if plan == nil {
 		return nil, fmt.Errorf("install plan is nil")
 	}
@@ -376,98 +375,11 @@ func formatInstallPlanLines(plan *InstallPlan) ([]string, error) {
 		return nil, fmt.Errorf("install image path is empty")
 	}
 
-	lines := []string{
-		fmt.Sprintf("mode=%s", plan.Mode),
-		fmt.Sprintf("image=%s", plan.ImagePath),
+	data, err := json.MarshalIndent(plan, "", "  ")
+	if err != nil {
+		return nil, err
 	}
-	if strings.TrimSpace(plan.TargetPartRef) != "" {
-		lines = append(lines, fmt.Sprintf("target_part_ref=%s", plan.TargetPartRef))
-	}
-	if plan.TargetRoot != "" {
-		lines = append(lines, fmt.Sprintf("target_root=%s", plan.TargetRoot))
-	}
-	if plan.DiskPath != "" {
-		lines = append(lines, fmt.Sprintf("disk=%s", plan.DiskPath))
-	}
-	if plan.DiskUniqueID != "" {
-		lines = append(lines, fmt.Sprintf("disk_unique_id=%s", plan.DiskUniqueID))
-	}
-	if plan.ImageRel != "" {
-		lines = append(lines, fmt.Sprintf("image_rel=%s", plan.ImageRel))
-	}
-	if plan.TargetOS != "" {
-		lines = append(lines, fmt.Sprintf("target=%s", plan.TargetOS))
-	}
-	if plan.ImageArch != "" {
-		lines = append(lines, fmt.Sprintf("arch=%s", plan.ImageArch))
-	}
-	if plan.PEArch != "" {
-		lines = append(lines, fmt.Sprintf("pe_arch=%s", plan.PEArch))
-	}
-	if plan.PreparedPEWIM != "" {
-		lines = append(lines, fmt.Sprintf("prepared_pe_wim=%s", plan.PreparedPEWIM))
-	}
-	lines = append(
-		lines,
-		fmt.Sprintf("auto_pe=%t", plan.AutoPE),
-		fmt.Sprintf("format_target=%t", plan.FormatTarget),
-		fmt.Sprintf("format_fs=%s", plan.FormatFS),
-		fmt.Sprintf("format_label=%s", plan.FormatLabel),
-		fmt.Sprintf("format_quick=%t", plan.FormatQuick),
-		fmt.Sprintf("auto_reboot=%t", plan.AutoReboot),
-		fmt.Sprintf("boot_repair=%s", plan.BootRepair),
-	)
-	if plan.ManualPEWIM != "" {
-		lines = append(lines, fmt.Sprintf("manual_pe_wim=%s", plan.ManualPEWIM))
-	}
-	if plan.BootPartRef != "" {
-		lines = append(lines, fmt.Sprintf("boot_part_ref=%s", plan.BootPartRef))
-	}
-	if len(plan.DriverFiles) > 0 {
-		text, err := json.Marshal(plan.DriverFiles)
-		if err != nil {
-			return nil, err
-		}
-		lines = append(lines, fmt.Sprintf("driver_files=%s", string(text)))
-	}
-	if len(plan.DriverGUIDs) > 0 {
-		text, err := json.Marshal(plan.DriverGUIDs)
-		if err != nil {
-			return nil, err
-		}
-		lines = append(lines, fmt.Sprintf("driver_guids=%s", string(text)))
-	}
-	if len(plan.Files) > 0 {
-		text, err := json.Marshal(plan.Files)
-		if err != nil {
-			return nil, err
-		}
-		lines = append(lines, fmt.Sprintf("files=%s", string(text)))
-	}
-	if len(plan.Shortcuts) > 0 {
-		text, err := json.Marshal(plan.Shortcuts)
-		if err != nil {
-			return nil, err
-		}
-		lines = append(lines, fmt.Sprintf("shortcuts=%s", string(text)))
-	}
-	if !plan.Win7Fix.empty() {
-		text, err := json.Marshal(plan.Win7Fix)
-		if err != nil {
-			return nil, err
-		}
-		lines = append(lines, fmt.Sprintf("win7fix=%s", string(text)))
-	}
-	if plan.ImageIndex > 0 {
-		lines = append(lines, fmt.Sprintf("index=%d", plan.ImageIndex))
-	}
-	lines = append(
-		lines,
-		fmt.Sprintf("flag_need_bitlocker=%t", plan.Flags.NeedBitLockerHandling),
-		fmt.Sprintf("flag_need_backup_before_pe=%t", plan.Flags.NeedBackupBeforePE),
-		fmt.Sprintf("flag_need_offline_drivers=%t", plan.Flags.NeedOfflineDrivers),
-	)
-	return lines, nil
+	return append(data, '\n'), nil
 }
 
 // installPlanPath 返回当前系统卷上的安装计划文件路径。
@@ -750,7 +662,7 @@ func LoadInstallPlan() (*InstallPlan, error) {
 			continue
 		}
 
-		plan, err := parseInstallPlanData(string(b), h.root)
+		plan, err := decodePlan(b, h.root)
 		if err != nil {
 			log.LogWrite(0, "[LoadInstallPlan] failed to parse %s: %v", h.path, err)
 			if len(hits) == 0 {
@@ -773,90 +685,17 @@ func LoadInstallPlan() (*InstallPlan, error) {
 
 // ===== 目标分区解析与格式化 =====
 
-// FindTempRootByMarker 根据标记文件查找临时分区。
-// parseInstallPlanData 解析 `restall_win.dat` 的文本内容并还原为安装计划。
+// decodePlan 解析 JSON 格式的安装计划。
 //
-// 因为本次改造明确不兼容旧格式，这里会把 `target_part_ref` 视为硬性字段；
-// 对于要求手动指定引导分区的模式，还会进一步要求 `boot_part_ref` 必须存在。
-func parseInstallPlanData(data string, defaultTargetRoot string) (*InstallPlan, error) {
-	plan := &InstallPlan{
-		Mode:       ReinstallModeAuto,
-		TargetRoot: defaultTargetRoot,
+// 当计划文件缺少 target_root 时，继续沿用扫描到该文件的卷根作为默认值，
+// 这样可以保持原先的恢复路径选择语义。
+func decodePlan(data []byte, defRoot string) (*InstallPlan, error) {
+	plan := &InstallPlan{}
+	if err := json.Unmarshal(data, plan); err != nil {
+		return nil, err
 	}
-	for _, ln := range strings.Split(data, "\n") {
-		ln = strings.TrimSpace(ln)
-		if ln == "" {
-			continue
-		}
-		parts := strings.SplitN(ln, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-
-		key := strings.TrimSpace(parts[0])
-		val := strings.TrimSpace(parts[1])
-		switch key {
-		case "mode":
-			plan.Mode = ReinstallMode(val)
-		case "target_root":
-			plan.TargetRoot = val
-		case "target_part_ref":
-			plan.TargetPartRef = val
-		case "disk":
-			plan.DiskPath = val
-		case "image":
-			plan.ImagePath = val
-		case "disk_unique_id":
-			plan.DiskUniqueID = val
-		case "image_rel":
-			plan.ImageRel = val
-		case "target":
-			plan.TargetOS = val
-		case "arch":
-			plan.ImageArch = val
-		case "pe_arch":
-			plan.PEArch = val
-		case "prepared_pe_wim":
-			plan.PreparedPEWIM = val
-		case "auto_pe":
-			plan.AutoPE = parsePlanBool(val)
-		case "manual_pe_wim":
-			plan.ManualPEWIM = val
-		case "format_target":
-			plan.FormatTarget = parsePlanBool(val)
-		case "format_fs":
-			plan.FormatFS = val
-		case "format_label":
-			plan.FormatLabel = val
-		case "format_quick":
-			plan.FormatQuick = parsePlanBool(val)
-		case "auto_reboot":
-			plan.AutoReboot = parsePlanBool(val)
-		case "boot_repair":
-			plan.BootRepair = BootRepairMode(strings.ToLower(strings.TrimSpace(val)))
-		case "boot_part_ref":
-			plan.BootPartRef = val
-		case "driver_files":
-			_ = json.Unmarshal([]byte(val), &plan.DriverFiles)
-		case "driver_guids":
-			_ = json.Unmarshal([]byte(val), &plan.DriverGUIDs)
-		case "files":
-			_ = json.Unmarshal([]byte(val), &plan.Files)
-		case "shortcuts":
-			_ = json.Unmarshal([]byte(val), &plan.Shortcuts)
-		case "win7fix":
-			_ = json.Unmarshal([]byte(val), &plan.Win7Fix)
-		case "index":
-			if v, e := strconv.Atoi(val); e == nil {
-				plan.ImageIndex = v
-			}
-		case "flag_need_bitlocker":
-			plan.Flags.NeedBitLockerHandling = parsePlanBool(val)
-		case "flag_need_backup_before_pe":
-			plan.Flags.NeedBackupBeforePE = parsePlanBool(val)
-		case "flag_need_offline_drivers":
-			plan.Flags.NeedOfflineDrivers = parsePlanBool(val)
-		}
+	if strings.TrimSpace(plan.TargetRoot) == "" {
+		plan.TargetRoot = defRoot
 	}
 	return plan, nil
 }

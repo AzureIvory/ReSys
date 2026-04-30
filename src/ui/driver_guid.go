@@ -3,6 +3,7 @@
 package ui
 
 import (
+	driversvc "ReSys/src/driver"
 	"fmt"
 	"strings"
 )
@@ -79,8 +80,8 @@ func loadDriverGUIDOptions() ([]manualDriverGUIDOption, error) {
 	items := make([]manualDriverGUIDOption, 0, len(driverGUIDCata))
 	seen := make(map[string]struct{}, len(driverGUIDCata))
 	for _, entry := range driverGUIDCata {
-		guid, ok := normalizeDriverGUID(entry.GUID)
-		if !ok {
+		guid, err := driversvc.NormalizeClassGUID(entry.GUID)
+		if err != nil {
 			return nil, fmt.Errorf("invalid driver GUID catalog entry %q: %s", entry.Key, entry.GUID)
 		}
 		if _, exists := seen[guid]; exists {

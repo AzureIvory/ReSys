@@ -487,7 +487,7 @@ func (m *DriverManager) EnumerateDriversByClassGUID(classGUID string) ([]DriverI
 		return nil, err
 	}
 
-	target, err := normalizeClassGUID(classGUID)
+	target, err := NormalizeClassGUID(classGUID)
 	if err != nil {
 		return nil, err
 	}
@@ -504,7 +504,8 @@ func (m *DriverManager) EnumerateDriversByClassGUID(classGUID string) ([]DriverI
 	return out, nil
 }
 
-func normalizeClassGUID(classGUID string) (string, error) {
+// NormalizeClassGUID 规范化设备类 GUID，返回带大括号的大写标准形式。
+func NormalizeClassGUID(classGUID string) (string, error) {
 	classGUID = strings.TrimSpace(classGUID)
 	if classGUID == "" {
 		return "", nil
@@ -520,6 +521,15 @@ func normalizeClassGUID(classGUID string) (string, error) {
 		return "", fmt.Errorf("invalid class guid %q: %w", classGUID, err)
 	}
 	return parsed.String(), nil
+}
+
+// ParseFilePatterns 按文本框协议拆分 INF 通配规则。
+// 支持换行、逗号、分号分隔，返回规范化并去重后的规则列表。
+func ParseFilePatterns(raw string) []string {
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == '\n' || r == '\r' || r == ',' || r == ';'
+	})
+	return NormalizeINFPatterns(parts)
 }
 
 // EnumerateOEMDrivers 枚举当前在线系统中 INF 为 oemXX.inf 的第三方驱动条目。
@@ -541,8 +551,8 @@ func (m *DriverManager) EnumerateOEMDrivers() ([]DriverInfo, error) {
 	return out, nil
 }
 
-// trimPat 规范化并去重 INF 通配规则，统一转成小写文件名形式。
-func trimPat(pats []string) []string {
+// NormalizeINFPatterns 规范化并去重 INF 通配规则，统一转成小写文件名形式。
+func NormalizeINFPatterns(pats []string) []string {
 	if len(pats) == 0 {
 		return nil
 	}
@@ -563,12 +573,13 @@ func trimPat(pats []string) []string {
 	return out
 }
 
-// matchPat 判断给定 INF 文件名是否命中任一发布名规则。
-func matchPat(name string, pats []string) bool {
+// MatchINF 判断给定 INF 文件名是否命中任一发布名规则。
+func MatchINF(name string, pats []string) bool {
 	name = strings.ToLower(strings.TrimSpace(filepath.Base(name)))
 	if name == "" {
 		return false
 	}
+	pats = NormalizeINFPatterns(pats)
 	for _, pat := range pats {
 		if ok, err := filepath.Match(pat, name); err == nil && ok {
 			return true
@@ -579,14 +590,14 @@ func matchPat(name string, pats []string) bool {
 
 // pickPat 从驱动列表中筛出发布 INF 名匹配规则的条目。
 func pickPat(list []DriverInfo, pats []string) []DriverInfo {
-	pats = trimPat(pats)
+	pats = NormalizeINFPatterns(pats)
 	if len(pats) == 0 {
 		return append([]DriverInfo{}, list...)
 	}
 
 	out := make([]DriverInfo, 0, len(list))
 	for _, drv := range list {
-		if matchPat(drv.InfPath, pats) {
+		if MatchINF(drv.InfPath, pats) {
 			out = append(out, drv)
 		}
 	}
@@ -600,7 +611,7 @@ func (m *DriverManager) ExportByINFs(dst string, pats []string) (int, error) {
 		return 0, err
 	}
 
-	pats = trimPat(pats)
+	pats = NormalizeINFPatterns(pats)
 	emitDriverProbeLogf(0, "[ExportByINFs] enumerate start: destination=%s patterns=%v", dst, pats)
 	list, err := m.EnumerateOEMDrivers()
 	if err != nil {
@@ -617,7 +628,7 @@ func (m *DriverManager) ExportByINFs(dst string, pats []string) (int, error) {
 
 	for idx, drv := range list {
 		pub := filepath.Base(drv.InfPath)
-		hit := matchPat(pub, pats)
+		hit := MatchINF(pub, pats)
 		emitDriverProbeLogf(
 			0,
 			"[ExportByINFs] item[%d/%d]: publishedInf=%s matched=%t desc=%s class=%s",

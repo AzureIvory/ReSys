@@ -1,6 +1,7 @@
 package install
 
 import (
+	driversvc "ReSys/src/driver"
 	"ReSys/src/utils"
 	"fmt"
 	"os"
@@ -219,7 +220,7 @@ func logDriverBackupPlan(label string, plan *InstallPlan) {
 		targetRoot,
 		plan.Flags.NeedBackupBeforePE,
 		plan.Flags.NeedOfflineDrivers,
-		trimDriverRules(plan.DriverFiles),
-		trimDriverRules(plan.DriverGUIDs),
+		driversvc.NormalizeINFPatterns(plan.DriverFiles),
+		uniqueTrimmedStrings(plan.DriverGUIDs),
 	)
 }

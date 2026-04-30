@@ -3,11 +3,11 @@
 package ui
 
 import (
+	driversvc "ReSys/src/driver"
 	"ReSys/src/utils"
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/AzureIvory/winui/core"
@@ -16,44 +16,11 @@ import (
 
 const manualInstallExportName = "manual.generated.json"
 
-var (
-	driverGUIDExactExpr = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-)
-
 type manualDriverGUIDOption struct {
 	Name    string
 	GUID    string
 	CheckID string
 	Enabled bool
-}
-
-func parseDriverFilePatterns(raw string) []string {
-	parts := strings.FieldsFunc(raw, func(r rune) bool {
-		return r == '\n' || r == '\r' || r == ',' || r == ';'
-	})
-	out := make([]string, 0, len(parts))
-	seen := map[string]struct{}{}
-
-	for _, item := range parts {
-		pattern := strings.ToLower(strings.TrimSpace(item))
-		if pattern == "" {
-			continue
-		}
-		if _, exists := seen[pattern]; exists {
-			continue
-		}
-		seen[pattern] = struct{}{}
-		out = append(out, pattern)
-	}
-	return out
-}
-
-func normalizeDriverGUID(raw string) (string, bool) {
-	text := strings.TrimSpace(strings.Trim(raw, "{}"))
-	if !driverGUIDExactExpr.MatchString(text) {
-		return "", false
-	}
-	return "{" + strings.ToUpper(text) + "}", true
 }
 
 func driverGUIDCheckID(guid string) string {
@@ -165,7 +132,7 @@ func CloseDriverDialog() {
 }
 
 func SelectedDriverFileRules() []string {
-	return parseDriverFilePatterns(manual.driverINFPatterns)
+	return driversvc.ParseFilePatterns(manual.driverINFPatterns)
 }
 
 func SelectedDriverGUIDs() []string {

@@ -48,8 +48,8 @@ func backupDriversBeforeEnterPE(ctx *InstallContext) (err error) {
 	}
 	logDriverBackupSnapshot("backup-after-reset", backupRoot)
 
-	fileRules := trimDriverRules(ctx.Plan.DriverFiles)
-	guidRules := trimDriverRules(ctx.Plan.DriverGUIDs)
+	fileRules := driversvc.NormalizeINFPatterns(ctx.Plan.DriverFiles)
+	guidRules := uniqueTrimmedStrings(ctx.Plan.DriverGUIDs)
 	if len(fileRules) == 0 && len(guidRules) == 0 {
 		log.LogWrite(0, "[backupDriversBeforeEnterPE] skip: no file/guid rule configured")
 		return SaveInstallPlan(ctx.Plan)
@@ -255,7 +255,7 @@ func countINFUnderDir(root string) (int, error) {
 	return count, err
 }
 
-func trimDriverRules(items []string) []string {
+func uniqueTrimmedStrings(items []string) []string {
 	if len(items) == 0 {
 		return []string{}
 	}
@@ -277,25 +277,8 @@ func trimDriverRules(items []string) []string {
 	return out
 }
 
-func matchDriverFile(name string, patterns []string) bool {
-	name = strings.ToLower(strings.TrimSpace(filepath.Base(name)))
-	if name == "" {
-		return false
-	}
-	for _, pattern := range patterns {
-		pattern = strings.ToLower(strings.TrimSpace(filepath.Base(pattern)))
-		if pattern == "" {
-			continue
-		}
-		if ok, err := filepath.Match(pattern, name); err == nil && ok {
-			return true
-		}
-	}
-	return false
-}
-
 func filterDriverDirs(root string, patterns []string) error {
-	patterns = trimDriverRules(patterns)
+	patterns = driversvc.NormalizeINFPatterns(patterns)
 	if len(patterns) == 0 {
 		return nil
 	}
@@ -325,7 +308,7 @@ func keepDriverPath(path string, patterns []string) (bool, error) {
 		return false, err
 	}
 	if !info.IsDir() {
-		return matchDriverFile(path, patterns), nil
+		return driversvc.MatchINF(path, patterns), nil
 	}
 
 	keep := false
@@ -339,7 +322,7 @@ func keepDriverPath(path string, patterns []string) (bool, error) {
 		if !strings.EqualFold(filepath.Ext(filePath), ".inf") {
 			return nil
 		}
-		if matchDriverFile(filePath, patterns) {
+		if driversvc.MatchINF(filePath, patterns) {
 			keep = true
 		}
 		return nil

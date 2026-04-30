@@ -502,7 +502,7 @@ func DeleteVolume(vol string) error {
 	return nil
 }
 
-// 按盘符格式化卷：先尝试 FormatEX；失败则回退到 diskpart。
+// 按盘符格式化卷
 func Format(letter, fs, label string, quick bool) error {
 	volLetter, err := utils.NormalizeDrive(letter, 1)
 	if err != nil {

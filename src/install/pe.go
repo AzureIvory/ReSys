@@ -28,6 +28,24 @@ type preparedPE struct {
 	Temporary bool
 }
 
+var peHTTP = download.HttpStatus
+var peRoot = ChoosePETempRoot
+var peMkDir = file.EnsureCleanDir
+var peSdi = copySDIToPETEMP
+var peHas = utils.FileExists
+var peName = download.GetlinkName
+var peMD5 = tools.MatchMD5
+var pePeel = file.PeelFile
+var peDown = func(ctx context.Context, link, dst string, size float64, prog func(float64, int64)) error {
+	opt := download.NewNativeDownloadOptions(link, dst, prog)
+	if size > 0 {
+		opt.ProgressSizeHint = size
+		opt.ProgressSizeHintUnit = "MB"
+	}
+	_, err := download.Download(ctx, opt)
+	return err
+}
+
 // PreparePEEnvironment 准备可启动的 PE 并写入当前程序。
 func PreparePEEnvironment(ctx *InstallContext) error {
 	if ctx == nil || ctx.Plan == nil {
@@ -265,6 +283,202 @@ func peImageID(it data.WinPEImg) string {
 	return strings.Join(parts, "|")
 }
 
+// peDlOpt 描述单个 PE 候选的下载执行参数。
+type peDlOpt struct {
+	scope string
+	meta  data.WinPEImg
+	size  float64
+	links []string
+}
+
+// normPELinks 规范化并去重候选链接。
+func normPELinks(links []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(links))
+	for _, link := range links {
+		link = strings.TrimSpace(link)
+		if link == "" {
+			continue
+		}
+		if _, ok := seen[link]; ok {
+			continue
+		}
+		seen[link] = struct{}{}
+		out = append(out, link)
+	}
+	return out
+}
+
+// peNeedBytes 计算 PE 下载所需的临时空间。
+func peNeedBytes(meta data.WinPEImg, size float64) int64 {
+	if meta.Sz > 0 {
+		return int64(meta.Sz * 1024 * 1024 * 2)
+	}
+	if size > 0 {
+		return int64(size * 1024 * 1024 * 2)
+	}
+	return int64(1024 * 1024 * 1024)
+}
+
+// peProg 创建 PE 下载共用的进度上报器。
+func peProg() *ProgressReporter {
+	return NewProgressReporter(
+		70, 25,
+		time.Second, time.Second,
+		"正在下载PE... %.1f%% 速度: %.2f MB/s",
+		"PE下载进度: %.1f%% 速度: %.2f MB/s",
+		true,
+	)
+}
+
+// dlPEExe 下载 EXE 并剥离出 boot.wim。
+func dlPEExe(scope string, meta data.WinPEImg, peDir, wimPath, link string, pr *ProgressReporter) (string, error) {
+	if meta.OffsetEnd <= meta.OffsetStart {
+		log.LogWrite(0, "[%s] skip exe link without offset metadata: %s", scope, link)
+		return "缺少 EXE 剥离所需的 offset 元数据", fmt.Errorf("missing PE offset metadata")
+	}
+
+	exeName := peName(link)
+	if exeName == "" {
+		exeName = "wepe.exe"
+	}
+	exePath := filepath.Join(peDir, exeName)
+
+	useOld := false
+	if peHas(exePath) {
+		if strings.TrimSpace(meta.MD5) != "" {
+			ok, err := peMD5(exePath, meta.MD5)
+			if err == nil && ok {
+				log.LogWrite(0, "[%s] reusing existing WEPE installer: %s", scope, exePath)
+				useOld = true
+			} else {
+				log.LogWrite(0, "[%s] existing WEPE installer MD5 mismatch, redownloading: %s", scope, exePath)
+				_ = cleanupDownloadArtifacts(exePath)
+			}
+		} else {
+			log.LogWrite(0, "[%s] reusing existing WEPE installer (without MD5): %s", scope, exePath)
+			useOld = true
+		}
+	}
+
+	if !useOld {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+		err := peDown(ctx, link, exePath, 0, func(pct float64, speed int64) {
+			pr.Update(pct, speed)
+		})
+		cancel()
+		if err != nil {
+			markFailedLink(link)
+			log.LogWrite(0, "[%s] PE installer download failed: %v, url:%s", scope, err, link)
+			_ = cleanupDownloadArtifacts(exePath)
+			return fmt.Sprintf("download error: %v", err), err
+		}
+
+		if strings.TrimSpace(meta.MD5) != "" {
+			ok, err := peMD5(exePath, meta.MD5)
+			if err != nil || !ok {
+				markFailedLink(link)
+				log.LogWrite(0, "[%s] installer MD5 mismatch: %s", scope, exePath)
+				_ = cleanupDownloadArtifacts(exePath)
+				return "download completed but MD5 verification failed", fmt.Errorf("PE installer MD5 mismatch")
+			}
+		}
+	}
+
+	if err := pePeel(exePath, fmt.Sprintf("%d", meta.OffsetStart), fmt.Sprintf("%d", meta.OffsetEnd), wimPath); err != nil {
+		markFailedLink(link)
+		log.LogWrite(0, "[%s] PE extraction failed: %v", scope, err)
+		_ = cleanupDownloadArtifacts(wimPath)
+		_ = cleanupDownloadArtifacts(exePath)
+		return fmt.Sprintf("extraction failed: %v", err), err
+	}
+	return "", nil
+}
+
+// dlPEWIM 直接下载 boot.wim。
+func dlPEWIM(scope, wimPath, link string, size float64, pr *ProgressReporter) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+	err := peDown(ctx, link, wimPath, size, func(pct float64, speed int64) {
+		pr.Update(pct, speed)
+	})
+	cancel()
+	if err != nil {
+		markFailedLink(link)
+		log.LogWrite(0, "[%s] PE download failed: %v, url:%s", scope, err, link)
+		_ = cleanupDownloadArtifacts(wimPath)
+		return fmt.Sprintf("download error: %v", err), err
+	}
+	return "", nil
+}
+
+// dlPECand 执行单个 PE 候选的下载流程。
+func dlPECand(opt peDlOpt) (string, error) {
+	links := normPELinks(opt.links)
+	if len(links) == 0 {
+		return "", fmt.Errorf("PE links are empty")
+	}
+
+	root, err := peRoot(peNeedBytes(opt.meta, opt.size))
+	if err != nil {
+		return "", err
+	}
+	peDir := filepath.Join(root, "PETEMP")
+	if err := peMkDir(peDir); err != nil {
+		return "", err
+	}
+
+	wimPath := filepath.Join(peDir, "boot.wim")
+	pr := peProg()
+	tried := false
+	prevLink := ""
+	switchReason := ""
+
+	for _, link := range links {
+		if isFailedLink(link) {
+			prevLink = link
+			switchReason = "链接已被标记为失败"
+			continue
+		}
+		if !peHTTP(link) {
+			log.LogWrite(0, "[%s] PE link unavailable: %s", opt.scope, link)
+			markFailedLink(link)
+			prevLink = link
+			switchReason = "链接预检查失败"
+			continue
+		}
+		if prevLink != "" && switchReason != "" {
+			logLinkSwitch(opt.scope, prevLink, link, switchReason)
+			switchReason = ""
+		}
+		if tried {
+			_ = cleanupDownloadArtifacts(wimPath)
+		}
+		tried = true
+
+		scope := opt.scope
+		if strings.HasSuffix(strings.ToLower(link), ".exe") {
+			switchReason, err = dlPEExe(scope, opt.meta, peDir, wimPath, link, pr)
+		} else {
+			size := opt.meta.Sz
+			if size <= 0 {
+				size = opt.size
+			}
+			switchReason, err = dlPEWIM(scope, wimPath, link, size, pr)
+		}
+		if err != nil {
+			prevLink = link
+			continue
+		}
+
+		if err := peSdi(peDir); err != nil {
+			return "", err
+		}
+		return wimPath, nil
+	}
+
+	return "", fmt.Errorf("PE download failed")
+}
+
 // downloadPE 按架构和失败记录选择并下载 PE。
 func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string, error) {
 	arch = strings.TrimSpace(arch)
@@ -299,151 +513,16 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 				return "", id, fmt.Errorf("PE marked failed: %s", id)
 			}
 		}
-		if len(it.Links) == 0 {
-			return "", id, fmt.Errorf("PE links are empty")
+		wimPath, err := dlPECand(peDlOpt{
+			scope: "downloadPE",
+			meta:  it,
+			size:  it.Sz,
+			links: it.Links,
+		})
+		if err != nil {
+			return "", id, err
 		}
-
-		triedLink := false
-		prevLink := ""
-		switchReason := ""
-		for _, link := range it.Links {
-			link = strings.TrimSpace(link)
-			if link == "" {
-				continue
-			}
-			if isFailedLink(link) {
-				prevLink = link
-				switchReason = "链接已被标记为失败"
-				continue
-			}
-			if !download.HttpStatus(link) {
-				log.LogWrite(0, "[downloadPE] PE link unavailable: %s", link)
-				markFailedLink(link)
-				prevLink = link
-				switchReason = "链接预检查失败"
-				continue
-			}
-
-			if prevLink != "" && switchReason != "" {
-				logLinkSwitch("downloadPE", prevLink, link, switchReason)
-				switchReason = ""
-			}
-
-			needBytes := int64(it.Sz * 1024 * 1024)
-			root, err := ChoosePETempRoot(needBytes * 2)
-			if err != nil {
-				return "", id, err
-			}
-			peDir := filepath.Join(root, "PETEMP")
-			if err := file.EnsureCleanDir(peDir); err != nil {
-				return "", id, err
-			}
-
-			wimPath := filepath.Join(peDir, "boot.wim")
-			pr := NewProgressReporter(
-				70, 25,
-				time.Second, time.Second,
-				"正在下载PE... %.1f%% 速度: %.2f MB/s",
-				"PE下载进度: %.1f%% 速度: %.2f MB/s",
-				true,
-			)
-
-			if strings.HasSuffix(strings.ToLower(link), ".exe") && it.OffsetEnd > it.OffsetStart {
-				exeName := download.GetlinkName(link)
-				if exeName == "" {
-					exeName = "wepe.exe"
-				}
-				exePath := filepath.Join(peDir, exeName)
-
-				useExisting := false
-				if utils.FileExists(exePath) {
-					if strings.TrimSpace(it.MD5) != "" {
-						ok, merr := tools.MatchMD5(exePath, it.MD5)
-						if merr == nil && ok {
-							log.LogWrite(0, "[downloadPE] reusing existing WEPE installer: %s", exePath)
-							useExisting = true
-						} else {
-							log.LogWrite(0, "[downloadPE] existing WEPE installer MD5 mismatch, redownloading: %s", exePath)
-							_ = file.Remove(exePath, false, false)
-						}
-					} else {
-						log.LogWrite(0, "[downloadPE] reusing existing WEPE installer (without MD5): %s", exePath)
-						useExisting = true
-					}
-				}
-
-				if !useExisting {
-					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
-					_, err := download.Download(
-						ctx,
-						download.NewNativeDownloadOptions(link, exePath, func(pct float64, speed int64) {
-							pr.Update(pct, speed)
-						}),
-					)
-					cancel()
-					if err != nil {
-						markFailedLink(link)
-						log.LogWrite(0, "[downloadPE] PE download failed: %v", err)
-						_ = file.Remove(exePath, false, false)
-						prevLink = link
-						switchReason = fmt.Sprintf("download error: %v", err)
-						continue
-					}
-
-					if strings.TrimSpace(it.MD5) != "" {
-						ok, merr := tools.MatchMD5(exePath, it.MD5)
-						if merr != nil || !ok {
-							markFailedLink(link)
-							log.LogWrite(0, "[downloadPE] PE MD5 verification failed after download: %s", exePath)
-							_ = file.Remove(exePath, false, false)
-							prevLink = link
-							switchReason = "download completed but MD5 verification failed"
-							continue
-						}
-					}
-				}
-
-				if err := file.PeelFile(exePath, fmt.Sprintf("%d", it.OffsetStart), fmt.Sprintf("%d", it.OffsetEnd), wimPath); err != nil {
-					markFailedLink(link)
-					log.LogWrite(0, "[downloadPE] PE extraction failed: %v", err)
-					prevLink = link
-					switchReason = fmt.Sprintf("extraction failed: %v", err)
-					continue
-				}
-			} else {
-				if triedLink {
-					_ = file.Remove(wimPath+".part", false, false)
-				}
-				triedLink = true
-
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
-				opt := download.NewNativeDownloadOptions(link, wimPath, func(pct float64, speed int64) {
-					pr.Update(pct, speed)
-				})
-				opt.ProgressSizeHint = it.Sz
-				opt.ProgressSizeHintUnit = "MB"
-				_, err := download.Download(
-					ctx,
-					opt,
-				)
-				cancel()
-				if err != nil {
-					markFailedLink(link)
-					log.LogWrite(0, "[downloadPE] PE download failed: %v", err)
-					_ = file.Remove(wimPath, false, false)
-					prevLink = link
-					switchReason = fmt.Sprintf("download error: %v", err)
-					continue
-				}
-			}
-
-			if err := copySDIToPETEMP(peDir); err != nil {
-				return "", id, err
-			}
-			return wimPath, id, nil
-		}
-
-		return "", id, fmt.Errorf("PE download failed")
+		return wimPath, id, nil
 	}
 
 	for _, it := range findByArch(peList, arch) {
@@ -472,169 +551,30 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 
 // downloadPEUrls 从后备链接直接下载 PE，并尽量复用规则中的元数据。
 func downloadPEUrls(name string, size float64, arch string, links []string) (string, error) {
-	seen := map[string]bool{}
-	var out []string
-	for _, l := range links {
-		l = strings.TrimSpace(l)
-		if l == "" || seen[l] {
-			continue
-		}
-		seen[l] = true
-		out = append(out, l)
-	}
-	if len(out) == 0 {
+	links = normPELinks(links)
+	if len(links) == 0 {
 		return "", fmt.Errorf("PE links are empty")
 	}
 
-	meta, hasMeta := matchPEMetaByLinks(name, arch, out)
-	progressSize := size
-	if hasMeta && meta.Sz > 0 {
-		progressSize = meta.Sz
+	meta, hasMeta := matchPEMetaByLinks(name, arch, links)
+	if !hasMeta {
+		meta = data.WinPEImg{
+			Name:  strings.TrimSpace(name),
+			Arch:  strings.TrimSpace(arch),
+			Sz:    size,
+			Links: append([]string(nil), links...),
+		}
 	}
-	needBytes := int64(1024 * 1024 * 1024)
-	if hasMeta && meta.Sz > 0 {
-		needBytes = int64(meta.Sz * 1024 * 1024 * 2)
-	} else if size > 0 {
-		needBytes = int64(size * 1024 * 1024 * 2)
-	}
-
-	root, err := ChoosePETempRoot(needBytes)
-	if err != nil {
-		return "", err
-	}
-	peDir := filepath.Join(root, "PETEMP")
-	if err := file.EnsureCleanDir(peDir); err != nil {
-		return "", err
+	if meta.Sz <= 0 {
+		meta.Sz = size
 	}
 
-	wimPath := filepath.Join(peDir, "boot.wim")
-	pr := NewProgressReporter(
-		70, 25,
-		time.Second, time.Second,
-		"正在下载PE... %.1f%% 速度: %.2f MB/s",
-		"PE下载进度: %.1f%% 速度: %.2f MB/s",
-		true,
-	)
-
-	triedLink := false
-	prevLink := ""
-	switchReason := ""
-	for _, link := range out {
-		link = strings.TrimSpace(link)
-		if link == "" {
-			continue
-		}
-		if !download.HttpStatus(link) {
-			log.LogWrite(0, "[downloadPEUrls] PE link unavailable: %s", link)
-			continue
-		}
-		log.LogWrite(0, "[downloadPEUrls] PE link: %s", link)
-
-		if prevLink != "" && switchReason != "" {
-			logLinkSwitch("downloadPEUrls", prevLink, link, switchReason)
-			switchReason = ""
-		}
-		if triedLink {
-			_ = file.Remove(wimPath+".part", false, false)
-		}
-		triedLink = true
-
-		if strings.HasSuffix(strings.ToLower(link), ".exe") {
-			if !hasMeta || meta.OffsetEnd <= meta.OffsetStart {
-				log.LogWrite(0, "[downloadPEUrls] skip exe fallback without offset metadata: %s", link)
-				prevLink = link
-				switchReason = "缺少 EXE 剥离所需的 offset 元数据"
-				continue
-			}
-
-			exeName := download.GetlinkName(link)
-			if exeName == "" {
-				exeName = "wepe.exe"
-			}
-			exePath := filepath.Join(peDir, exeName)
-
-			useExisting := false
-			if utils.FileExists(exePath) {
-				if strings.TrimSpace(meta.MD5) != "" {
-					ok, merr := tools.MatchMD5(exePath, meta.MD5)
-					if merr == nil && ok {
-						log.LogWrite(0, "[downloadPEUrls] reusing existing WEPE installer: %s", exePath)
-						useExisting = true
-					} else {
-						_ = file.Remove(exePath, false, false)
-					}
-				} else {
-					useExisting = true
-				}
-			}
-
-			if !useExisting {
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
-				_, err := download.Download(
-					ctx,
-					download.NewNativeDownloadOptions(link, exePath, func(pct float64, speed int64) {
-						pr.Update(pct, speed)
-					}),
-				)
-				cancel()
-				if err != nil {
-					markFailedLink(link)
-					log.LogWrite(0, "[downloadPEUrls] PE installer download failed: %v, url:%s", err, link)
-					_ = file.Remove(exePath, false, false)
-					prevLink = link
-					switchReason = fmt.Sprintf("download error: %v", err)
-					continue
-				}
-
-				if strings.TrimSpace(meta.MD5) != "" {
-					ok, merr := tools.MatchMD5(exePath, meta.MD5)
-					if merr != nil || !ok {
-						markFailedLink(link)
-						log.LogWrite(0, "[downloadPEUrls] installer MD5 mismatch: %s", exePath)
-						_ = file.Remove(exePath, false, false)
-						prevLink = link
-						switchReason = "download completed but MD5 verification failed"
-						continue
-					}
-				}
-			}
-
-			if err := file.PeelFile(exePath, fmt.Sprintf("%d", meta.OffsetStart), fmt.Sprintf("%d", meta.OffsetEnd), wimPath); err != nil {
-				markFailedLink(link)
-				log.LogWrite(0, "[downloadPEUrls] PE extraction failed: %v", err)
-				prevLink = link
-				switchReason = fmt.Sprintf("extraction failed: %v", err)
-				continue
-			}
-		} else {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
-			opt := download.NewNativeDownloadOptions(link, wimPath, func(pct float64, speed int64) {
-				pr.Update(pct, speed)
-			})
-			opt.ProgressSizeHint = progressSize
-			opt.ProgressSizeHintUnit = "MB"
-			_, err := download.Download(
-				ctx,
-				opt,
-			)
-			cancel()
-			if err != nil {
-				markFailedLink(link)
-				log.LogWrite(0, "[downloadPEUrls] PE download failed: %v, url:%s", err, link)
-				_ = file.Remove(wimPath, false, false)
-				prevLink = link
-				switchReason = fmt.Sprintf("download error: %v", err)
-				continue
-			}
-		}
-
-		if err := copySDIToPETEMP(peDir); err != nil {
-			return "", err
-		}
-		return wimPath, nil
-	}
-
-	return "", fmt.Errorf("PE download failed")
+	return dlPECand(peDlOpt{
+		scope: "downloadPEUrls",
+		meta:  meta,
+		size:  size,
+		links: links,
+	})
 }
 
 // matchPEMetaByLinks 根据名称、架构和链接回查规则元数据。

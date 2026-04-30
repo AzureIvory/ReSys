@@ -2,6 +2,12 @@
   "language": {
     "ui_language":"auto",
     "image_default_language": "zh-CN"
+  },
+  "disk":{
+    "_": "Findpart函数返回多大的剩余空间才认为是有效的分区",
+    "MinFreeSpace": 7516192768,
+    "_1":"NewTempVolume需要创建多大的临时分区",
+    "NeedFreeSpace": 10737418240
   }
  
 }

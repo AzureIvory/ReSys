@@ -1383,25 +1383,13 @@ func getBitLockerVolumeInfo(drive string) (label string, totalMB uint64) {
 // --------------------- helpers ---------------------
 
 // firstDriveLetter 从输入字符串提取盘符字母（大写）。
-// 支持：
-// - "C:" / "c:\"
-// - "\\.\C:" / "\\?\C:" 等前缀形式
 // 返回 0 表示无法识别。
 func firstDriveLetter(s string) byte {
-	s = strings.TrimSpace(s)
-	if s == "" {
+	letter, err := utils.NormalizeDrive(s, 1)
+	if err != nil || letter == "" {
 		return 0
 	}
-	// 支持 "C:" / "c:\" / "\\.\C:" / "\\?\C:"
-	if strings.HasPrefix(s, `\\.\`) || strings.HasPrefix(s, `\\?\`) {
-		if len(s) >= 6 && s[5] == ':' {
-			return byte(strings.ToUpper(string(s[4]))[0])
-		}
-	}
-	if len(s) >= 2 && s[1] == ':' {
-		return byte(strings.ToUpper(string(s[0]))[0])
-	}
-	return 0
+	return strings.ToUpper(letter)[0]
 }
 
 // --------------------- convenience funcs  ---------------------

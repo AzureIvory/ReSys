@@ -3,9 +3,10 @@ module ReSys
 go 1.25.0
 
 require (
-	github.com/AzureIvory/winui v0.0.0-20260420024705-83eb06e8ddbe
+	github.com/AzureIvory/winui v0.0.0-20260430031358-63d198351f97
 	github.com/anacrolix/generics v0.2.0
 	github.com/anacrolix/torrent v1.61.0
+	github.com/hashicorp/go-retryablehttp v0.7.8
 	github.com/kdomanski/iso9660 v0.4.0
 	github.com/rs/dnscache v0.0.0-20211102005908-e0241e321417
 	golang.org/x/sys v0.42.0
@@ -47,7 +48,6 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
-	github.com/hashicorp/go-retryablehttp v0.7.8 // indirect
 	github.com/huandu/xstrings v1.3.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.3 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
@@ -96,5 +96,3 @@ require (
 	modernc.org/sqlite v1.21.1 // indirect
 	zombiezen.com/go/sqlite v0.13.1 // indirect
 )
-
-replace github.com/AzureIvory/winui => ../winui

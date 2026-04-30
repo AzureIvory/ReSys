@@ -4,6 +4,7 @@ package ui
 
 import (
 	"ReSys/src/utils"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -24,7 +25,33 @@ const (
 )
 
 type uiAppConfig struct {
-	Language string `json:"language"`
+	Language uiLanguageConfig `json:"language"`
+}
+
+type uiLanguageConfig struct {
+	UILanguage string `json:"ui_language"`
+}
+
+// UnmarshalJSON 兼容旧版 `"language":"en_US"` 和新版对象结构。
+func (c *uiLanguageConfig) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
+		return nil
+	}
+
+	var legacy string
+	if err := json.Unmarshal(data, &legacy); err == nil {
+		c.UILanguage = legacy
+		return nil
+	}
+
+	type raw uiLanguageConfig
+	var decoded raw
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*c = uiLanguageConfig(decoded)
+	return nil
 }
 
 var (
@@ -42,7 +69,7 @@ var (
 func initI18n() error {
 	i18nInitOnce.Do(func() {
 		cfg := loadUIConfig()
-		i18nLanguage = resolveStartupLanguage(cfg.Language)
+		i18nLanguage = resolveStartupLanguage(cfg.Language.UILanguage)
 
 		table, err := loadLanguageTable(i18nLanguage)
 		if err != nil {
@@ -104,7 +131,8 @@ func localizedBootModeItems() []widgets.ListItem {
 }
 
 func loadUIConfig() uiAppConfig {
-	config := uiAppConfig{Language: autoLanguageCode}
+	config := uiAppConfig{}
+	config.Language.UILanguage = autoLanguageCode
 
 	path, err := utils.ProjectFile(uiConfigRelative)
 	if err != nil {
@@ -116,9 +144,15 @@ func loadUIConfig() uiAppConfig {
 		return config
 	}
 
+	return parseUIConfig(data)
+}
+
+func parseUIConfig(data []byte) uiAppConfig {
+	config := uiAppConfig{}
+	config.Language.UILanguage = autoLanguageCode
 	_ = json.Unmarshal(data, &config)
-	if strings.TrimSpace(config.Language) == "" {
-		config.Language = autoLanguageCode
+	if strings.TrimSpace(config.Language.UILanguage) == "" {
+		config.Language.UILanguage = autoLanguageCode
 	}
 	return config
 }
