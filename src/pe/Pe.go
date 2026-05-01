@@ -2,6 +2,7 @@ package pe
 
 import (
 	"ReSys/src/boot"
+	"ReSys/src/config"
 	"ReSys/src/disk"
 	"ReSys/src/file"
 	"ReSys/src/log"
@@ -24,6 +25,8 @@ import (
 
 	"ReSys/src/utils"
 )
+
+var loadPEAppConfig = config.LoadAppConfig
 
 // 从多个候选里挑最合适的pe(一般不会用到)
 func ChooseBestWim(paths []string, arch string) string {
@@ -80,6 +83,41 @@ func ChooseBestWim(paths []string, arch string) string {
 
 type peOpt struct {
 	n, s, w, a string
+}
+
+func buildPEOptions(items []config.AppPEEntry) []peOpt {
+	opts := make([]peOpt, 0, len(items))
+	for _, item := range items {
+		if item.Group == "" || item.SDIPattern == "" || item.WIMPattern == "" {
+			continue
+		}
+		opts = append(opts, peOpt{
+			n: item.Group,
+			s: item.SDIPattern,
+			w: item.WIMPattern,
+			a: item.Arch,
+		})
+	}
+	return opts
+}
+
+// defaultGoToPEOptions 返回 config 包定义的默认 PE 候选列表。
+func defaultGoToPEOptions() []peOpt {
+	return buildPEOptions(config.DefaultAppPEEntries())
+}
+
+// goToPEOptions 优先使用 app.json 的 pe 配置，失败时回退到内置列表。
+func goToPEOptions() []peOpt {
+	cfg, err := loadPEAppConfig()
+	if err != nil || len(cfg.PE) == 0 {
+		return defaultGoToPEOptions()
+	}
+
+	opts := buildPEOptions(cfg.PE)
+	if len(opts) == 0 {
+		return defaultGoToPEOptions()
+	}
+	return opts
 }
 
 type peCand struct {
@@ -558,17 +596,7 @@ func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
 		wantArch = "64"
 	}
 
-	opts := []peOpt{
-		{"WEPE", `\WEPE\WEPE.SDI`, `\WEPE\WEPE64.WIM`, "64"},    //64位微PE
-		{"WEPE", `\WEPE\WEPE.SDI`, `\WEPE\WEPE32.WIM`, "32"},    //32位微PE
-		{"FIR", `\FirPE\BOOT.SDI`, `\FirPE\11PEX64.WIM`, "64"},  //64位win11的FirPE
-		{"FIR", `\FirPE\BOOT.SDI`, `\FirPE\11PEX86.WIM`, "32"},  //32位FirPE
-		{"HOT", `\HotPE\boot.sdi`, `\HotPE\Boot.wim`, "64"},     //64位HOTPE
-		{"FirPE1", `\boot\boot.sdi`, `\boot\11pex64.wim`, "64"}, //64位FirPE1
-		{"FirPE1", `\boot\boot.sdi`, `\boot\11pex86.wim`, "32"}, //32位FirPE1
-		{"PETEMP", `\PETEMP\*.sdi`, `\PETEMP\*.wim`, ""},        //不强制架构，交给 ChooseBestWim
-		{"PETEMP", `\PETEMP\*.SDI`, `\PETEMP\*.WIM`, ""},
-	}
+	opts := goToPEOptions()
 
 	candByWim, allWims, err := collectPECands(dvs, opts, wantArch, customSdi, customWim)
 	if err != nil {
@@ -1275,16 +1303,9 @@ func Unpatwim(wim string) error {
 
 	cleanupList := []wimRes{
 		{dst: peRuntimeDirInWim, isDir: true},
-		{dst: `\Windows\` + selfName, isDir: false},
-		{dst: `\Windows\Windows.json`, isDir: false},
-		{dst: `\Windows\WinPE.json`, isDir: false},
-		{dst: `\Windows\disk.dll`, isDir: false},
-		{dst: `\Windows\trackers.txt`, isDir: false},
-		{dst: `\Windows\tools`, isDir: true},
 	}
 	removeLines := []string{
 		"EXEC " + peRuntimeDirEnv + `\` + selfName,
-		"EXEC %WinDir%\\" + selfName,
 	}
 
 	idxs, err := getIdxs()
@@ -1413,6 +1434,7 @@ func verifyPatwimWrite(wimlib, wim string, idx int, resList []wimRes, line strin
 	return nil
 }
 
+// IsWePE 检测当前环境是否为 WePE。
 func IsWePE() bool {
 	root := windows.SystemDriveRoot()
 	if root == "" {

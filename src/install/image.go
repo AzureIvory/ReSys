@@ -183,7 +183,7 @@ func RecoverInstallImagePath(plan *InstallPlan) (string, error) {
 
 	roots, _ := disk.ListDrive()
 	for _, root := range roots {
-		imgDat := filepath.Join(root, imageHintFileName)
+		imgDat := imageHintPath(root)
 		if _, err := os.Stat(imgDat); err != nil {
 			continue
 		}
@@ -343,7 +343,7 @@ func moveImageToDisk(imgPath, systemRoot string, needBytes uint64) (string, bool
 	log.LogWrite(0, "[moveImageToDisk] choose destination root=%s free=%d(%.2fGiB)", bestRoot, bestFree, float64(bestFree)/1024/1024/1024)
 
 	ui.UiSetStatus(ui.Tr("install.image.moveToOtherDisk"))
-	movedPath, err := moveImageFile(imgPath, bestRoot, "tempimg")
+	movedPath, err := moveImageFile(imgPath, bestRoot, appDownloadDirName())
 	if err != nil {
 		return "", false, err
 	}
@@ -360,7 +360,7 @@ func moveImageToTemp(imgPath string, needBytes uint64) (string, error) {
 		return "", err
 	}
 
-	movedPath, err := moveImageFile(imgPath, tmpRoot, "tempimg")
+	movedPath, err := moveImageFile(imgPath, tmpRoot, appDownloadDirName())
 	if err != nil {
 		return "", err
 	}

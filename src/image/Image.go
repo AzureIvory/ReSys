@@ -41,6 +41,7 @@ func Findimg() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	policy := currentImageScanPolicy()
 
 	var (
 		wg       sync.WaitGroup
@@ -50,13 +51,6 @@ func Findimg() ([]string, error) {
 	)
 
 	patterns := []string{"*.iso", "*.esd", "*.wim"}
-	const maxDepth = 2
-	const minSize = int64(1) * 1024 * 1024 * 1024
-
-	skipNames := map[string]struct{}{
-		"03pe.wim":    {},
-		"11pex64.wim": {},
-	}
 
 	validateImage := func(imagePath string) bool {
 		_, err := t.ListImageInfos(imagePath)
@@ -101,7 +95,7 @@ func Findimg() ([]string, error) {
 			go func() {
 				defer wg.Done()
 
-				found, err := file.FindFile(root, pattern, maxDepth)
+				found, err := file.FindFile(root, pattern, policy.scanDepth)
 				if err != nil {
 					mu.Lock()
 					if firstErr == nil {
@@ -132,12 +126,12 @@ func Findimg() ([]string, error) {
 			lp := strings.ToLower(p)
 			base := strings.ToLower(filepath.Base(lp))
 
-			if _, ok := skipNames[base]; ok {
+			if _, ok := policy.skipNameSet[base]; ok {
 				continue
 			}
 
 			fi, err := os.Stat(p)
-			if err != nil || fi.IsDir() || fi.Size() < minSize {
+			if err != nil || fi.IsDir() || fi.Size() < policy.minLocalImageBytes {
 				continue
 			}
 

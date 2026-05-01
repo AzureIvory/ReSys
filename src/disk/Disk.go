@@ -16,7 +16,6 @@ import (
 const (
 	minImageBytes uint64 = 7 * 1024 * 1024 * 1024
 	tempLabel            = "TEMP"
-	tempMarkerRel        = `RESTALL\temp.marker`
 )
 
 // 返回有足够大小的分区数组
@@ -26,6 +25,7 @@ func Findpart() []string {
 	if err != nil {
 		return nil
 	}
+	minFreeSpace := minFreeSpaceThreshold()
 
 	type cand struct {
 		path string
@@ -43,7 +43,7 @@ func Findpart() []string {
 		if err != nil {
 			continue
 		}
-		if freeBytes <= 7516192768 { // > 7g才算
+		if freeBytes <= minFreeSpace {
 			continue
 		}
 
@@ -546,12 +546,7 @@ func Format(letter, fs, label string, quick bool) error {
 // 优先用连续未分配空间创建 TEMP 分区；失败再最后 SplitVolume(C)，目前只能在运行中的正常系统使用
 // needBytes：需要的空间
 func NewTempVolume(needBytes uint64) (string, error) {
-	// 给点余量
-	const extra uint64 = 512 * 1024 * 1024
-	if needBytes < minImageBytes {
-		needBytes = minImageBytes
-	}
-	needBytes += extra
+	needBytes = resolveTempVolumeNeedBytes(needBytes)
 
 	// 先用未分配空间（全盘扫描，支持另一块盘全未分配的情况）
 	extent, err := PickFreeExtent(needBytes, ExtentPickPolicy{
@@ -564,7 +559,7 @@ func NewTempVolume(needBytes uint64) (string, error) {
 			root, _ := utils.NormalizeDrive(letter, 0)
 			if root != "" {
 				// 写 marker
-				marker := filepath.Join(root, tempMarkerRel)
+				marker := filepath.Join(root, tempMarkerRelativePath())
 				_ = os.MkdirAll(filepath.Dir(marker), 0o755)
 				_ = os.WriteFile(marker, []byte(time.Now().Format(time.RFC3339)), 0o644)
 				log.LogWrite(0, "[ensureTempVolumeForBytes]已使用未分配空间创建 TEMP 分区：%s", root)
@@ -599,7 +594,7 @@ func NewTempVolume(needBytes uint64) (string, error) {
 	}
 
 	// 写 marker
-	marker := filepath.Join(root, tempMarkerRel)
+	marker := filepath.Join(root, tempMarkerRelativePath())
 	_ = os.MkdirAll(filepath.Dir(marker), 0o755)
 	_ = os.WriteFile(marker, []byte(time.Now().Format(time.RFC3339)), 0o644)
 

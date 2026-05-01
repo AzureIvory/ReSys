@@ -1,6 +1,7 @@
 package install
 
 import (
+	"ReSys/src/config"
 	"ReSys/src/data"
 	"ReSys/src/disk"
 	"ReSys/src/download"
@@ -11,7 +12,6 @@ import (
 	"ReSys/src/utils"
 	"ReSys/src/windows"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,16 +19,7 @@ import (
 	"time"
 )
 
-const (
-	imageLanguageConfigPath = "rules/config/app.json"
-	defaultImageLanguage    = "zh-cn"
-)
-
-type appLanguageConfig struct {
-	Language struct {
-		ImageDefaultLanguage string `json:"image_default_language"`
-	} `json:"language"`
-}
+var loadDownloadAppConfig = config.LoadAppConfig
 
 func normLanguageCode(lang string) string {
 	lang = strings.TrimSpace(lang)
@@ -39,23 +30,21 @@ func normLanguageCode(lang string) string {
 	return lang
 }
 
+func defaultImageLanguage() string {
+	return normLanguageCode(config.DefaultAppImageLanguage)
+}
+
 func loadImageDefaultLanguage() (string, error) {
-	path, err := utils.ProjectFile(imageLanguageConfigPath)
+	def := defaultImageLanguage()
+	cfg, err := loadDownloadAppConfig()
 	if err != nil {
-		return "", err
+		return def, err
 	}
-
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
+	lang := normLanguageCode(cfg.Language.ImageDefaultLanguage)
+	if lang == "" {
+		return def, nil
 	}
-
-	var cfg appLanguageConfig
-	if err := json.Unmarshal(raw, &cfg); err != nil {
-		return "", err
-	}
-
-	return normLanguageCode(cfg.Language.ImageDefaultLanguage), nil
+	return lang, nil
 }
 
 func preferredImageLanguage() string {
@@ -75,16 +64,14 @@ func preferredImageLanguage() string {
 	}
 
 	cfgLang, cfgErr := loadImageDefaultLanguage()
-	if cfgErr == nil && cfgLang != "" {
-		log.LogWrite(0, "[downloadImage] preferred image language from config: %s", cfgLang)
-		return cfgLang
-	}
 	if cfgErr != nil {
 		log.LogWrite(0, "[downloadImage] load image default language from config failed: %v", cfgErr)
+		log.LogWrite(0, "[downloadImage] preferred image language fallback to config default: %s", cfgLang)
+		return cfgLang
 	}
 
-	log.LogWrite(0, "[downloadImage] preferred image language fallback to hardcoded default: %s", defaultImageLanguage)
-	return defaultImageLanguage
+	log.LogWrite(0, "[downloadImage] preferred image language from config: %s", cfgLang)
+	return cfgLang
 }
 
 func isMSImageSource(source string) bool {
@@ -228,7 +215,7 @@ func DownloadImage(target, arch string) (string, error) {
 		return "", fmt.Errorf("未找到可用的下载磁盘")
 	}
 
-	dstDir := filepath.Join(root, "tempimg")
+	dstDir := downloadWorkspaceDir(root)
 	if err := os.MkdirAll(dstDir, 0o755); err != nil {
 		return "", err
 	}

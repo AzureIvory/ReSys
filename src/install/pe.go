@@ -29,9 +29,9 @@ type preparedPE struct {
 }
 
 var peHTTP = download.HttpStatus
-var peRoot = ChoosePETempRoot
+var peRoot = ChoosePEWorkspaceRoot
 var peMkDir = file.EnsureCleanDir
-var peSdi = copySDIToPETEMP
+var peSdi = copySDIToPEWorkspace
 var peHas = utils.FileExists
 var peName = download.GetlinkName
 var peMD5 = tools.MatchMD5
@@ -111,7 +111,7 @@ func PreparePEEnvironment(ctx *InstallContext) error {
 		WIMPath:   wimPath,
 		SDIPath:   resolveSdiPath(wimPath),
 		ID:        id,
-		Temporary: strings.Contains(strings.ToLower(wimPath), `\petemp\`),
+		Temporary: pathUsesPEDir(wimPath),
 	}
 	if err := patchPreparedPE(ctx, prepared); err != nil {
 		return err
@@ -422,7 +422,7 @@ func dlPECand(opt peDlOpt) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	peDir := filepath.Join(root, "PETEMP")
+	peDir := peWorkspaceDir(root)
 	if err := peMkDir(peDir); err != nil {
 		return "", err
 	}
@@ -622,8 +622,8 @@ func matchPEMetaByLinks(name, arch string, links []string) (data.WinPEImg, bool)
 	return list[bestIdx], true
 }
 
-// copySDIToPETEMP 将启动所需的 SDI 文件复制到 PETEMP。
-func copySDIToPETEMP(peDir string) error {
+// copySDIToPEWorkspace 将启动所需的 SDI 文件复制到 PE 工作目录。
+func copySDIToPEWorkspace(peDir string) error {
 	selfExe, err := os.Executable()
 	if err != nil {
 		return err
@@ -639,7 +639,7 @@ func copySDIToPETEMP(peDir string) error {
 			return err
 		}
 	}
-	log.LogWrite(0, "[copySDIToPETEMP] copied SDI files to PETEMP: %s", peDir)
+	log.LogWrite(0, "[copySDIToPEWorkspace] copied SDI files to PE workspace: %s", peDir)
 	return nil
 }
 
@@ -667,7 +667,7 @@ func resolveSdiPath(wimPath string) string {
 func removePEArtifacts(wimPath, sdiPath string) {
 	if strings.TrimSpace(wimPath) != "" {
 		_ = file.Remove(wimPath, false, false)
-		if strings.Contains(strings.ToLower(wimPath), `\petemp\`) {
+		if pathUsesPEDir(wimPath) {
 			_ = file.Remove(filepath.Dir(wimPath), true, false)
 		}
 	}
@@ -712,48 +712,48 @@ func recoverPreparedPEPath(path string) string {
 	return ""
 }
 
-func cleanupPreparedPEAfterInstall(ctx *InstallContext) error {
+func cleanupPreparedPE(ctx *InstallContext) error {
 	if ctx == nil || ctx.Plan == nil {
 		return nil
 	}
 
 	wimPath := recoverPreparedPEPath(ctx.Plan.PreparedPEWIM)
 	if wimPath == "" {
-		log.LogWrite(0, "[cleanupPreparedPEAfterInstall] prepared PE WIM not found, skip")
+		log.LogWrite(0, "[cleanupPreparedPE] prepared PE WIM not found, skip")
 		return nil
 	}
 
 	targetRoot, err := utils.NormalizeDrive(ctx.Plan.TargetRoot, 0)
 	if err != nil || targetRoot == "" {
-		log.LogWrite(0, "[cleanupPreparedPEAfterInstall] invalid target root, skip: target=%s err=%v", ctx.Plan.TargetRoot, err)
+		log.LogWrite(0, "[cleanupPreparedPE] invalid target root, skip: target=%s err=%v", ctx.Plan.TargetRoot, err)
 		return nil
 	}
 	wimRoot, err := utils.NormalizeDrive(wimPath, 2)
 	if err != nil || wimRoot == "" {
-		log.LogWrite(0, "[cleanupPreparedPEAfterInstall] invalid prepared PE path, skip: wim=%s err=%v", wimPath, err)
+		log.LogWrite(0, "[cleanupPreparedPE] invalid prepared PE path, skip: wim=%s err=%v", wimPath, err)
 		return nil
 	}
 	if strings.EqualFold(wimRoot, targetRoot) {
-		log.LogWrite(0, "[cleanupPreparedPEAfterInstall] prepared PE is on target partition, skip cleanup: wim=%s target=%s", wimPath, targetRoot)
+		log.LogWrite(0, "[cleanupPreparedPE] prepared PE is on target partition, skip cleanup: wim=%s target=%s", wimPath, targetRoot)
 		return nil
 	}
 
 	if err := pe.Unpatwim(wimPath); err != nil {
-		log.LogWrite(-2, "[cleanupPreparedPEAfterInstall] revert PE failed: wim=%s err=%v", wimPath, err)
+		log.LogWrite(-2, "[cleanupPreparedPE] revert PE failed: wim=%s err=%v", wimPath, err)
 		return nil
 	}
 
-	log.LogWrite(0, "[cleanupPreparedPEAfterInstall] reverted prepared PE: %s", wimPath)
+	log.LogWrite(0, "[cleanupPreparedPE] reverted prepared PE: %s", wimPath)
 	return nil
 }
 
-// ChoosePETempRoot 选择拥有足够剩余空间的 PETEMP 根分区。
-func ChoosePETempRoot(needBytes int64) (string, error) {
+// ChoosePEWorkspaceRoot 选择拥有足够剩余空间的 PE 工作目录根分区。
+func ChoosePEWorkspaceRoot(needBytes int64) (string, error) {
 	systemDrive := strings.ToUpper(os.Getenv("SystemDrive"))
 	if systemDrive != "" {
 		free, err := disk.GetFreeSize(systemDrive)
 		if err == nil && int64(free) > needBytes {
-			log.LogWrite(0, "[choosePETempRoot] PETEMP uses system drive: %s", systemDrive)
+			log.LogWrite(0, "[ChoosePEWorkspaceRoot] PE workspace uses system drive: %s", systemDrive)
 			return systemDrive + `\`, nil
 		}
 	}
@@ -762,7 +762,7 @@ func ChoosePETempRoot(needBytes int64) (string, error) {
 	for _, p := range parts {
 		free, err := disk.GetFreeSize(p)
 		if err == nil && int64(free) > needBytes {
-			log.LogWrite(0, "[choosePETempRoot] PETEMP uses partition: %s", p)
+			log.LogWrite(0, "[ChoosePEWorkspaceRoot] PE workspace uses partition: %s", p)
 			return p, nil
 		}
 	}
@@ -793,12 +793,12 @@ func extractWePE(arch string) (string, error) {
 			}
 
 			needBytes := int64(meta.Sz * 1024 * 1024)
-			root, err := ChoosePETempRoot(needBytes * 2)
+			root, err := ChoosePEWorkspaceRoot(needBytes * 2)
 			if err != nil {
 				return "", err
 			}
 
-			peDir := filepath.Join(root, "PETEMP")
+			peDir := peWorkspaceDir(root)
 			if err := file.EnsureCleanDir(peDir); err != nil {
 				return "", err
 			}
@@ -814,7 +814,7 @@ func extractWePE(arch string) (string, error) {
 				continue
 			}
 
-			if err := copySDIToPETEMP(peDir); err != nil {
+			if err := copySDIToPEWorkspace(peDir); err != nil {
 				return "", err
 			}
 
@@ -845,7 +845,7 @@ func wepeDirs() []string {
 
 	drives, _ := disk.ListDrive()
 	for _, root := range drives {
-		add(filepath.Join(root, "PETEMP"))
+		add(peWorkspaceDir(root))
 	}
 
 	if exe, err := os.Executable(); err == nil {

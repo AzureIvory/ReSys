@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-var driverBackupProbeBackup = backupDriversBeforeEnterPE
+var driverBackupProbeBackup = backupDrivers
 var driverBackupProbeRestore = restoreBackedUpDrivers
 
 // RunDriverBackupProbeBackup runs the formal backup chain with a probe context.

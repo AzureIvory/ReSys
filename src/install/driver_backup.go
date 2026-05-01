@@ -12,17 +12,17 @@ import (
 	"strings"
 )
 
-// backupDriversBeforeEnterPE 按 JSON 规则备份在线驱动。
+// backupDrivers 按 JSON 规则备份在线驱动。
 //
 // 当前支持两类规则：
 // 1. file: 按 OEM INF 文件名通配符筛选；
 // 2. guid: 按设备类 GUID 单独导出。
-func backupDriversBeforeEnterPE(ctx *InstallContext) (err error) {
+func backupDrivers(ctx *InstallContext) (err error) {
 	if ctx == nil || ctx.Plan == nil {
 		return fmt.Errorf("install context is nil")
 	}
 	if !ctx.Plan.Flags.NeedBackupBeforePE {
-		log.LogWrite(0, "[backupDriversBeforeEnterPE] skip: backup not requested")
+		log.LogWrite(0, "[backupDrivers] skip: backup not requested")
 		return nil
 	}
 	logDriverBackupPlan("backup-start", ctx.Plan)
@@ -39,7 +39,7 @@ func backupDriversBeforeEnterPE(ctx *InstallContext) (err error) {
 	defer func() {
 		logDriverBackupSnapshot("backup-exit", backupRoot)
 		if err != nil {
-			emitDriverBackupProbef("[backupDriversBeforeEnterPE] exit error: %v", err)
+			emitDriverBackupProbef("[backupDrivers] exit error: %v", err)
 		}
 	}()
 	logDriverBackupSnapshot("backup-before-reset", backupRoot)
@@ -51,24 +51,24 @@ func backupDriversBeforeEnterPE(ctx *InstallContext) (err error) {
 	fileRules := driversvc.NormalizeINFPatterns(ctx.Plan.DriverFiles)
 	guidRules := uniqueTrimmedStrings(ctx.Plan.DriverGUIDs)
 	if len(fileRules) == 0 && len(guidRules) == 0 {
-		log.LogWrite(0, "[backupDriversBeforeEnterPE] skip: no file/guid rule configured")
+		log.LogWrite(0, "[backupDrivers] skip: no file/guid rule configured")
 		return SaveInstallPlan(ctx.Plan)
 	}
 
 	if len(fileRules) > 0 {
 		oemDir := filepath.Join(backupRoot, driverBackupOEMDir)
 		ui.UiSetStatus(ui.Tr("install.driver.backupOEM"))
-		log.LogWrite(0, "[backupDriversBeforeEnterPE] OEM backup root=%s image=%s dir=%s", backupRoot, ctx.Plan.ImagePath, oemDir)
-		emitDriverBackupProbef("[backupDriversBeforeEnterPE] OEM export start: dir=%s publishedInfPatterns=%v", oemDir, fileRules)
+		log.LogWrite(0, "[backupDrivers] OEM backup root=%s image=%s dir=%s", backupRoot, ctx.Plan.ImagePath, oemDir)
+		emitDriverBackupProbef("[backupDrivers] OEM export start: dir=%s publishedInfPatterns=%v", oemDir, fileRules)
 		logDriverBackupSnapshot("oem-before-export", oemDir)
 
 		count, exportErr := driversvc.ExportByINFs(oemDir, fileRules)
 		if exportErr != nil {
 			return fmt.Errorf("backup online OEM drivers by published inf failed: %w", exportErr)
 		}
-		emitDriverBackupProbef("[backupDriversBeforeEnterPE] OEM export done: dir=%s exported=%d", oemDir, count)
+		emitDriverBackupProbef("[backupDrivers] OEM export done: dir=%s exported=%d", oemDir, count)
 		logDriverBackupSnapshot("oem-after-export", oemDir)
-		emitDriverBackupProbef("[backupDriversBeforeEnterPE] OEM filter semantics applied before copy using published inf patterns=%v", fileRules)
+		emitDriverBackupProbef("[backupDrivers] OEM filter semantics applied before copy using published inf patterns=%v", fileRules)
 		logDriverBackupSnapshot("oem-after-filter", oemDir)
 	}
 
@@ -78,17 +78,17 @@ func backupDriversBeforeEnterPE(ctx *InstallContext) (err error) {
 		for _, guid := range guidRules {
 			dirName := driverGUIDDirName(guid)
 			dstDir := filepath.Join(guidRoot, dirName)
-			emitDriverBackupProbef("[backupDriversBeforeEnterPE] guid export start: guid=%s dir=%s", guid, dstDir)
+			emitDriverBackupProbef("[backupDrivers] guid export start: guid=%s dir=%s", guid, dstDir)
 			count, err := driversvc.ExportDriversByClassGUID(dstDir, guid)
 			if err != nil {
 				return fmt.Errorf("backup guid %s drivers failed: %w", guid, err)
 			}
 			dirINFCount, countErr := countINFUnderDir(dstDir)
 			if countErr != nil {
-				emitDriverBackupProbef("[backupDriversBeforeEnterPE] guid export count failed: guid=%s dir=%s err=%v", guid, dstDir, countErr)
+				emitDriverBackupProbef("[backupDrivers] guid export count failed: guid=%s dir=%s err=%v", guid, dstDir, countErr)
 			}
-			log.LogWrite(0, "[backupDriversBeforeEnterPE] guid backup completed: guid=%s count=%d dir=%s", guid, count, dstDir)
-			emitDriverBackupProbef("[backupDriversBeforeEnterPE] guid export done: guid=%s exported=%d infs=%d dir=%s", guid, count, dirINFCount, dstDir)
+			log.LogWrite(0, "[backupDrivers] guid backup completed: guid=%s count=%d dir=%s", guid, count, dstDir)
+			emitDriverBackupProbef("[backupDrivers] guid export done: guid=%s exported=%d infs=%d dir=%s", guid, count, dirINFCount, dstDir)
 			logDriverBackupSnapshot("guid-after-"+dirName, dstDir)
 		}
 		logDriverBackupSnapshot("guid-after-export", guidRoot)
@@ -98,8 +98,8 @@ func backupDriversBeforeEnterPE(ctx *InstallContext) (err error) {
 	if err != nil {
 		return err
 	}
-	log.LogWrite(0, "[backupDriversBeforeEnterPE] backup completed: dir=%s infCount=%d", backupRoot, infCount)
-	emitDriverBackupProbef("[backupDriversBeforeEnterPE] backup completed: dir=%s infCount=%d", backupRoot, infCount)
+	log.LogWrite(0, "[backupDrivers] backup completed: dir=%s infCount=%d", backupRoot, infCount)
+	emitDriverBackupProbef("[backupDrivers] backup completed: dir=%s infCount=%d", backupRoot, infCount)
 	logDriverBackupSnapshot("backup-final", backupRoot)
 	return SaveInstallPlan(ctx.Plan)
 }
@@ -223,7 +223,7 @@ func driverBackupRoot(plan *InstallPlan) (string, error) {
 	if imagePath == "." || imagePath == "" {
 		return "", fmt.Errorf("install image path is empty")
 	}
-	return filepath.Join(filepath.Dir(imagePath), driverBackupDirName), nil
+	return filepath.Join(filepath.Dir(imagePath), appDriverBackupDirName()), nil
 }
 
 func resetDriverBackupRoot(dir string) error {

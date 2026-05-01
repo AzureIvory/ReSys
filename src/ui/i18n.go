@@ -3,8 +3,8 @@
 package ui
 
 import (
+	"ReSys/src/config"
 	"ReSys/src/utils"
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -17,49 +17,13 @@ import (
 	"github.com/AzureIvory/winui/widgets"
 )
 
-const (
-	defaultLanguageCode = "zh_CN"
-	autoLanguageCode    = "auto"
-	uiConfigRelative    = "rules/config/app.json"
-	langDirRelative     = "rules/lang"
-)
-
-type uiAppConfig struct {
-	Language uiLanguageConfig `json:"language"`
-}
-
-type uiLanguageConfig struct {
-	UILanguage string `json:"ui_language"`
-}
-
-// UnmarshalJSON 兼容旧版 `"language":"en_US"` 和新版对象结构。
-func (c *uiLanguageConfig) UnmarshalJSON(data []byte) error {
-	data = bytes.TrimSpace(data)
-	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
-		return nil
-	}
-
-	var legacy string
-	if err := json.Unmarshal(data, &legacy); err == nil {
-		c.UILanguage = legacy
-		return nil
-	}
-
-	type raw uiLanguageConfig
-	var decoded raw
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	*c = uiLanguageConfig(decoded)
-	return nil
-}
-
 var (
 	i18nInitOnce sync.Once
 	i18nInitErr  error
 
-	i18nLanguage = defaultLanguageCode
-	i18nTable    = map[string]any{}
+	i18nLanguage      = config.DefaultUIBundleLanguage
+	i18nTable         = map[string]any{}
+	loadI18nAppConfig = config.LoadAppConfig
 
 	kernel32DLL                  = syscall.NewLazyDLL("kernel32.dll")
 	procGetUserDefaultLocaleName = kernel32DLL.NewProc("GetUserDefaultLocaleName")
@@ -68,8 +32,7 @@ var (
 // initI18n 在窗口初始化前加载语言配置与语言包。
 func initI18n() error {
 	i18nInitOnce.Do(func() {
-		cfg := loadUIConfig()
-		i18nLanguage = resolveStartupLanguage(cfg.Language.UILanguage)
+		i18nLanguage = resolveStartupLanguage(configuredUILanguage())
 
 		table, err := loadLanguageTable(i18nLanguage)
 		if err != nil {
@@ -130,42 +93,28 @@ func localizedBootModeItems() []widgets.ListItem {
 	}
 }
 
-func loadUIConfig() uiAppConfig {
-	config := uiAppConfig{}
-	config.Language.UILanguage = autoLanguageCode
-
-	path, err := utils.ProjectFile(uiConfigRelative)
+// configuredUILanguage 返回 app 配置里的 UI 语言，失败时回退到配置默认值。
+func configuredUILanguage() string {
+	def := config.DefaultAppUILanguage
+	cfg, err := loadI18nAppConfig()
 	if err != nil {
-		return config
+		return def
 	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return config
+	if value := strings.TrimSpace(cfg.Language.UILanguage); value != "" {
+		return value
 	}
-
-	return parseUIConfig(data)
-}
-
-func parseUIConfig(data []byte) uiAppConfig {
-	config := uiAppConfig{}
-	config.Language.UILanguage = autoLanguageCode
-	_ = json.Unmarshal(data, &config)
-	if strings.TrimSpace(config.Language.UILanguage) == "" {
-		config.Language.UILanguage = autoLanguageCode
-	}
-	return config
+	return def
 }
 
 func resolveStartupLanguage(configured string) string {
 	language := normLangCode(configured)
-	if language != "" && language != autoLanguageCode {
+	if language != "" && language != config.DefaultAppUILanguage {
 		return language
 	}
 
 	systemLanguage := detectSystemLanguage()
 	if systemLanguage == "" {
-		return defaultLanguageCode
+		return config.DefaultUIBundleLanguage
 	}
 	return systemLanguage
 }
@@ -178,7 +127,7 @@ func normLangCode(value string) string {
 
 	switch strings.ToLower(text) {
 	case "auto":
-		return autoLanguageCode
+		return config.DefaultAppUILanguage
 	case "zh_cn", "zh_hans", "zh_hans_cn", "zh":
 		return "zh_CN"
 	case "zh_tw", "zh_hk", "zh_mo", "zh_hant", "zh_hant_tw", "zh_hant_hk":
@@ -199,12 +148,12 @@ func detectSystemLanguage() string {
 		uintptr(len(buf)),
 	)
 	if ret == 0 {
-		return defaultLanguageCode
+		return config.DefaultUIBundleLanguage
 	}
 
 	localeName := syscall.UTF16ToString(buf)
 	if localeName == "" {
-		return defaultLanguageCode
+		return config.DefaultUIBundleLanguage
 	}
 
 	language := strings.ToLower(localeName)
@@ -222,12 +171,12 @@ func detectSystemLanguage() string {
 }
 
 func loadLanguageTable(language string) (map[string]any, error) {
-	base, err := readLanguageFile(defaultLanguageCode)
+	base, err := readLanguageFile(config.DefaultUIBundleLanguage)
 	if err != nil {
 		return nil, err
 	}
 
-	if language == "" || language == defaultLanguageCode {
+	if language == "" || language == config.DefaultUIBundleLanguage {
 		return base, nil
 	}
 
@@ -240,7 +189,7 @@ func loadLanguageTable(language string) (map[string]any, error) {
 }
 
 func readLanguageFile(language string) (map[string]any, error) {
-	path, err := utils.ProjectFile(filepath.Join(langDirRelative, language+".json"))
+	path, err := utils.ProjectFile(filepath.Join(config.DefaultLanguageDirRelative, language+".json"))
 	if err != nil {
 		return nil, err
 	}

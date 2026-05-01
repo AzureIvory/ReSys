@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"ReSys/res"
+	"ReSys/src/config"
 	"ReSys/src/utils"
 
 	"github.com/AzureIvory/winui/widgets"
@@ -27,14 +28,13 @@ import (
 
 var (
 	// uiAssetsOnce 确保资源只解包一次，避免反复写临时文件造成 IO 开销。
-	uiAssetsOnce sync.Once
-	uiAssetsDir  string
-	uiAssetsErr  error
+	uiAssetsOnce    sync.Once
+	uiAssetsDir     string
+	uiAssetsErr     error
+	loadUIAppConfig = config.LoadAppConfig
+	uiLayoutExists  = utils.FileExists
+	uiProjectFile   = utils.ProjectFile
 )
-
-// jsonUI 是 JSONUI 布局文件相对工程根目录的路径。
-// 运行时会从工作目录/可执行文件目录向上回溯查找（见 uiLayoutPath）。
-const jsonUI = "rules/ui/default/default.json"
 
 // newUIStore 创建一个新的 Store，并填充默认 UI 状态。
 // Store 是 JSONUI 的“数据源”，UI 只声明 data 绑定路径，不直接访问业务层对象。
@@ -84,7 +84,13 @@ func loadUIJSON(store *jsonui.Store) (*jsonui.Document, error) {
 //
 // 为了避免扫描整个磁盘，这里最多向上回溯 5 层目录。
 func uiLayoutPath() (string, error) {
-	return utils.ProjectFile(jsonUI)
+	if cfg, err := loadUIAppConfig(); err == nil {
+		themePath := cfg.UI.Theme
+		if themePath != "" && uiLayoutExists(themePath) {
+			return themePath, nil
+		}
+	}
+	return uiProjectFile(config.DefaultUIThemeRelativePath)
 }
 
 // defaultUIState 定义 UI 初始状态。

@@ -1,13 +1,45 @@
 {
-  "language": {
-    "ui_language":"auto",
-    "image_default_language": "zh-CN"
-  },
-  "disk":{
-    "_": "Findpart函数返回多大的剩余空间才认为是有效的分区",
-    "MinFreeSpace": 7516192768,
-    "_1":"NewTempVolume需要创建多大的临时分区",
-    "NeedFreeSpace": 10737418240
+	"language": {
+		"_": "语言代码 -> rules\\lang\\<code>.json",
+		"ui_language": "auto",
+		"image_default_language": "zh-CN"
+	},
+	"paths": {
+		"Download_Dir_Name": "tempimg",
+		"_": "存放PE文件的文件名，不建议修改。注意改了这个名字后，下方的pe项中的名字也要改：\\PETEMP\\*.sdi, \\PETEMP\\*.wim",
+		"PE_Dir_Name": "PETEMP",
+		"Driver_Backup_Dir_Name": "driverbackup",
+		"Install_Plan": "restall_win.dat",
+		"Image_Hint": "restall_img.dat",
+		"Temp_Marker": "RESTALL\\temp.marker"
+	},
+	"image": {
+		"_": "需要扫描的深度，越大越慢，建议不超过3",
+		"Scan_Depth": 2,
+		"_1": "最小镜像大小，单位GB，建议不超过1.5GB",
+		"Min_Local_Image": 1,
+		"_2": "需要跳过的镜像文件名",
+		"Skip_Names": ["03pe.wim", "11pex64.wim"]
+	},
+	"disk": {
+		"_": "Findpart函数返回多大的剩余空间才认为是有效的分区",
+		"Min_Free_Space": 7516192768,
+		"_1": "NewTempVolume需要创建多大的临时分区",
+		"Need_Free_Space": 10737418240
+	},
+	"pe": [
+		["WEPE", "\\WEPE\\WEPE.SDI", "\\WEPE\\WEPE64.WIM", "64", "微PE"],
+		["WEPE", "\\WEPE\\WEPE.SDI", "\\WEPE\\WEPE32.WIM", "32", "微PE"],
+		["FIR", "\\FirPE\\BOOT.SDI", "\\FirPE\\11PEX64.WIM", "64", "FirPE"],
+		["FIR", "\\FirPE\\BOOT.SDI", "\\FirPE\\11PEX86.WIM", "32", "FirPE"],
+		["FirPE1", "\\boot\\boot.sdi", "\\boot\\11pex64.wim", "64", "FirPE1"],
+		["FirPE1", "\\boot\\boot.sdi", "\\boot\\11pex86.wim", "32", "FirPE1"],
+		["HOT", "\\HotPE\\boot.sdi", "\\HotPE\\Boot.wim", "64", "HotPE"],
+		["PETEMP", "\\PETEMP\\*.sdi", "\\PETEMP\\*.wim", ""],
+		["PETEMP", "\\PETEMP\\*.SDI", "\\PETEMP\\*.WIM", ""]
+	],
+  "ui":{
+    "Theme":"rules\\ui\\default\\default.json",
+    "Advert":false
   }
- 
 }

@@ -20,9 +20,7 @@ import (
 )
 
 const (
-	installPlanFileName = "restall_win.dat"
-	imageHintFileName   = "restall_img.dat"
-	espFixMarkerFile    = "ESP_FIX_WIN.DAT"
+	espFixMarkerFile = "ESP_FIX_WIN.DAT"
 )
 
 var findPartitionByRef = disk.FindPartitionByRef
@@ -346,6 +344,9 @@ func SaveInstallPlan(plan *InstallPlan) error {
 	if planPath == "" {
 		return fmt.Errorf("install plan path is empty")
 	}
+	if err := os.MkdirAll(filepath.Dir(planPath), 0o755); err != nil {
+		return err
+	}
 	if err := os.WriteFile(planPath, data, 0o644); err != nil {
 		return err
 	}
@@ -356,7 +357,8 @@ func SaveInstallPlan(plan *InstallPlan) error {
 
 	imageRoot, _ := utils.NormalizeDrive(plan.ImagePath, 2)
 	if plan.DiskPath == "" && imageRoot != "" {
-		imgDat := filepath.Join(imageRoot, imageHintFileName)
+		imgDat := imageHintPath(imageRoot)
+		_ = os.MkdirAll(filepath.Dir(imgDat), 0o755)
 		_ = os.WriteFile(imgDat, []byte("image="+plan.ImagePath+"\n"), 0o644)
 	}
 
@@ -394,7 +396,7 @@ func installPlanFallbackPath() string {
 	if sysRoot == "" {
 		sysRoot = systemDrive + `\`
 	}
-	return filepath.Join(sysRoot, installPlanFileName)
+	return filepath.Join(sysRoot, appInstallPlanFileName())
 }
 
 func installPlanPathForTargetRoot(targetRoot string) string {
@@ -402,7 +404,7 @@ func installPlanPathForTargetRoot(targetRoot string) string {
 	if err != nil || root == "" {
 		return ""
 	}
-	return filepath.Join(root, installPlanFileName)
+	return filepath.Join(root, appInstallPlanFileName())
 }
 
 func installPlanPathForPlan(plan *InstallPlan) string {
@@ -429,7 +431,7 @@ func cleanupInstallPlanFiles(activePath string) {
 		if root == "" || strings.HasPrefix(strings.ToUpper(root), "X:") {
 			continue
 		}
-		path := filepath.Join(root, installPlanFileName)
+		path := filepath.Join(root, appInstallPlanFileName())
 		if strings.EqualFold(path, activePath) {
 			continue
 		}
@@ -602,7 +604,7 @@ func LoadInstallPlan() (*InstallPlan, error) {
 			continue
 		}
 
-		cand := filepath.Join(root, installPlanFileName)
+		cand := filepath.Join(root, appInstallPlanFileName())
 		info, err := os.Stat(cand)
 		if err != nil {
 			continue
@@ -630,7 +632,7 @@ func LoadInstallPlan() (*InstallPlan, error) {
 	}
 
 	if len(hits) == 0 {
-		return nil, fmt.Errorf("未找到 restall_win.dat")
+		return nil, fmt.Errorf("未找到 %s", appInstallPlanFileName())
 	}
 
 	for len(hits) > 0 {
@@ -680,7 +682,7 @@ func LoadInstallPlan() (*InstallPlan, error) {
 		return plan, nil
 	}
 
-	return nil, fmt.Errorf("读取 restall_win.dat 失败")
+	return nil, fmt.Errorf("读取 %s 失败", appInstallPlanFileName())
 }
 
 // ===== 目标分区解析与格式化 =====
@@ -707,7 +709,7 @@ func FindTempRootByMarker() string {
 		if root == "" || strings.HasPrefix(strings.ToUpper(root), "X:") {
 			continue
 		}
-		marker := filepath.Join(root, tempMarkerRel)
+		marker := tempMarkerPath(root)
 		if st, err := os.Stat(marker); err == nil && !st.IsDir() {
 			return root
 		}
@@ -977,10 +979,10 @@ func registerBuiltInHooks(ctx *InstallContext) {
 	}
 	ctx.Hooks.Add(HookAfterApplyImage, fixWin7)
 	ctx.Hooks.Add(HookAfterRepairBoot, fixWin7UEFI)
-	ctx.Hooks.Add(HookBeforeEnterPE, backupDriversBeforeEnterPE)
+	ctx.Hooks.Add(HookBeforeEnterPE, backupDrivers)
 	ctx.Hooks.Add(HookAfterRepairBoot, restoreBackedUpDrivers)
 	ctx.Hooks.Add(HookAfterInstall, afterInstall)
-	ctx.Hooks.Add(HookAfterInstall, cleanupPreparedPEAfterInstall)
+	ctx.Hooks.Add(HookAfterInstall, cleanupPreparedPE)
 }
 
 // fixwin7drive_updata 为 Win7 离线系统预注入驱动和更新。
