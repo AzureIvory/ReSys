@@ -476,6 +476,9 @@ func CreateShortcut(dir, name, target string) (string, error) {
 	}
 
 	// WinAPI+COM(IShellLinkW + IPersistFile) 创建 .lnk
+	if err := createShellLinkWSH(fullPath, target); err == nil {
+		return fullPath, nil
+	}
 	if err := createShellLinkCOM(fullPath, target); err == nil {
 		return fullPath, nil
 	}
@@ -495,6 +498,47 @@ func writeURLShortcut(path, target string) error {
 		return fmt.Errorf("write url shortcut %s: %w", path, err)
 	}
 	return nil
+}
+
+// createShellLinkWSH 通过 WScript.Shell 创建 .lnk，可保留尚不存在的目标路径。
+func createShellLinkWSH(linkPath, targetPath string) error {
+	script := strings.Join([]string{
+		"$ws = New-Object -ComObject WScript.Shell",
+		"$sc = $ws.CreateShortcut('" + psLit(linkPath) + "')",
+		"$sc.TargetPath = '" + psLit(targetPath) + "'",
+		psWorkDir(targetPath),
+		"$sc.Save()",
+	}, "; ")
+	cmd := exec.Command(
+		"powershell",
+		"-NoProfile",
+		"-NonInteractive",
+		"-ExecutionPolicy", "Bypass",
+		"-Command", script,
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		text := strings.TrimSpace(string(out))
+		if text == "" {
+			return err
+		}
+		return fmt.Errorf("%w: %s", err, text)
+	}
+	return nil
+}
+
+func psWorkDir(targetPath string) string {
+	if !filepath.IsAbs(targetPath) {
+		return ""
+	}
+	dir := filepath.Dir(targetPath)
+	if dir == "" || dir == "." {
+		return ""
+	}
+	return "$sc.WorkingDirectory = '" + psLit(dir) + "'"
+}
+
+func psLit(text string) string {
+	return strings.ReplaceAll(text, `'`, `''`)
 }
 
 func createShellLinkCOM(linkPath, targetPath string) error {
