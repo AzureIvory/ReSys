@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -23,14 +22,11 @@ import (
 	"golang.org/x/text/encoding/simplifiedchinese"
 
 	"ReSys/src/log"
+	"ReSys/src/tools/mslnk"
 )
 
 var (
 	Kernel32               = syscall.NewLazyDLL("kernel32.dll")
-	ole32                  = syscall.NewLazyDLL("ole32.dll")
-	procCoInitializeEx     = ole32.NewProc("CoInitializeEx")
-	procCoUninitialize     = ole32.NewProc("CoUninitialize")
-	procCoCreateInstance   = ole32.NewProc("CoCreateInstance")
 	User32                 = syscall.NewLazyDLL("user32.dll")
 	Advapi32               = syscall.NewLazyDLL("advapi32.dll")
 	procExitWindowsEx      = User32.NewProc("ExitWindowsEx")
@@ -43,11 +39,9 @@ var (
 )
 
 const (
-	COINIT_APARTMENTTHREADED = 0x2
-	CLSCTX_INPROC_SERVER     = 0x1
-	SE_PRIVILEGE_ENABLED     = 0x00000002
-	TOKEN_ADJUST_PRIVILEGES  = 0x0020
-	TOKEN_QUERY              = 0x0008
+	SE_PRIVILEGE_ENABLED    = 0x00000002
+	TOKEN_ADJUST_PRIVILEGES = 0x0020
+	TOKEN_QUERY             = 0x0008
 	// ExitWindowsEx flags
 	EWX_LOGOFF       = 0x00000000 //注销
 	EWX_SHUTDOWN     = 0x00000008 //关机
@@ -61,9 +55,6 @@ const (
 
 // CLSID / IID
 var (
-	CLSID_ShellLink  = GUID{0x00021401, 0x0000, 0x0000, [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
-	IID_IShellLinkW  = GUID{0x000214F9, 0x0000, 0x0000, [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
-	IID_IPersistFile = GUID{0x0000010b, 0x0000, 0x0000, [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
 	GPTTypeEfiSystem = GUID{0xC12A7328, 0xF81F, 0x11D2, [8]byte{0xBA, 0x4B, 0x00, 0xA0, 0xC9, 0x3E, 0xC9, 0x3B}}
 	GPTTypeMsr       = GUID{0xE3C9E316, 0x0B5C, 0x4DB8, [8]byte{0x81, 0x7D, 0xF9, 0x2D, 0xF0, 0x02, 0x15, 0xAE}}
 	GPTTypeBasicData = GUID{0xEBD0A0A2, 0xB9E5, 0x4433, [8]byte{0x87, 0xC0, 0x68, 0xB6, 0xB7, 0x26, 0x99, 0xC7}}
@@ -75,52 +66,6 @@ type GUID struct {
 	Data2 uint16
 	Data3 uint16
 	Data4 [8]byte
-}
-
-// IShellLinkW vtable
-type iShellLinkWVtbl struct {
-	QueryInterface      uintptr
-	AddRef              uintptr
-	Release             uintptr
-	GetArguments        uintptr
-	GetDescription      uintptr
-	GetHotkey           uintptr
-	GetIconLocation     uintptr
-	GetIDList           uintptr
-	GetPath             uintptr
-	GetShowCmd          uintptr
-	GetWorkingDirectory uintptr
-	Resolve             uintptr
-	SetArguments        uintptr
-	SetDescription      uintptr
-	SetHotkey           uintptr
-	SetIconLocation     uintptr
-	SetIDList           uintptr
-	SetPath             uintptr
-	SetRelativePath     uintptr
-	SetShowCmd          uintptr
-	SetWorkingDirectory uintptr
-}
-
-type IShellLinkW struct {
-	lpVtbl *iShellLinkWVtbl
-}
-
-// IPersistFile vtable（IUnknown + IPersist + IPersistFile）
-type iPersistFileVtbl struct {
-	QueryInterface uintptr
-	AddRef         uintptr
-	Release        uintptr
-	GetClassID     uintptr
-	IsDirty        uintptr
-	Load           uintptr
-	Save           uintptr
-	SaveCompleted  uintptr
-	GetCurFile     uintptr
-}
-
-type IPersistFile struct {
-	lpVtbl *iPersistFileVtbl
 }
 
 // LUID / TOKEN_PRIVILEGES 结构体
@@ -316,12 +261,28 @@ func RunCmdContext(ctx context.Context, bin string, input []byte, onLine func(st
 		defer readWg.Done()
 
 		reader := bufio.NewReader(r)
+		part := make([]byte, 0, 256)
+		flush := func() {
+			if len(part) == 0 {
+				return
+			}
+			emitLine(decodeConsoleLine(part))
+			part = part[:0]
+		}
+
 		for {
 			chunk, err := reader.ReadBytes('\n')
 			if len(chunk) > 0 {
-				emitLine(decodeConsoleLine(chunk))
+				for _, b := range chunk {
+					if b == '\r' || b == '\n' {
+						flush()
+						continue
+					}
+					part = append(part, b)
+				}
 			}
 			if err != nil {
+				flush()
 				if err != io.EOF {
 					linesMu.Lock()
 					if readErr == nil {
@@ -419,11 +380,6 @@ type writerFunc func(p []byte) (int, error)
 // Write 函数。
 func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 
-// 判断 Windows 的 HRESULT 是否失败。
-func hresultFailed(hr uintptr) bool {
-	return int32(hr) < 0
-}
-
 // 在指定目录 dir 下创建一个快捷方式；
 // name 为快捷方式文件名，target 为目标（exe 路径或网址）。
 func CreateShortcut(dir, name, target string) (string, error) {
@@ -446,178 +402,79 @@ func CreateShortcut(dir, name, target string) (string, error) {
 		return "", fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 
-	// 判断是否是网址
-	lowerTarget := strings.ToLower(target)
-	isURL := strings.HasPrefix(lowerTarget, "http://") ||
-		strings.HasPrefix(lowerTarget, "https://")
-
-	ext := strings.ToLower(filepath.Ext(name))
-	if ext == "" {
-		if isURL {
-			ext = ".url"
-		} else {
-			ext = ".lnk"
-		}
-		name += ext
-	} else if ext != ".lnk" && ext != ".url" {
-		ext = ".lnk"
-	}
-
-	fullPath, err := filepath.Abs(filepath.Join(dir, name))
+	isURL := isShortcutURL(target)
+	fullPath, err := shortcutPath(dir, name, isURL)
 	if err != nil {
 		return "", fmt.Errorf("abs path: %w", err)
 	}
 
-	if isURL || ext == ".url" {
+	if isURL {
 		if err := writeURLShortcut(fullPath, target); err != nil {
 			return "", err
 		}
 		return fullPath, nil
 	}
 
-	// WinAPI+COM(IShellLinkW + IPersistFile) 创建 .lnk
-	if err := createShellLinkWSH(fullPath, target); err == nil {
-		return fullPath, nil
+	if err := writeFileShortcut(fullPath, target); err != nil {
+		return "", err
 	}
-	if err := createShellLinkCOM(fullPath, target); err == nil {
-		return fullPath, nil
-	}
-
-	// COM 失败
-	urlPath := strings.TrimSuffix(fullPath, filepath.Ext(fullPath)) + ".url"
-	if err := writeURLShortcut(urlPath, target); err != nil {
-		return "", fmt.Errorf("create .lnk via COM failed AND fallback .url failed: %w", err)
-	}
-	return urlPath, nil
+	return fullPath, nil
 }
 
-// .url + COM 创建 .lnk
+func isShortcutURL(target string) bool {
+	target = strings.ToLower(strings.TrimSpace(target))
+	return strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://")
+}
+
+func shortcutPath(dir, name string, isURL bool) (string, error) {
+	ext := ".lnk"
+	if isURL {
+		ext = ".url"
+	}
+
+	gotExt := strings.ToLower(filepath.Ext(name))
+	switch gotExt {
+	case ext:
+	case "":
+		name += ext
+	default:
+		name = strings.TrimSuffix(name, filepath.Ext(name)) + ext
+	}
+	return filepath.Abs(filepath.Join(dir, name))
+}
+
+// 文件快捷方式在 PE 阶段用离线写入，避免目标文件尚不存在时被系统修正成盘根目录。
+func writeFileShortcut(path, target string) error {
+	opts := mslnk.Options{
+		LinkPath:   path,
+		TargetPath: target,
+		WorkingDir: shortcutWorkDir(target),
+	}
+	if err := mslnk.CreateLink(opts); err != nil {
+		return fmt.Errorf("create shell link %s: %w", path, err)
+	}
+	return nil
+}
+
+func shortcutWorkDir(target string) string {
+	target = strings.ReplaceAll(strings.TrimSpace(target), "/", "\\")
+	switch {
+	case len(target) >= 3 && target[1] == ':' && target[2] == '\\':
+		return filepath.Dir(target)
+	case len(target) >= 2 && target[1] == ':':
+		return filepath.Dir(target[:2] + `\` + strings.TrimLeft(target[2:], `\`))
+	case strings.HasPrefix(target, `\`):
+		return filepath.Dir(`C:\` + strings.TrimLeft(target, `\`))
+	default:
+		return ""
+	}
+}
+
+// 网址快捷方式继续写成 .url，避免引入不必要的壳层依赖。
 func writeURLShortcut(path, target string) error {
 	content := "[InternetShortcut]\r\nURL=" + target + "\r\n"
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		return fmt.Errorf("write url shortcut %s: %w", path, err)
-	}
-	return nil
-}
-
-// createShellLinkWSH 通过 WScript.Shell 创建 .lnk，可保留尚不存在的目标路径。
-func createShellLinkWSH(linkPath, targetPath string) error {
-	script := strings.Join([]string{
-		"$ws = New-Object -ComObject WScript.Shell",
-		"$sc = $ws.CreateShortcut('" + psLit(linkPath) + "')",
-		"$sc.TargetPath = '" + psLit(targetPath) + "'",
-		psWorkDir(targetPath),
-		"$sc.Save()",
-	}, "; ")
-	cmd := exec.Command(
-		"powershell",
-		"-NoProfile",
-		"-NonInteractive",
-		"-ExecutionPolicy", "Bypass",
-		"-Command", script,
-	)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		text := strings.TrimSpace(string(out))
-		if text == "" {
-			return err
-		}
-		return fmt.Errorf("%w: %s", err, text)
-	}
-	return nil
-}
-
-func psWorkDir(targetPath string) string {
-	if !filepath.IsAbs(targetPath) {
-		return ""
-	}
-	dir := filepath.Dir(targetPath)
-	if dir == "" || dir == "." {
-		return ""
-	}
-	return "$sc.WorkingDirectory = '" + psLit(dir) + "'"
-}
-
-func psLit(text string) string {
-	return strings.ReplaceAll(text, `'`, `''`)
-}
-
-func createShellLinkCOM(linkPath, targetPath string) error {
-	// 固定在一个线程上
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
-	// 初始化 COM
-	hr, _, _ := procCoInitializeEx.Call(0, uintptr(COINIT_APARTMENTTHREADED))
-	if hresultFailed(hr) {
-		return fmt.Errorf("CoInitializeEx failed: 0x%08X", uint32(hr))
-	}
-	defer procCoUninitialize.Call()
-
-	// CoCreateInstance CLSID_ShellLink -> IShellLinkW*
-	var psl *IShellLinkW
-	hr, _, _ = procCoCreateInstance.Call(
-		uintptr(unsafe.Pointer(&CLSID_ShellLink)),
-		0,
-		uintptr(CLSCTX_INPROC_SERVER),
-		uintptr(unsafe.Pointer(&IID_IShellLinkW)),
-		uintptr(unsafe.Pointer(&psl)),
-	)
-	if hresultFailed(hr) || psl == nil {
-		return fmt.Errorf("CoCreateInstance(IShellLinkW) failed: 0x%08X", uint32(hr))
-	}
-	// Release
-	defer syscall.SyscallN(psl.lpVtbl.Release, uintptr(unsafe.Pointer(psl)))
-
-	// 设置目标路径
-	targetUTF16, err := syscall.UTF16PtrFromString(targetPath)
-	if err != nil {
-		return fmt.Errorf("target UTF16: %w", err)
-	}
-	hr, _, _ = syscall.SyscallN(
-		psl.lpVtbl.SetPath,
-		uintptr(unsafe.Pointer(psl)),
-		uintptr(unsafe.Pointer(targetUTF16)),
-	)
-	if hresultFailed(hr) {
-		return fmt.Errorf("IShellLinkW.SetPath failed: 0x%08X", uint32(hr))
-	}
-
-	if dir := filepath.Dir(targetPath); dir != "" {
-		if wd, err := syscall.UTF16PtrFromString(dir); err == nil {
-			syscall.SyscallN(
-				psl.lpVtbl.SetWorkingDirectory,
-				uintptr(unsafe.Pointer(psl)),
-				uintptr(unsafe.Pointer(wd)),
-			)
-		}
-	}
-
-	// QueryInterface(IPersistFile)
-	var ppf *IPersistFile
-	hr, _, _ = syscall.SyscallN(
-		psl.lpVtbl.QueryInterface,
-		uintptr(unsafe.Pointer(psl)),
-		uintptr(unsafe.Pointer(&IID_IPersistFile)),
-		uintptr(unsafe.Pointer(&ppf)),
-	)
-	if hresultFailed(hr) || ppf == nil {
-		return fmt.Errorf("IShellLinkW.QueryInterface(IPersistFile) failed: 0x%08X", uint32(hr))
-	}
-	defer syscall.SyscallN(ppf.lpVtbl.Release, uintptr(unsafe.Pointer(ppf)))
-
-	// 保存 .lnk 文件
-	linkUTF16, err := syscall.UTF16PtrFromString(linkPath)
-	if err != nil {
-		return fmt.Errorf("linkPath UTF16: %w", err)
-	}
-	hr, _, _ = syscall.SyscallN(
-		ppf.lpVtbl.Save,
-		uintptr(unsafe.Pointer(ppf)),
-		uintptr(unsafe.Pointer(linkUTF16)),
-		uintptr(1), // TRUE: remember
-	)
-	if hresultFailed(hr) {
-		return fmt.Errorf("IPersistFile.Save failed: 0x%08X", uint32(hr))
 	}
 	return nil
 }

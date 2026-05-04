@@ -1,0 +1,1 @@
+start "" "C:\11111.exe" /smart/time15

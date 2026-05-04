@@ -14,20 +14,27 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
+)
+
+var (
+	findImagex = findWimlibImagex
+	runCmd     = tools.RunCmd
+	reApplyPct = regexp.MustCompile(`\((\d{1,3})%\)`)
 )
 
 func ListImageInfos(imagePath string) ([]dism.ImageMeta, error) {
 	if _, err := os.Stat(imagePath); err != nil {
 		return nil, fmt.Errorf("image not found: %w", err)
 	}
-	wimlib := findWimlibImagex()
+	wimlib := findImagex()
 	if wimlib == "" {
 		return nil, errors.New("wimlib-imagex.exe not found")
 	}
-	out, err := tools.RunCmd(wimlib, nil, nil, "", "info", imagePath)
+	out, err := runCmd(wimlib, nil, nil, "", "info", imagePath)
 	if err != nil {
 		return nil, fmt.Errorf("wimlib-imagex info failed: %w", err)
 	}
@@ -48,6 +55,11 @@ func findWimlibImagex() string {
 }
 
 func ApplyImage(imagePath string, index int, targetVol string) error {
+	return ApplyImageProgress(imagePath, index, targetVol, nil)
+}
+
+// ApplyImageProgress 应用镜像并解析 wimlib-imagex 的文本进度。
+func ApplyImageProgress(imagePath string, index int, targetVol string, progress func(uint8, string)) error {
 	if _, err := os.Stat(imagePath); err != nil {
 		return fmt.Errorf("image not found: %w", err)
 	}
@@ -59,17 +71,68 @@ func ApplyImage(imagePath string, index int, targetVol string) error {
 	if targetRoot == "" {
 		return fmt.Errorf("invalid target volume: %q", targetVol)
 	}
-	wimlib := findWimlibImagex()
+	wimlib := findImagex()
 	if wimlib == "" {
 		return errors.New("wimlib-imagex.exe not found")
 	}
 
+	last := int16(-1)
+	emit := func(pct uint8, status string) {
+		if progress == nil {
+			return
+		}
+		if int16(pct) == last {
+			return
+		}
+		last = int16(pct)
+		progress(pct, strings.TrimSpace(status))
+	}
+
 	args := []string{"apply", imagePath, fmt.Sprintf("%d", index), targetRoot}
-	if _, err := tools.RunCmd(wimlib, nil, nil, "", args...); err != nil {
+	emit(0, "Applying image")
+	onLine := func(line string) {
+		for _, part := range splitApplyLines(line) {
+			if pct, ok := parseApplyProgressLine(part); ok {
+				emit(pct, part)
+			}
+		}
+	}
+
+	if _, err := runCmd(wimlib, nil, onLine, "", args...); err != nil {
 		log.LogWrite(0, "[wimlib.ApplyImage] wimlib-imagex apply failed: %v", err)
 		return err
 	}
+	emit(100, "Done")
 	return nil
+}
+
+func splitApplyLines(line string) []string {
+	parts := strings.FieldsFunc(line, func(r rune) bool {
+		return r == '\r' || r == '\n'
+	})
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func parseApplyProgressLine(line string) (uint8, bool) {
+	match := reApplyPct.FindStringSubmatch(line)
+	if len(match) != 2 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(match[1])
+	if err != nil || n < 0 {
+		return 0, false
+	}
+	if n > 100 {
+		n = 100
+	}
+	return uint8(n), true
 }
 func parseImageInfoText(out string) ([]dism.ImageMeta, error) {
 	var (

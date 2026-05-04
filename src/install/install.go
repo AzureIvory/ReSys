@@ -24,7 +24,7 @@ const (
 )
 
 var findPartitionByRef = disk.FindPartitionByRef
-var applyImageWithWimlib = wimlib.ApplyImage
+var applyImageWithWimlib = wimlib.ApplyImageProgress
 var applyImageWithDism = func(imageFile, applyDir string, index uint32, progressCh chan<- dism.DismProgress) error {
 	return dism.NewDism().ApplyImageCmd(imageFile, applyDir, index, progressCh)
 }
@@ -913,11 +913,12 @@ func applyImage(
 		return fmt.Errorf("invalid image index: %d", imageIndex)
 	}
 
-	wimlibErr := applyImageWithWimlib(applyPath, imageIndex, targetRoot)
-	if wimlibErr == nil {
+	wimlibErr := applyImageWithWimlib(applyPath, imageIndex, targetRoot, func(pct uint8, status string) {
 		if progress != nil {
-			progress("apply", 100, "Done")
+			progress("apply", float64(pct), status)
 		}
+	})
+	if wimlibErr == nil {
 		return nil
 	}
 

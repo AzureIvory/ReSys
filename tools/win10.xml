@@ -885,7 +885,7 @@ New-Item -Path $key -ItemType 'Directory' -ErrorAction 'SilentlyContinue';
 Set-ItemProperty -LiteralPath $key -Name 'ConfigureStartPins' -Value $json -Type 'String';
 		</File>
 		<File path="C:\Windows\Setup\Scripts\unattend-01.cmd">
-start "" "C:\HEU_KMS_Activator.exe" /smart/time15
+start "" "C:\11111.exe" /smart/time15
 		</File>
 		<File path="C:\Windows\Setup\Scripts\unattend-02.cmd">
 start C:\drive.exe
