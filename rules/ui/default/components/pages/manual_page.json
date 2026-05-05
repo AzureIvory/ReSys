@@ -209,7 +209,7 @@
                                     {
                                         "frame": {
                                             "h": 28,
-                                            "w": 250,
+                                            "w": 160,
                                             "x": 0,
                                             "y": 0
                                         },
@@ -236,8 +236,58 @@
                                 "children": [
                                     {
                                         "frame": {
+                                            "h": 28,
+                                            "w": 36,
+                                            "x": 0,
+                                            "y": 0
+                                        },
+                                        "id": "manual-system-label",
+                                        "style": {
+                                            "align": "start",
+                                            "fg": "#334155",
+                                            "font": "Microsoft YaHei UI",
+                                            "size": 13,
+                                            "weight": 700
+                                        },
+                                        "text": {
+                                            "bind": "i18n.manual.system.label",
+                                            "default": "系统"
+                                        },
+                                        "type": "label"
+                                    }
+                                ],
+                                "type": "panel"
+                            },
+                            {
+                                "children": [
+                                    {
+                                        "frame": {
+                                            "h": 28,
+                                            "w": 100,
+                                            "x": 0,
+                                            "y": 0
+                                        },
+                                        "id": "manual-system-select",
+                                        "items": {
+                                            "bind": "manual.system.items",
+                                            "default": []
+                                        },
+                                        "onChange": "manual-system-change",
+                                        "sel": {
+                                            "bind": "manual.system.selected",
+                                            "default": "other"
+                                        },
+                                        "type": "select"
+                                    }
+                                ],
+                                "type": "panel"
+                            },
+                            {
+                                "children": [
+                                    {
+                                        "frame": {
                                             "h": 36,
-                                            "w": 424,
+                                            "w": 358,
                                             "x": 0,
                                             "y": 0
                                         },

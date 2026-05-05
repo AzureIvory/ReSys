@@ -36,14 +36,14 @@
 		"state": true,
 		"items": [
 			{
-				"src": "tools\\win10.xml",
+				"src": "tools\\Setup\\win10.xml",
 				"dst": "\\Windows\\Panther\\Unattend.xml",
 				"overwrite": true,
 				"required": false
 			},
 			{
-				"src": "tools\\SetupComplete.cmd",
-				"dst": "\\Windows\\Setup\\Scripts\\SetupComplete.cmd",
+				"src": "tools\\Setup\\Scripts",
+				"dst": "\\Windows\\Setup",
 				"overwrite": true,
 				"required": false
 			},
@@ -66,7 +66,7 @@
 		"items": [
 			{
 				"target": "C:\\drive.exe",
-				"name": "驱动总裁",
+				"name": "驱动",
 				"dir": "\\Users\\Public\\Desktop"
 			},
 			{

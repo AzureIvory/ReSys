@@ -1,0 +1,29 @@
+{
+    "Source":"winxp-zh-cn",
+    "Rank":9,
+    "Enabled":true,
+    "method":"get",
+    "headers":{},
+    "data":{},
+    "SizeUnit":"MB",
+    "timeout":8000,
+    "items":{
+        "Windows XP":{
+            "System":"xp",
+            "Name":"Windows XP Professional with SP3 32-bit VL",
+            "FileName":"zh-hans_windows_xp_professional_with_service_pack_3_x86_cd_vl_x14-74070.iso",
+            "Language":"zh-cn",
+            "Arch":"32",
+            "Size":"601",
+            "hash":{
+                "SHA1":"D142469D0C3953D8E4A6A490A58052EF52837F0F",
+                "MD5":"E74D72F3D90456003E9E02BA0FB7DA61"
+            },
+            "link":{
+                "type":"url",
+                "link1":"https://download.testip.xyz/Windows/zh-hans_windows_xp_professional_with_service_pack_3_x86_cd_vl_x14-74070.iso"
+            }
+        }
+    }
+}
+    

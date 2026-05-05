@@ -46,7 +46,7 @@
                             "font": "Microsoft YaHei UI",
                             "size": 12
                         },
-                        "text": "编辑安装完成后要复制的文件和创建的快捷方式。文件复制条目会自动覆盖已有目标文件，源文件缺失时自动跳过。取消勾选“安装完成后处理”会清空本次会话配置。",
+                        "text": "编辑安装完成后要复制的文件、目录和创建的快捷方式。复制项会自动覆盖已有目标，源路径不存在时自动跳过。取消勾选“安装完成后处理”会清空本次会话配置。",
                         "type": "label",
                         "wordWrap": true
                     },
@@ -93,7 +93,7 @@
                                     "size": 14,
                                     "weight": 700
                                 },
-                                "text": "文件复制",
+                                "text": "文件/目录复制",
                                 "type": "label"
                             },
                             {
@@ -142,7 +142,7 @@
                                 },
                                 "id": "manual-postprocess-file-src",
                                 "onChange": "manual-postprocess-file-src-change",
-                                "placeholder": "例如 tools\\SetupComplete.cmd",
+                                "placeholder": "例如 tools\\SetupComplete.cmd 或 tools\\Office",
                                 "style": {
                                     "bg": "#ffffff",
                                     "border": "#cbd5e1",
@@ -188,7 +188,7 @@
                                 },
                                 "id": "manual-postprocess-file-dst",
                                 "onChange": "manual-postprocess-file-dst-change",
-                                "placeholder": "例如 \\Windows\\Setup\\Scripts\\SetupComplete.cmd",
+                                "placeholder": "例如 \\Windows\\Setup\\Scripts\\SetupComplete.cmd 或 \\Users\\Public\\Desktop\\Office",
                                 "style": {
                                     "bg": "#ffffff",
                                     "border": "#cbd5e1",

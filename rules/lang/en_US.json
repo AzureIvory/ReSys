@@ -40,7 +40,8 @@
     },
     "target": {
       "label": "Target Partition",
-      "unknown": "Unknown OS"
+      "unknown": "Unknown OS",
+      "other": "Other OS"
     },
     "detail": {
       "label": "Partition Details",
@@ -226,6 +227,15 @@
     "size": {
       "total": "Total %s",
       "totalFree": "Total %s / Free %s"
+    },
+    "system": {
+      "label": "System",
+      "option": {
+        "win7": "Win7",
+        "win10": "Win10",
+        "win11": "Win11",
+        "other": "Other"
+      }
     }
   },
   "prompt": {

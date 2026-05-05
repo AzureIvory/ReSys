@@ -41,6 +41,9 @@ func manualDefaultConfig() (config.Config, error) {
 }
 
 func manualAutoTemplateConfig(targetOS string) (config.Config, error) {
+	if manualTemplateTargetOS(targetOS) == "" {
+		return config.Config{}, nil
+	}
 	path, err := manualAutoConfigPath(targetOS)
 	if err != nil {
 		return config.Config{}, err
@@ -49,13 +52,57 @@ func manualAutoTemplateConfig(targetOS string) (config.Config, error) {
 }
 
 func manualTemplateTargetOS(targetOS string) string {
+	switch normalizeManualTargetOS(targetOS) {
+	case targetWin7:
+		return targetWin7
+	case targetWin10, targetWin11:
+		return targetWin10
+	default:
+		return ""
+	}
+}
+
+func manualInstallTargetOS(targetOS string) string {
+	targetOS = normalizeManualTargetOS(targetOS)
+	if targetOS == targetOther {
+		return ""
+	}
+	return targetOS
+}
+
+func normalizeManualTargetOS(targetOS string) string {
 	switch strings.ToLower(strings.TrimSpace(targetOS)) {
 	case targetWin7:
 		return targetWin7
+	case targetWin10:
+		return targetWin10
 	case targetWin11:
 		return targetWin11
 	default:
-		return targetWin10
+		return targetOther
+	}
+}
+
+func manualDetectedTargetOS() string {
+	if target := imgsvc.DetectTargetFromInfos(manual.imageInfos); target != "" {
+		return normalizeManualTargetOS(target)
+	}
+	info, ok := mSelectedImageInfo()
+	if !ok {
+		return targetOther
+	}
+	return normalizeManualTargetOS(
+		utils.DetectTarget(info.Name, info.Description, info.Edition, info.Flags),
+	)
+}
+
+func manualApplySelectedTargetOS(targetOS string) {
+	targetOS = normalizeManualTargetOS(targetOS)
+	manualSetState("manual.system.selected", targetOS)
+	enabled := targetOS == targetWin7
+	manualSetState("manual.options.win7FixEnabled", enabled)
+	if !enabled && manualOptionWin7Fix() {
+		manualSetState("manual.options.win7Fix", false)
 	}
 }
 
@@ -204,7 +251,7 @@ func manualUpdateActionState() {
 }
 
 func manualSyncDerivedOptionState() {
-	manualSetState("manual.options.win7FixEnabled", true)
+	manualApplySelectedTargetOS(mSelectedTargetOS())
 }
 
 // manualUpdateSummary 更新底部汇总提示。
@@ -350,7 +397,7 @@ func manualBuildJSON() (string, error) {
 	}
 
 	cfg.Mode = "manual"
-	cfg.TargetOS = targetOS
+	cfg.TargetOS = manualInstallTargetOS(targetOS)
 	cfg.ImageArch = utils.NormalizeArch(info.Arch)
 	cfg.ImagePath = strings.TrimSpace(manual.imagePath)
 	cfg.Index = info.Index
@@ -390,6 +437,9 @@ func manualBuildJSON() (string, error) {
 }
 
 func manualDefaultWin7Fix(targetOS string) (config.Win7Fix, error) {
+	if normalizeManualTargetOS(targetOS) != targetWin7 {
+		return config.Win7Fix{}, nil
+	}
 	cfg, err := manualAutoTemplateConfig(targetWin7)
 	if err != nil {
 		return config.Win7Fix{}, err
@@ -485,14 +535,9 @@ func manualSelectedBootTargetRef() string {
 // mSelectedTargetOS 尝试从镜像信息推断目标系统（Win7/10/11）。
 // 优先使用 image 服务的 DetectTargetFromInfos；否则再做简单的字符串包含匹配。
 func mSelectedTargetOS() string {
-	if target := imgsvc.DetectTargetFromInfos(manual.imageInfos); target != "" {
-		return target
-	}
-	info, ok := mSelectedImageInfo()
-	if !ok {
-		return ""
-	}
-	return utils.DetectTarget(info.Name, info.Description, info.Edition, info.Flags)
+	return normalizeManualTargetOS(
+		manualStoreString("manual.system.selected", targetOther),
+	)
 }
 
 // manualValidationReason 返回“当前不允许开始安装”的原因（空字符串表示就绪）。

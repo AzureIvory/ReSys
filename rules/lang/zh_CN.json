@@ -40,7 +40,8 @@
     },
     "target": {
       "label": "安装分区",
-      "unknown": "未知系统"
+      "unknown": "未知系统",
+      "other": "其他系统"
     },
     "detail": {
       "label": "分区详情",
@@ -226,6 +227,15 @@
     "size": {
       "total": "总计 %s",
       "totalFree": "总计 %s / 可用 %s"
+    },
+    "system": {
+      "label": "系统",
+      "option": {
+        "win7": "Win7",
+        "win10": "Win10",
+        "win11": "Win11",
+        "other": "其他"
+      }
     }
   },
   "prompt": {

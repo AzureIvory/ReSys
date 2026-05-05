@@ -25,6 +25,7 @@ const (
 	targetWin7  = "win7"
 	targetWin10 = "win10"
 	targetWin11 = "win11"
+	targetOther = "other"
 )
 
 // StartInstall 由安装模块注入（见 src/install）。

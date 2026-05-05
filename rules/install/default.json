@@ -48,11 +48,6 @@
 		"_": "安装完成后创建的快捷方式，dir 和相对路径 target 都相对目标系统根目录",
 		"items": [
 			{
-				"target": "\\drive.exe",
-				"name": "驱动总裁",
-				"dir": "\\Users\\Public\\Desktop"
-			},
-			{
 				"target": "https://store.ttraw.com",
 				"name": "应用商店",
 				"dir": "\\Users\\Public\\Desktop"

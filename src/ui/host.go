@@ -124,6 +124,10 @@ func defaultUIState() map[string]any {
 				"selected":         "",
 				"items":            []widgets.ListItem{},
 			},
+			"system": map[string]any{
+				"selected": targetOther,
+				"items":    localizedTargetSystemItems(),
+			},
 			"partitions": map[string]any{
 				"selected":    "",
 				"items":       []widgets.ListItem{},
@@ -150,7 +154,7 @@ func defaultUIState() map[string]any {
 				"autoDeploy":     true,
 				"autoReboot":     true,
 				"win7Fix":        false,
-				"win7FixEnabled": true,
+				"win7FixEnabled": false,
 				"postProcess":    false,
 				"startEnabled":   false,
 			},
@@ -291,6 +295,9 @@ func uiActionHandlers() map[string]func(jsonui.ActionContext) {
 		},
 		"manual-index-change": func(ctx jsonui.ActionContext) {
 			HandleIndexChange(ctx.Value)
+		},
+		"manual-system-change": func(ctx jsonui.ActionContext) {
+			HandleSystemChange(ctx.Value)
 		},
 		"manual-partition-change": func(ctx jsonui.ActionContext) {
 			HandlePartitionChange(ctx.Value)

@@ -57,6 +57,7 @@ type InstallFlags struct {
 }
 
 // InstallFile 描述安装完成后的单个复制项。
+// InstallFile 描述安装完成后的单个文件或目录复制项。
 type InstallFile struct {
 	Src       string `json:"src"`
 	Dst       string `json:"dst"`
@@ -1167,8 +1168,7 @@ func afterInstall(ctx *InstallContext) error {
 	return nil
 }
 
-// copyPlanFiles 将配置中的文件复制到新系统。
-// copyPlanFiles 把配置中的文件复制到新系统。
+// copyPlanFiles 把配置中的文件或目录复制到新系统。
 func copyPlanFiles(targetRoot, baseDir string, files []InstallFile) error {
 	targetRoot = strings.TrimSpace(targetRoot)
 	baseDir = strings.TrimSpace(baseDir)
@@ -1187,7 +1187,7 @@ func copyPlanFiles(targetRoot, baseDir string, files []InstallFile) error {
 
 		if _, err := os.Stat(src); err != nil {
 			if os.IsNotExist(err) && !item.Required {
-				log.LogWrite(0, "[copyPlanFiles] skip missing optional file: %s", src)
+				log.LogWrite(0, "[copyPlanFiles] skip missing optional path: %s", src)
 				continue
 			}
 			return fmt.Errorf("copy %s failed: %w", src, err)

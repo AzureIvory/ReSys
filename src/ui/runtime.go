@@ -132,6 +132,12 @@ func HandleIndexChange(value string) {
 	manualUpdateSummary()
 }
 
+// HandleSystemChange 处理“目标系统”组合框变更。
+func HandleSystemChange(value string) {
+	manualApplySelectedTargetOS(value)
+	manualUpdateSummary()
+}
+
 // HandlePartitionChange 处理“目标分区”变更。
 func HandlePartitionChange(ref string) {
 	ApplyPartitionSelection(ref)
@@ -210,6 +216,7 @@ func manualLoadImage(path string) {
 		"manual.image.indexPlaceholder": T("manual.image.indexPlaceholder"),
 	})
 	if path == "" {
+		manualApplySelectedTargetOS(targetOther)
 		RefreshBootTargets()
 		manualUpdateDetail()
 		manualUpdateSummary()
@@ -220,6 +227,7 @@ func manualLoadImage(path string) {
 	if err != nil {
 		manual.imageParseErr = fmt.Sprintf(T("manual.image.parseFailed"), err)
 		manualSetState("manual.image.indexPlaceholder", T("manual.image.parseFailedShort"))
+		manualApplySelectedTargetOS(targetOther)
 		RefreshBootTargets()
 		manualUpdateDetail()
 		manualUpdateSummary()
@@ -252,6 +260,7 @@ func manualLoadImage(path string) {
 		"manual.image.selected":         selectedValue,
 		"manual.image.indexPlaceholder": placeholder,
 	})
+	manualApplySelectedTargetOS(manualDetectedTargetOS())
 	RefreshBootTargets()
 	manualUpdateDetail()
 	manualUpdateSummary()

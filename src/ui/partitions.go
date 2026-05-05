@@ -576,6 +576,8 @@ func FriendlyTarget(target string) string {
 		return "Windows 11"
 	case targetWin10:
 		return "Windows 10"
+	case targetOther:
+		return T("manual.target.other")
 	default:
 		return T("manual.target.unknown")
 	}

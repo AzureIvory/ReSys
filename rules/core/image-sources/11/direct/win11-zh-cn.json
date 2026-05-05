@@ -1,0 +1,61 @@
+{
+    "Source":"win11-zh-cn",
+    "Rank":9,
+    "Enabled":true,
+    "method":"get",
+    "headers":{},
+    "data":{},
+    "SizeUnit":"GB",
+    "timeout":8000,
+    "items":{
+        "Windows 11 Consumer Editions":{
+            "System":"11",
+            "Name":"Windows 11 Consumer Editions Version 24H2 (Updated Jul 2025) 64-bit Multi-Edition",
+            "FileName":"zh-cn_windows_11_consumer_editions_version_24h2_updated_july_2025_x64_dvd_a1f0681d.iso",
+            "Language":"zh-cn",
+            "Arch":"64",
+            "Size":"6.71",
+            "hash":{
+                "SHA1":"D0FA95E1F84EEBE17F998DA72FB7B4161DD904B8",
+                "MD5":"E9B4AE3F7E46075039CF82F5CF4BD838"
+            },
+            "link":{
+                "type":"url",
+                "link1":"https://download.testip.xyz/Windows/zh-cn_windows_11_consumer_editions_version_24h2_updated_july_2025_x64_dvd_a1f0681d.iso"
+            }
+        },
+        "Windows 11 Business Editions":{
+            "System":"11",
+            "Name":"Windows 11 Business Editions Version 24H2 (Updated Jul 2025) 64-bit Multi-Edition",
+            "FileName":"zh-cn_windows_11_business_editions_version_24h2_updated_july_2025_x64_dvd_272dc7af.iso",
+            "Language":"zh-cn",
+            "Arch":"64",
+            "Size":"6.63",
+            "hash":{
+                "SHA1":"916F4F52DF9A906EB5C85787E6624A909C536597",
+                "MD5":"77180EF3EC4E681AB8A570BDC3AF6A7B"
+            },
+            "link":{
+                "type":"url",
+                "link1":"https://download.testip.xyz/Windows/zh-cn_windows_11_business_editions_version_24h2_updated_july_2025_x64_dvd_272dc7af.iso"
+            }
+        },
+        "Windows 11 LTSC 2024":{
+            "System":"11",
+            "Name":"Windows 11 Enterprise LTSC 2024 64-bit",
+            "FileName":"zh-cn_windows_11_enterprise_ltsc_2024_x64_dvd_cff9cd2d.iso",
+            "Language":"zh-cn",
+            "Arch":"64",
+            "Size":"4.92",
+            "hash":{
+                "SHA1":"AB7CD740E6CD495A69E3A90FCD7FB56BA0C5C62E",
+                "MD5":"1A13ADE0178082432F90DF951A88842F"
+            },
+            "link":{
+                "type":"url",
+                "link1":"https://download.testip.xyz/Windows/zh-cn_windows_11_enterprise_ltsc_2024_x64_dvd_cff9cd2d.iso"
+            }
+        }
+    }
+}
+    

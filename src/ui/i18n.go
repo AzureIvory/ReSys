@@ -5,6 +5,7 @@ package ui
 import (
 	"ReSys/src/config"
 	"ReSys/src/utils"
+	"ReSys/src/windows"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -24,6 +25,12 @@ var (
 	i18nLanguage      = config.DefaultUIBundleLanguage
 	i18nTable         = map[string]any{}
 	loadI18nAppConfig = config.LoadAppConfig
+	getPreferredUILanguages = windows.GetUserPreferredUILanguages
+	detectLocaleLanguage    = detectLocaleLanguageFromSystem
+	uiLanguageBundleExists  = func(language string) bool {
+		_, err := readLanguageFile(language)
+		return err == nil
+	}
 
 	kernel32DLL                  = syscall.NewLazyDLL("kernel32.dll")
 	procGetUserDefaultLocaleName = kernel32DLL.NewProc("GetUserDefaultLocaleName")
@@ -93,6 +100,15 @@ func localizedBootModeItems() []widgets.ListItem {
 	}
 }
 
+func localizedTargetSystemItems() []widgets.ListItem {
+	return []widgets.ListItem{
+		{Value: targetWin7, Text: T("manual.system.option.win7")},
+		{Value: targetWin10, Text: T("manual.system.option.win10")},
+		{Value: targetWin11, Text: T("manual.system.option.win11")},
+		{Value: targetOther, Text: T("manual.system.option.other")},
+	}
+}
+
 // configuredUILanguage 返回 app 配置里的 UI 语言，失败时回退到配置默认值。
 func configuredUILanguage() string {
 	def := config.DefaultAppUILanguage
@@ -112,11 +128,29 @@ func resolveStartupLanguage(configured string) string {
 		return language
 	}
 
-	systemLanguage := detectSystemLanguage()
-	if systemLanguage == "" {
-		return config.DefaultUIBundleLanguage
+	if langs, err := getPreferredUILanguages(); err == nil {
+		seen := map[string]struct{}{}
+		for _, lang := range langs {
+			normalized := normLangCode(lang)
+			if normalized == "" {
+				continue
+			}
+			if _, ok := seen[normalized]; ok {
+				continue
+			}
+			seen[normalized] = struct{}{}
+			if uiLanguageBundleExists(normalized) {
+				return normalized
+			}
+		}
 	}
-	return systemLanguage
+
+	localeLanguage := normLangCode(detectLocaleLanguage())
+	if localeLanguage != "" && uiLanguageBundleExists(localeLanguage) {
+		return localeLanguage
+	}
+
+	return config.DefaultUIBundleLanguage
 }
 
 func normLangCode(value string) string {
@@ -139,7 +173,7 @@ func normLangCode(value string) string {
 	}
 }
 
-func detectSystemLanguage() string {
+func detectLocaleLanguageFromSystem() string {
 	const localeNameMax = 85
 
 	buf := make([]uint16, localeNameMax)

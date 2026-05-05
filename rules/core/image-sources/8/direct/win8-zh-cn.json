@@ -1,0 +1,45 @@
+{
+    "Source":"win8-zh-cn",
+    "Rank":9,
+    "Enabled":true,
+    "method":"get",
+    "headers":{},
+    "data":{},
+    "SizeUnit":"GB",
+    "timeout":8000,
+    "items":{
+        "Windows 8 Pro":{
+            "System":"8",
+            "Name":"Windows 8 Pro 64-bit VL",
+            "FileName":"cn_windows_8_pro_vl_x64_dvd_917773.iso",
+            "Language":"zh-cn",
+            "Arch":"64",
+            "Size":"3.31",
+            "hash":{
+                "SHA1":"9C4EC9FC4FB561F841E22256BC9DEA6D9D6611FF",
+                "MD5":"0C28901E7F8C670584CBF9F3E3B0F13E"
+            },
+            "link":{
+                "type":"url",
+                "link1":"https://download.testip.xyz/Windows/cn_windows_8_pro_vl_x64_dvd_917773.iso"
+            }
+        },
+        "Windows 8.1 Pro":{
+            "System":"8.1",
+            "Name":"Windows 8.1 Pro with Update 64-bit VL",
+            "FileName":"cn_windows_8.1_pro_vl_with_update_x64_dvd_6050873.iso",
+            "Language":"zh-cn",
+            "Arch":"64",
+            "Size":"3.18",
+            "hash":{
+                "SHA1":"15F67116E6616A70B89EE0079B34E64635FBD8A0",
+                "MD5":"815CB845F68596D8361B26013C3BA728"
+            },
+            "link":{
+                "type":"url",
+                "link1":"https://download.testip.xyz/Windows/cn_windows_8.1_pro_vl_with_update_x64_dvd_6050873.iso"
+            }
+        }
+    }
+}
+    
