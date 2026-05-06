@@ -22,9 +22,9 @@ var (
 	i18nInitOnce sync.Once
 	i18nInitErr  error
 
-	i18nLanguage      = config.DefaultUIBundleLanguage
-	i18nTable         = map[string]any{}
-	loadI18nAppConfig = config.LoadAppConfig
+	i18nLanguage            = config.DefaultUIBundleLanguage
+	i18nTable               = map[string]any{}
+	loadI18nAppConfig       = config.LoadAppConfig
 	getPreferredUILanguages = windows.GetUserPreferredUILanguages
 	detectLocaleLanguage    = detectLocaleLanguageFromSystem
 	uiLanguageBundleExists  = func(language string) bool {
@@ -102,10 +102,14 @@ func localizedBootModeItems() []widgets.ListItem {
 
 func localizedTargetSystemItems() []widgets.ListItem {
 	return []widgets.ListItem{
-		{Value: targetWin7, Text: T("manual.system.option.win7")},
-		{Value: targetWin10, Text: T("manual.system.option.win10")},
-		{Value: targetWin11, Text: T("manual.system.option.win11")},
-		{Value: targetOther, Text: T("manual.system.option.other")},
+		// 说明：
+		// - Text 仍然走现有 i18n（主要标题）。
+		// - Subtitle 只需要给 “其他” 做多语言；win7/win10/win11 用固定短标识即可。
+		// - ImagePath 走 JSONUI 的 AssetsDir（见 host.go 的 ensureUIAssets 写盘资源）。
+		{Value: targetWin7, Text: T("manual.system.option.win7"), Subtitle: "win7", ImagePath: "win7.png"},
+		{Value: targetWin10, Text: T("manual.system.option.win10"), Subtitle: "win10", ImagePath: "win10.png"},
+		{Value: targetWin11, Text: T("manual.system.option.win11"), Subtitle: "win11", ImagePath: "win11.png"},
+		{Value: targetOther, Text: T("manual.system.option.other"), Subtitle: T("manual.system.subtitle.other"), ImagePath: "icon.png"},
 	}
 }
 

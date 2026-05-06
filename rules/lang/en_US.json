@@ -15,9 +15,9 @@
   },
   "select": {
     "title": "Select The Operating System To Install",
-    "win7": "Reinstall Win7",
-    "win10": "Reinstall Win10",
-    "win11": "Reinstall Win11",
+    "win7": "Win7",
+    "win10": "Win10",
+    "win11": "Win11",
     "advanced": "Advanced Mode"
   },
   "progress": {
@@ -171,6 +171,33 @@
       "confirm": "OK",
       "cancel": "Cancel"
     },
+    "postprocess": {
+      "title": "Post-Install Tasks",
+      "tip": "Edit files/folders to copy and shortcuts to create after installation. Copy items overwrite existing targets; missing sources are skipped. Unchecking Post-Install Tasks clears this session config.",
+      "reset": "Reset",
+      "section": {
+        "file": "File/Folder Copy",
+        "shortcut": "Shortcuts"
+      },
+      "label": {
+        "src": "Source",
+        "dst": "Destination"
+      },
+      "placeholder": {
+        "src": "e.g. tools\\\\SetupComplete.cmd or tools\\\\Office",
+        "dst": "e.g. \\\\Windows\\\\Setup\\\\Scripts\\\\SetupComplete.cmd or \\\\Users\\\\Public\\\\Desktop\\\\Office",
+        "target": "Target, e.g. C:\\\\drive.exe or https://example.com",
+        "name": "Name, e.g. DriverTool",
+        "dir": "Directory, e.g. \\\\Users\\\\Public\\\\Desktop"
+      },
+      "btn": {
+        "add": "Add",
+        "save": "Save",
+        "delete": "Delete",
+        "confirm": "OK",
+        "cancel": "Cancel"
+      }
+    },
     "start": "Start Reinstall",
     "summary": {
       "default": "Select a local installation image and a target partition.",
@@ -234,6 +261,9 @@
         "win7": "Win7",
         "win10": "Win10",
         "win11": "Win11",
+        "other": "Other"
+      },
+      "subtitle": {
         "other": "Other"
       }
     }

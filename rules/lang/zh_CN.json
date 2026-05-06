@@ -171,6 +171,33 @@
       "confirm": "确定",
       "cancel": "取消"
     },
+    "postprocess": {
+      "title": "安装完成后处理",
+      "tip": "编辑安装完成后要复制的文件、目录和创建的快捷方式。复制项会自动覆盖已有目标，源路径不存在时自动跳过。取消勾选“安装完成后处理”会清空本次会话配置。",
+      "reset": "恢复默认",
+      "section": {
+        "file": "文件/目录复制",
+        "shortcut": "快捷方式"
+      },
+      "label": {
+        "src": "源路径",
+        "dst": "目标路径"
+      },
+      "placeholder": {
+        "src": "例如 tools\\\\SetupComplete.cmd 或 tools\\\\Office",
+        "dst": "例如 \\\\Windows\\\\Setup\\\\Scripts\\\\SetupComplete.cmd 或 \\\\Users\\\\Public\\\\Desktop\\\\Office",
+        "target": "目标，例如 C:\\\\drive.exe 或 https://example.com",
+        "name": "名称，例如 驱动总裁",
+        "dir": "目录，例如 \\\\Users\\\\Public\\\\Desktop"
+      },
+      "btn": {
+        "add": "新增",
+        "save": "保存",
+        "delete": "删除",
+        "confirm": "确定",
+        "cancel": "取消"
+      }
+    },
     "start": "开始重装",
     "summary": {
       "default": "请选择本地安装镜像和目标分区。",
@@ -234,6 +261,9 @@
         "win7": "Win7",
         "win10": "Win10",
         "win11": "Win11",
+        "other": "其他"
+      },
+      "subtitle": {
         "other": "其他"
       }
     }

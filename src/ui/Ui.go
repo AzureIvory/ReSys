@@ -71,7 +71,7 @@ func Uiinit() {
 		ClassName:      "ReSys",
 		Title:          T("window.title"),
 		Width:          760,
-		Height:         460,
+		Height:         520,
 		Style:          core.DefaultWindowStyle,
 		ExStyle:        core.DefaultWindowExStyle,
 		Cursor:         core.CursorArrow,

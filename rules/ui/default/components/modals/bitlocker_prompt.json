@@ -217,6 +217,7 @@
                                         "onClick": "prompt-submit-password",
                                         "style": {
                                             "bg": "#2563eb",
+                                            "border": "transparent",
                                             "disabledBg": "#60a5fa",
                                             "disabledFg": "#bfdbfe",
                                             "downFg": "#ffffff",
@@ -266,6 +267,7 @@
                                         "onClick": "prompt-submit-recovery",
                                         "style": {
                                             "bg": "#2563eb",
+                                            "border": "transparent",
                                             "disabledBg": "#60a5fa",
                                             "disabledFg": "#bfdbfe",
                                             "downFg": "#ffffff",

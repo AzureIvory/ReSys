@@ -19,7 +19,6 @@ import (
 // 说明：
 // - 所有 SizeDP/CornerRadius 等均以 DP 为单位，winui 会根据 DPI 自动缩放。
 // - Text.Format 使用 DrawText 标志位，确保文本在常用控件（按钮/标题/标签）中水平+垂直居中。
-// - Button.Border 设置为 0，用于实现“无边框按钮”（主页大按钮、顶部按钮等）。
 func resysTheme() *widgets.Theme {
 	theme := widgets.DefaultTheme()
 	theme.Text = widgets.TextStyle{
@@ -40,7 +39,6 @@ func resysTheme() *widgets.Theme {
 		Format: core.DTCenter | core.DTVCenter | core.DTSingleLine,
 	}
 	theme.Button = selectButtonStyle()
-	theme.Button.Border = 0
 	theme.Progress = widgets.ProgressStyle{
 		Font: widgets.FontSpec{
 			Face:   "Microsoft YaHei UI",
@@ -85,10 +83,7 @@ func resysTheme() *widgets.Theme {
 	theme.Edit.DisabledBg = theme.Edit.Background
 	theme.Edit.DisabledText = core.RGB(30, 41, 59)
 
-	theme.CheckBox.Font = widgets.FontSpec{Face: "Microsoft YaHei UI", SizeDP: 12}
-	theme.CheckBox.IndicatorSizeDP = 16
-	theme.CheckBox.IndicatorGapDP = 8
-	theme.RadioButton = theme.CheckBox
+	// 多选框和单选框沿用 winui 默认样式，避免与库内默认视觉继续分叉。
 
 	return theme
 }

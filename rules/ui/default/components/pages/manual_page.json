@@ -209,7 +209,7 @@
                                     {
                                         "frame": {
                                             "h": 28,
-                                            "w": 160,
+                                            "w": 310,
                                             "x": 0,
                                             "y": 0
                                         },
@@ -237,7 +237,7 @@
                                     {
                                         "frame": {
                                             "h": 28,
-                                            "w": 36,
+                                            "w": 60,
                                             "x": 0,
                                             "y": 0
                                         },
@@ -262,8 +262,8 @@
                                 "children": [
                                     {
                                         "frame": {
-                                            "h": 28,
-                                            "w": 100,
+                                            "h": 44,
+                                            "w": 250,
                                             "x": 0,
                                             "y": 0
                                         },
@@ -277,36 +277,17 @@
                                             "bind": "manual.system.selected",
                                             "default": "other"
                                         },
+                                        "style": {
+                                            "layout": "rich",
+                                            "imageSize": 18,
+                                            "subtitleFg": "#64748b"
+                                        },
                                         "type": "select"
                                     }
                                 ],
-                                "type": "panel"
-                            },
-                            {
-                                "children": [
-                                    {
-                                        "frame": {
-                                            "h": 36,
-                                            "w": 358,
-                                            "x": 0,
-                                            "y": 0
-                                        },
-                                        "id": "manual-summary",
-                                        "multiline": true,
-                                        "style": {
-                                            "align": "start",
-                                            "fg": "#475569",
-                                            "font": "Microsoft YaHei UI",
-                                            "size": 12
-                                        },
-                                        "text": {
-                                            "bind": "manual.summary",
-                                            "default": "请选择本地安装镜像和目标分区。"
-                                        },
-                                        "type": "label",
-                                        "wordWrap": true
-                                    }
-                                ],
+                                "style": {
+                                    "bg": "#ffffff"
+                                },
                                 "type": "panel"
                             }
                         ],
@@ -315,6 +296,51 @@
                             "gap": 10,
                             "type": "row"
                         },
+                        "style": {
+                            "bg": "#ffffff"
+                        },
+                        "type": "panel"
+                    },
+                    {
+                        "children": [
+                            {
+                                "frame": {
+                                    "h": 1,
+                                    "w": 1,
+                                    "x": 0,
+                                    "y": 0
+                                },
+                                "text": "",
+                                "type": "label"
+                            }
+                        ],
+                        "type": "panel"
+                    },
+                    {
+                        "children": [
+                            {
+                                "frame": {
+                                    "h": 48,
+                                    "w": 684,
+                                    "x": 0,
+                                    "y": 0
+                                },
+                                "id": "manual-summary",
+                                "multiline": true,
+                                "style": {
+                                    "align": "start",
+                                    "fg": "#475569",
+                                    "font": "Microsoft YaHei UI",
+                                    "size": 12
+                                },
+                                "text": {
+                                    "bind": "manual.summary",
+                                    "default": "请选择本地安装镜像和目标分区。"
+                                },
+                                "type": "label",
+                                "wordWrap": true
+                            }
+                        ],
                         "type": "panel"
                     }
                 ],
@@ -1025,6 +1051,7 @@
                                 "onClick": "manual-start",
                                 "style": {
                                     "bg": "#2563eb",
+                                    "border": "transparent",
                                     "disabledBg": "#60a5fa",
                                     "disabledFg": "#bfdbfe",
                                     "downFg": "#ffffff",
@@ -1088,6 +1115,9 @@
             "type": "col"
         },
         "scale": "px",
+        "style": {
+            "bg": "#ffffff"
+        },
         "type": "panel",
         "visible": {
             "bind": "pages.manualVisible",

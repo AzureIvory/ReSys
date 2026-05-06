@@ -202,6 +202,7 @@
                                 "onClick": "manual-driver-confirm",
                                 "style": {
                                     "bg": "#2563eb",
+                                    "border": "transparent",
                                     "disabledBg": "#60a5fa",
                                     "disabledFg": "#bfdbfe",
                                     "downFg": "#ffffff",

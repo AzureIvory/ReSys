@@ -28,7 +28,10 @@
                             "size": 20,
                             "weight": 700
                         },
-                        "text": "安装完成后处理",
+                        "text": {
+                            "bind": "i18n.manual.postprocess.title",
+                            "default": "安装完成后处理"
+                        },
                         "type": "label"
                     },
                     {
@@ -46,7 +49,10 @@
                             "font": "Microsoft YaHei UI",
                             "size": 12
                         },
-                        "text": "编辑安装完成后要复制的文件、目录和创建的快捷方式。复制项会自动覆盖已有目标，源路径不存在时自动跳过。取消勾选“安装完成后处理”会清空本次会话配置。",
+                        "text": {
+                            "bind": "i18n.manual.postprocess.tip",
+                            "default": "编辑安装完成后要复制的文件、目录和创建的快捷方式。复制项会自动覆盖已有目标，源路径不存在时自动跳过。取消勾选“安装完成后处理”会清空本次会话配置。"
+                        },
                         "type": "label",
                         "wordWrap": true
                     },
@@ -73,7 +79,10 @@
                             "size": 13,
                             "weight": 400
                         },
-                        "text": "恢复默认",
+                        "text": {
+                            "bind": "i18n.manual.postprocess.reset",
+                            "default": "恢复默认"
+                        },
                         "type": "button"
                     },
                     {
@@ -93,7 +102,10 @@
                                     "size": 14,
                                     "weight": 700
                                 },
-                                "text": "文件/目录复制",
+                                "text": {
+                                    "bind": "i18n.manual.postprocess.section.file",
+                                    "default": "文件/目录复制"
+                                },
                                 "type": "label"
                             },
                             {
@@ -127,10 +139,13 @@
                                     "align": "start",
                                     "fg": "#334155",
                                     "font": "Microsoft YaHei UI",
-                                    "size": 12,
-                                    "weight": 700
+                                "size": 12,
+                                "weight": 700
+                            },
+                                "text": {
+                                    "bind": "i18n.manual.postprocess.label.src",
+                                    "default": "源路径"
                                 },
-                                "text": "源路径",
                                 "type": "label"
                             },
                             {
@@ -142,7 +157,10 @@
                                 },
                                 "id": "manual-postprocess-file-src",
                                 "onChange": "manual-postprocess-file-src-change",
-                                "placeholder": "例如 tools\\SetupComplete.cmd 或 tools\\Office",
+                                "placeholder": {
+                                    "bind": "i18n.manual.postprocess.placeholder.src",
+                                    "default": "例如 tools\\SetupComplete.cmd 或 tools\\Office"
+                                },
                                 "style": {
                                     "bg": "#ffffff",
                                     "border": "#cbd5e1",
@@ -173,10 +191,13 @@
                                     "align": "start",
                                     "fg": "#334155",
                                     "font": "Microsoft YaHei UI",
-                                    "size": 12,
-                                    "weight": 700
+                                "size": 12,
+                                "weight": 700
+                            },
+                                "text": {
+                                    "bind": "i18n.manual.postprocess.label.dst",
+                                    "default": "目标路径"
                                 },
-                                "text": "目标路径",
                                 "type": "label"
                             },
                             {
@@ -188,7 +209,10 @@
                                 },
                                 "id": "manual-postprocess-file-dst",
                                 "onChange": "manual-postprocess-file-dst-change",
-                                "placeholder": "例如 \\Windows\\Setup\\Scripts\\SetupComplete.cmd 或 \\Users\\Public\\Desktop\\Office",
+                                "placeholder": {
+                                    "bind": "i18n.manual.postprocess.placeholder.dst",
+                                    "default": "例如 \\Windows\\Setup\\Scripts\\SetupComplete.cmd 或 \\Users\\Public\\Desktop\\Office"
+                                },
                                 "style": {
                                     "bg": "#ffffff",
                                     "border": "#cbd5e1",
@@ -223,10 +247,13 @@
                                     "font": "Microsoft YaHei UI",
                                     "hoverBg": "#f8fafc",
                                     "pad": 10,
-                                    "radius": 10,
-                                    "size": 13
+                                "radius": 10,
+                                "size": 13
+                            },
+                                "text": {
+                                    "bind": "i18n.manual.postprocess.btn.add",
+                                    "default": "新增"
                                 },
-                                "text": "新增",
                                 "type": "button"
                             },
                             {
@@ -240,15 +267,19 @@
                                 "onClick": "manual-postprocess-file-save",
                                 "style": {
                                     "bg": "#2563eb",
+                                    "border": "transparent",
                                     "fg": "#ffffff",
                                     "font": "Microsoft YaHei UI",
                                     "hoverBg": "#1d4ed8",
                                     "pad": 10,
-                                    "radius": 10,
-                                    "size": 13,
-                                    "weight": 700
+                                "radius": 10,
+                                "size": 13,
+                                "weight": 700
+                            },
+                                "text": {
+                                    "bind": "i18n.manual.postprocess.btn.save",
+                                    "default": "保存"
                                 },
-                                "text": "保存",
                                 "type": "button"
                             },
                             {
@@ -267,10 +298,13 @@
                                     "font": "Microsoft YaHei UI",
                                     "hoverBg": "#fef2f2",
                                     "pad": 10,
-                                    "radius": 10,
-                                    "size": 13
+                                "radius": 10,
+                                "size": 13
+                            },
+                                "text": {
+                                    "bind": "i18n.manual.postprocess.btn.delete",
+                                    "default": "删除"
                                 },
-                                "text": "删除",
                                 "type": "button"
                             }
                         ],
@@ -302,10 +336,13 @@
                                     "align": "start",
                                     "fg": "#0f172a",
                                     "font": "Microsoft YaHei UI",
-                                    "size": 14,
-                                    "weight": 700
+                                "size": 14,
+                                "weight": 700
+                            },
+                                "text": {
+                                    "bind": "i18n.manual.postprocess.section.shortcut",
+                                    "default": "快捷方式"
                                 },
-                                "text": "快捷方式",
                                 "type": "label"
                             },
                             {
@@ -336,7 +373,10 @@
                                 },
                                 "id": "manual-postprocess-shortcut-target",
                                 "onChange": "manual-postprocess-shortcut-target-change",
-                                "placeholder": "目标，例如 C:\\drive.exe 或 https://example.com",
+                                "placeholder": {
+                                    "bind": "i18n.manual.postprocess.placeholder.target",
+                                    "default": "目标，例如 C:\\drive.exe 或 https://example.com"
+                                },
                                 "style": {
                                     "bg": "#ffffff",
                                     "border": "#cbd5e1",
@@ -364,7 +404,10 @@
                                 },
                                 "id": "manual-postprocess-shortcut-name",
                                 "onChange": "manual-postprocess-shortcut-name-change",
-                                "placeholder": "名称，例如 驱动总裁",
+                                "placeholder": {
+                                    "bind": "i18n.manual.postprocess.placeholder.name",
+                                    "default": "名称，例如 驱动总裁"
+                                },
                                 "style": {
                                     "bg": "#ffffff",
                                     "border": "#cbd5e1",
@@ -392,7 +435,10 @@
                                 },
                                 "id": "manual-postprocess-shortcut-dir",
                                 "onChange": "manual-postprocess-shortcut-dir-change",
-                                "placeholder": "目录，例如 \\Users\\Public\\Desktop",
+                                "placeholder": {
+                                    "bind": "i18n.manual.postprocess.placeholder.dir",
+                                    "default": "目录，例如 \\Users\\Public\\Desktop"
+                                },
                                 "style": {
                                     "bg": "#ffffff",
                                     "border": "#cbd5e1",
@@ -427,10 +473,13 @@
                                     "font": "Microsoft YaHei UI",
                                     "hoverBg": "#f8fafc",
                                     "pad": 10,
-                                    "radius": 10,
-                                    "size": 13
+                                "radius": 10,
+                                "size": 13
+                            },
+                                "text": {
+                                    "bind": "i18n.manual.postprocess.btn.add",
+                                    "default": "新增"
                                 },
-                                "text": "新增",
                                 "type": "button"
                             },
                             {
@@ -444,15 +493,19 @@
                                 "onClick": "manual-postprocess-shortcut-save",
                                 "style": {
                                     "bg": "#2563eb",
+                                    "border": "transparent",
                                     "fg": "#ffffff",
                                     "font": "Microsoft YaHei UI",
                                     "hoverBg": "#1d4ed8",
                                     "pad": 10,
-                                    "radius": 10,
-                                    "size": 13,
-                                    "weight": 700
+                                "radius": 10,
+                                "size": 13,
+                                "weight": 700
+                            },
+                                "text": {
+                                    "bind": "i18n.manual.postprocess.btn.save",
+                                    "default": "保存"
                                 },
-                                "text": "保存",
                                 "type": "button"
                             },
                             {
@@ -471,10 +524,13 @@
                                     "font": "Microsoft YaHei UI",
                                     "hoverBg": "#fef2f2",
                                     "pad": 10,
-                                    "radius": 10,
-                                    "size": 13
+                                "radius": 10,
+                                "size": 13
+                            },
+                                "text": {
+                                    "bind": "i18n.manual.postprocess.btn.delete",
+                                    "default": "删除"
                                 },
-                                "text": "删除",
                                 "type": "button"
                             }
                         ],
@@ -503,6 +559,7 @@
                         "onClick": "manual-postprocess-confirm",
                         "style": {
                             "bg": "#2563eb",
+                            "border": "transparent",
                             "disabledBg": "#60a5fa",
                             "downFg": "#ffffff",
                             "fg": "#ffffff",
@@ -510,11 +567,14 @@
                             "hoverBg": "#1d4ed8",
                             "pad": 12,
                             "pressedBg": "#1e40af",
-                            "radius": 10,
-                            "size": 14,
-                            "weight": 700
+                        "radius": 10,
+                        "size": 14,
+                        "weight": 700
+                    },
+                        "text": {
+                            "bind": "i18n.manual.postprocess.btn.confirm",
+                            "default": "确定"
                         },
-                        "text": "确定",
                         "type": "button"
                     },
                     {
@@ -536,11 +596,14 @@
                             "hoverBg": "#f8fafc",
                             "pad": 12,
                             "pressedBg": "#0f172a",
-                            "radius": 10,
-                            "size": 14,
-                            "weight": 400
+                        "radius": 10,
+                        "size": 14,
+                        "weight": 400
+                    },
+                        "text": {
+                            "bind": "i18n.manual.postprocess.btn.cancel",
+                            "default": "取消"
                         },
-                        "text": "取消",
                         "type": "button"
                     }
                 ],

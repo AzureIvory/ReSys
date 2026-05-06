@@ -11,7 +11,7 @@
     "wins": [
         {
             "_comment_zh": "主窗口：包含选择页、进度页、手动模式页和 BitLocker 解锁弹层。",
-            "h": 460,
+            "h": 520,
             "id": "main",
             "image": "icon.png",
             "imageSizeDP": 48,
