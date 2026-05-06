@@ -73,16 +73,6 @@ func resysTheme() *widgets.Theme {
 	theme.ComboBox.ItemSelectedColor = core.RGB(37, 99, 235)
 	theme.ComboBox.ItemTextColor = core.RGB(255, 255, 255)
 
-	theme.Edit.Font = widgets.FontSpec{Face: "Microsoft YaHei UI", SizeDP: 12}
-	theme.Edit.PaddingDP = 8
-	theme.Edit.CornerRadius = 10
-	theme.Edit.Background = core.RGB(255, 255, 255)
-	theme.Edit.BorderColor = core.RGB(203, 213, 225)
-	theme.Edit.HoverBorder = core.RGB(59, 130, 246)
-	theme.Edit.FocusBorder = core.RGB(37, 99, 235)
-	theme.Edit.DisabledBg = theme.Edit.Background
-	theme.Edit.DisabledText = core.RGB(30, 41, 59)
-
 	// 多选框和单选框沿用 winui 默认样式，避免与库内默认视觉继续分叉。
 
 	return theme
