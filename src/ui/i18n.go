@@ -261,6 +261,46 @@ func mergeMaps(base, override map[string]any) {
 	}
 }
 
+// availableLanguages 枚举 rules/lang 内的 JSON 文件，返回组合框用的语言列表。
+func availableLanguages() []widgets.ListItem {
+	dir, err := utils.ProjectDir("rules", "lang")
+	if err != nil {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	items := make([]widgets.ListItem, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		code := strings.TrimSuffix(name, ".json")
+		items = append(items, widgets.ListItem{Value: code, Text: code})
+	}
+	return items
+}
+
+// setUILanguage 切换 UI 语言：重新加载语言包并刷新界面文本。
+func setUILanguage(language string) error {
+	table, err := loadLanguageTable(language)
+	if err != nil {
+		return err
+	}
+	i18nLanguage = language
+	i18nTable = table
+	manualPatchState(map[string]any{
+		"i18n":                    i18nSnapshot(),
+		"manual.language.selected": language,
+	})
+	return nil
+}
+
 func cloneMap(source map[string]any) map[string]any {
 	if len(source) == 0 {
 		return map[string]any{}

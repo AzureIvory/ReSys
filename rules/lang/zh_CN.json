@@ -181,7 +181,8 @@
       },
       "label": {
         "src": "源路径",
-        "dst": "目标路径"
+        "dst": "目标路径",
+        "launch": "启动方式"
       },
       "placeholder": {
         "src": "例如 tools\\\\SetupComplete.cmd 或 tools\\\\Office",

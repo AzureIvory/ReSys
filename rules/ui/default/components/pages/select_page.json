@@ -10,7 +10,7 @@
                         "children": [
                             {
                                 "frame": {
-                                    "h": 54,
+                                    "h": 120,
                                     "w": 1,
                                     "x": 0,
                                     "y": 0
@@ -205,7 +205,7 @@
                     "h": 36,
                     "r": 20,
                     "w": 96,
-                    "y": 20
+                    "y": 60
                 },
                 "id": "btn-advanced",
                 "onClick": "open-manual",

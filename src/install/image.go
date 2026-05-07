@@ -11,6 +11,8 @@ import (
 	"ReSys/src/ui"
 	"ReSys/src/utils"
 	"ReSys/src/windows"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,6 +22,23 @@ import (
 var detectImageInfos = image.DetectImageInfos
 var findLocalHit = image.FindLocalHit
 var downloadImage = DownloadImage
+
+// ErrInstallCanceled 用户主动取消安装（例如在索引无效弹窗中点击取消）。
+var ErrInstallCanceled = errors.New("用户取消安装")
+
+// ImageJsonEntry image.json 中的单个镜像条目。
+type ImageJsonEntry struct {
+	File    string `json:"file"`    // image/ 目录下的文件名
+	Index   int    `json:"index"`   // 安装索引：正数=固定索引，-1/0=自动选择
+	Version string `json:"version"` // 目标系统版本："7" / "10" / "11"
+	Arch    string `json:"arch"`    // 目标架构："32" / "64"，空=不限制
+	Verify  *bool  `json:"verify"`  // 是否校验镜像结构：nil 或 true=校验，false=跳过
+}
+
+// ImageJsonConfig image.json 文件的根结构。
+type ImageJsonConfig struct {
+	Images []ImageJsonEntry `json:"images"`
+}
 
 // 安装镜像获取相关辅助函数。
 
@@ -58,9 +77,15 @@ func RecoverOrAcquireInstallImage(plan *InstallPlan) (string, error) {
 	return AcquireInstallImage(plan)
 }
 
-// findInstallImage 先尝试本地镜像，找不到时再触发下载。
+// findInstallImage 按优先级查找安装镜像：plan 已记录路径 → image.json → 全局本地扫描 → 下载。
 func findInstallImage(plan *InstallPlan) (string, error) {
 	if path, ok := planImage(plan); ok {
+		return path, nil
+	}
+
+	if path, err := findImageJsonHit(plan); err != nil {
+		return "", err // 用户取消等致命错误，直接返回
+	} else if path != "" {
 		return path, nil
 	}
 
@@ -69,6 +94,157 @@ func findInstallImage(plan *InstallPlan) (string, error) {
 	}
 
 	return downloadImage(plan.TargetOS, plan.ImageArch)
+}
+
+// imageJsonPath 返回可执行文件同级目录下的 image/image.json 路径。
+func imageJsonPath() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(exe), "image", "image.json"), nil
+}
+
+// findImageJsonHit 读取 image/image.json，优先匹配计划所需的镜像。
+//
+// 前置条件：image/ 目录下至少存在一个镜像文件（.iso/.wim/.esd/.gho），否则跳过解析。
+//
+// 匹配规则：
+//   - version 与 plan.TargetOS 做归一化比较（"10" 等价于 "win10"）
+//   - arch 为空或与 plan.ImageArch 一致
+//   - 按 images 数组顺序依次尝试，首个匹配且校验通过的条目即为命中
+//
+// 返回值：
+//   - (path, nil)：命中，path 已写入 plan.ImagePath，plan.ImageIndex 也已设置
+//   - ("", ErrInstallCanceled)：用户在弹窗中选择取消安装
+//   - ("", nil)：未命中，调用方应继续后续查找
+func findImageJsonHit(plan *InstallPlan) (string, error) {
+	jsonPath, err := imageJsonPath()
+	if err != nil {
+		log.LogWrite(0, "[findImageJsonHit] executable path error: %v", err)
+		return "", nil
+	}
+
+	// 镜像所在目录
+	imgDir := filepath.Dir(jsonPath)
+
+	// 前置检查：image/ 目录下是否有镜像文件，没有则跳过整个 JSON 解析
+	if !dirHasImageFiles(imgDir) {
+		log.LogWrite(0, "[findImageJsonHit] image/ directory has no image files, skip json parsing")
+		return "", nil
+	}
+
+	data, err := os.ReadFile(jsonPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.LogWrite(0, "[findImageJsonHit] read %s failed: %v", jsonPath, err)
+		}
+		return "", nil
+	}
+
+	var cfg ImageJsonConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		log.LogWrite(0, "[findImageJsonHit] parse %s failed: %v", jsonPath, err)
+		return "", nil
+	}
+
+	if len(cfg.Images) == 0 {
+		log.LogWrite(0, "[findImageJsonHit] image.json has no entries")
+		return "", nil
+	}
+
+	// 归一化目标版本：去除 "win" 前缀以便与 JSON 中的 "10"/"11"/"7" 比较
+	targetVer := strings.TrimPrefix(plan.TargetOS, "win")
+
+	for i, entry := range cfg.Images {
+		entryFile := strings.TrimSpace(entry.File)
+		if entryFile == "" {
+			continue
+		}
+
+		// 匹配目标系统版本（归一化后比较："10" == "10", "win10" == "win10"）
+		entryVer := strings.TrimPrefix(strings.TrimSpace(entry.Version), "win")
+		if entryVer != targetVer {
+			log.LogWrite(0, "[findImageJsonHit] entry %d: version mismatch (want=%s got=%s), skip", i, targetVer, entryVer)
+			continue
+		}
+
+		// 匹配目标架构
+		if entry.Arch != "" && entry.Arch != plan.ImageArch {
+			log.LogWrite(0, "[findImageJsonHit] entry %d: arch mismatch (want=%s got=%s), skip", i, plan.ImageArch, entry.Arch)
+			continue
+		}
+
+		imgPath := filepath.Join(imgDir, entryFile)
+		log.LogWrite(0, "[findImageJsonHit] entry %d: trying %s (index=%d)", i, imgPath, entry.Index)
+
+		// 基本检查：文件是否存在
+		if _, err := os.Stat(imgPath); err != nil {
+			log.LogWrite(0, "[findImageJsonHit] entry %d: file not found: %s", i, imgPath)
+			continue
+		}
+
+		// 确定是否需要校验：Verify 为 nil 时默认 true（校验）
+		shouldVerify := entry.Verify == nil || *entry.Verify
+
+		if shouldVerify {
+			infos, err := detectImageInfos(imgPath)
+			if err != nil {
+				log.LogWrite(0, "[findImageJsonHit] entry %d: verify failed: %v", i, err)
+				continue
+			}
+
+			// 校验指定索引是否存在（index <= 0 时不校验，交由后续自动选择）
+			if entry.Index > 0 && !imageHasIndex(infos, entry.Index) {
+				action := ui.ShowImageIndexError(filepath.Base(imgPath), entry.Index)
+				switch action {
+				case ui.ImageIndexAuto:
+					// 不设置 ImageIndex，ResolveInstallImageIndex 自动选择
+				case ui.ImageIndexSkip:
+					continue
+				default: // ui.ImageIndexCancel
+					return "", ErrInstallCanceled
+				}
+			} else if entry.Index > 0 {
+				plan.ImageIndex = entry.Index
+			}
+		} else {
+			if entry.Index > 0 {
+				plan.ImageIndex = entry.Index
+			}
+		}
+
+		plan.ImagePath = imgPath
+		log.LogWrite(0, "[findImageJsonHit] hit: %s (index=%d)", imgPath, plan.ImageIndex)
+		return imgPath, nil
+	}
+
+	log.LogWrite(0, "[findImageJsonHit] no matching image found in image.json")
+	return "", nil
+}
+
+// dirHasImageFiles 检查目录下是否存在镜像文件（.iso / .wim / .esd / .gho）。
+// 用于快速判断是否需要解析 image.json。
+func dirHasImageFiles(dir string) bool {
+	exts := []string{".iso", ".wim", ".esd", ".gho"}
+	for _, ext := range exts {
+		pattern := filepath.Join(dir, "*"+ext)
+		matches, err := filepath.Glob(pattern)
+		if err == nil && len(matches) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// imageHasIndex 检查镜像元数据列表中是否存在指定的索引。
+func imageHasIndex(infos []dism.ImageMeta, index int) bool {
+	for _, info := range infos {
+		if info.Index == index {
+			return true
+		}
+	}
+	return false
 }
 
 func planImage(plan *InstallPlan) (string, bool) {

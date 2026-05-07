@@ -1,6 +1,11 @@
 {
-    "install": ,
-    "index":1,
-    "version":"10",
-    "是否强制使用该镜像": false
+    "images": [
+        {
+            "file": "镜像文件名.iso",
+            "index": 1,
+            "version": "10",
+            "arch": "64",
+            "verify": true
+        }
+    ]
 }

@@ -3,7 +3,7 @@ module ReSys
 go 1.25.0
 
 require (
-	github.com/AzureIvory/winui v0.0.0-20260506150310-9733824d9f57
+	github.com/AzureIvory/winui v0.0.0-20260507010134-7b61168b17b0
 	github.com/anacrolix/generics v0.2.0
 	github.com/anacrolix/torrent v1.61.0
 	github.com/hashicorp/go-retryablehttp v0.7.8

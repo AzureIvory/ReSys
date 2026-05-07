@@ -1,0 +1,267 @@
+{
+    "_comment_zh": "子组件：image_form（从 manual_page 拆分）",
+    "component": "page-manual-image-form",
+    "node": {
+        "children": [
+            {
+                "children": [
+                    {
+                        "frame": {
+                            "h": 28,
+                            "w": 42,
+                            "x": 0,
+                            "y": 0
+                        },
+                        "id": "manual-image-label",
+                        "style": {
+                            "align": "start",
+                            "fg": "#334155",
+                            "font": "Microsoft YaHei UI",
+                            "size": 13,
+                            "weight": 700
+                        },
+                        "text": {
+                            "bind": "i18n.manual.image.label",
+                            "default": "镜像"
+                        },
+                        "type": "label"
+                    }
+                ],
+                "type": "panel"
+            },
+            {
+                "children": [
+                    {
+                        "accept": [
+                            "*.iso",
+                            "*.wim",
+                            "*.esd"
+                        ],
+                        "buttonText": {
+                            "bind": "i18n.common.browse",
+                            "default": "浏览"
+                        },
+                        "dialogTitle": {
+                            "bind": "i18n.manual.image.dialogTitle",
+                            "default": "选择安装镜像"
+                        },
+                        "frame": {
+                            "h": 28,
+                            "w": 684,
+                            "x": 0,
+                            "y": 0
+                        },
+                        "id": "manual-image-picker",
+                        "onChange": "manual-image-change",
+                        "placeholder": {
+                            "bind": "manual.image.placeholder",
+                            "default": "选择本地 ISO / WIM / ESD 镜像"
+                        },
+                        "style": {
+                            "btn": {
+                                "bg": "#ffffff",
+                                "border": "#e2e8f0",
+                                "disabledBg": "#f1f5f9",
+                                "downFg": "#ffffff",
+                                "fg": "#475569",
+                                "font": "Microsoft YaHei",
+                                "hoverBg": "#f8fafc",
+                                "pad": 12,
+                                "pressedBg": "#0f172a",
+                                "radius": 10,
+                                "size": 14,
+                                "weight": 400
+                            }
+                        },
+                        "type": "file",
+                        "value": {
+                            "bind": "manual.image.path",
+                            "default": ""
+                        }
+                    }
+                ],
+                "type": "panel"
+            },
+            {
+                "children": [
+                    {
+                        "frame": {
+                            "h": 28,
+                            "w": 42,
+                            "x": 0,
+                            "y": 0
+                        },
+                        "id": "manual-index-label",
+                        "style": {
+                            "align": "start",
+                            "fg": "#334155",
+                            "font": "Microsoft YaHei UI",
+                            "size": 13,
+                            "weight": 700
+                        },
+                        "text": {
+                            "bind": "i18n.manual.image.indexLabel",
+                            "default": "索引"
+                        },
+                        "type": "label"
+                    }
+                ],
+                "type": "panel"
+            },
+            {
+                "children": [
+                    {
+                        "children": [
+                            {
+                                "frame": {
+                                    "h": 28,
+                                    "w": 310,
+                                    "x": 0,
+                                    "y": 0
+                                },
+                                "id": "manual-index-select",
+                                "items": {
+                                    "bind": "manual.image.items",
+                                    "default": []
+                                },
+                                "onChange": "manual-index-change",
+                                "placeholder": {
+                                    "bind": "manual.image.indexPlaceholder",
+                                    "default": "先选择镜像"
+                                },
+                                "sel": {
+                                    "bind": "manual.image.selected",
+                                    "default": ""
+                                },
+                                "type": "select"
+                            }
+                        ],
+                        "type": "panel"
+                    },
+                    {
+                        "children": [
+                            {
+                                "frame": {
+                                    "h": 28,
+                                    "w": 60,
+                                    "x": 0,
+                                    "y": 0
+                                },
+                                "id": "manual-system-label",
+                                "style": {
+                                    "align": "start",
+                                    "fg": "#334155",
+                                    "font": "Microsoft YaHei UI",
+                                    "size": 13,
+                                    "weight": 700
+                                },
+                                "text": {
+                                    "bind": "i18n.manual.system.label",
+                                    "default": "系统"
+                                },
+                                "type": "label"
+                            }
+                        ],
+                        "type": "panel"
+                    },
+                    {
+                        "children": [
+                            {
+                                "frame": {
+                                    "h": 44,
+                                    "w": 250,
+                                    "x": 0,
+                                    "y": 0
+                                },
+                                "id": "manual-system-select",
+                                "items": {
+                                    "bind": "manual.system.items",
+                                    "default": []
+                                },
+                                "onChange": "manual-system-change",
+                                "sel": {
+                                    "bind": "manual.system.selected",
+                                    "default": "other"
+                                },
+                                "style": {
+                                    "layout": "rich",
+                                    "imageSize": 18,
+                                    "subtitleFg": "#64748b"
+                                },
+                                "type": "select"
+                            }
+                        ],
+                        "style": {
+                            "bg": "#ffffff"
+                        },
+                        "type": "panel"
+                    }
+                ],
+                "layout": {
+                    "cross": "center",
+                    "gap": 10,
+                    "type": "row"
+                },
+                "style": {
+                    "bg": "#ffffff"
+                },
+                "type": "panel"
+            },
+            {
+                "children": [
+                    {
+                        "frame": {
+                            "h": 1,
+                            "w": 1,
+                            "x": 0,
+                            "y": 0
+                        },
+                        "text": "",
+                        "type": "label"
+                    }
+                ],
+                "type": "panel"
+            },
+            {
+                "children": [
+                    {
+                        "frame": {
+                            "h": 48,
+                            "w": 684,
+                            "x": 0,
+                            "y": 0
+                        },
+                        "id": "manual-summary",
+                        "multiline": true,
+                        "style": {
+                            "align": "start",
+                            "fg": "#475569",
+                            "font": "Microsoft YaHei UI",
+                            "size": 12
+                        },
+                        "text": {
+                            "bind": "manual.summary",
+                            "default": "请选择本地安装镜像和目标分区。"
+                        },
+                        "type": "label",
+                        "wordWrap": true
+                    }
+                ],
+                "type": "panel"
+            }
+        ],
+        "layout": {
+            "colGap": 6,
+            "labelW": 42,
+            "pad": [
+                0,
+                14,
+                0,
+                14
+            ],
+            "rowGap": 6,
+            "type": "form"
+        },
+        "type": "panel"
+    }
+}

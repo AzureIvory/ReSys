@@ -12,6 +12,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -145,6 +146,42 @@ func Message(title, text string) bool {
 	}
 	ret, _ := ui.app.MessageBox(title, text, core.MessageBoxOKCancel, 10*time.Second)
 	return ret == core.MessageBoxResultOK
+}
+
+// ImageIndexAction 表示镜像索引无效时用户的处理选择。
+type ImageIndexAction int
+
+const (
+	ImageIndexAuto   ImageIndexAction = 1 // 自动选择合适的索引
+	ImageIndexSkip   ImageIndexAction = 2 // 跳过当前镜像，尝试其他来源
+	ImageIndexCancel ImageIndexAction = 3 // 取消安装
+)
+
+// ShowImageIndexError 弹出"镜像索引不存在"的三选一对话框（是/否/取消）。
+//
+// 调用时机：自动重装流程中，通过 image.json 匹配到镜像但指定索引不存在时。
+// 该函数会阻塞调用方 goroutine，直到用户做出选择。
+func ShowImageIndexError(imageFile string, expectedIndex int) ImageIndexAction {
+	title := "镜像索引不存在"
+	text := fmt.Sprintf(
+		"镜像：%s\n\n该镜像中不存在索引 %d。\n\n请选择：\n  是(Y) - 自动选择合适的版本\n  否(N) - 跳过此镜像，尝试其他来源\n  取消   - 中止安装",
+		imageFile, expectedIndex,
+	)
+
+	if ui.app == nil {
+		return ImageIndexCancel
+	}
+
+	// MB_YESNOCANCEL = 0x03，Windows 原生三按钮消息框
+	ret, _ := ui.app.MessageBox(title, text, 3, 0)
+	switch ret {
+	case 6: // IDYES
+		return ImageIndexAuto
+	case 7: // IDNO
+		return ImageIndexSkip
+	default: // IDCANCEL = 2，窗口关闭也视为取消
+		return ImageIndexCancel
+	}
 }
 
 // MessageRetryExit 弹出 Retry/Cancel，对用户点击 Retry 返回 true。

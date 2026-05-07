@@ -10,15 +10,15 @@
   "dialog": {
     "error": "Error",
     "prompt": "Prompt",
-    "installConfirm": "Reinstalling Windows will erase data on drive C:. Continue?",
-    "manualInstallConfirm": "Manual reinstall will overwrite the target partition using the current options. Continue?"
+    "installConfirm": "Reinstalling Windows erases drive C:. Continue?",
+    "manualInstallConfirm": "Manual reinstall will overwrite the target partition. Continue?"
   },
   "select": {
     "title": "Select The Operating System To Install",
     "win7": "Win7",
     "win10": "Win10",
     "win11": "Win11",
-    "advanced": "Advanced Mode"
+    "advanced": "Advanced"
   },
   "progress": {
     "preparing": "Preparing...",
@@ -34,7 +34,7 @@
       "indexLabel": "Index",
       "indexPlaceholder": "Select an image first",
       "selectIndex": "Select installation index",
-      "noIndex": "No installable index was found in the image",
+      "noIndex": "No installable image was found.",
       "parseFailed": "Failed to parse image: %v",
       "parseFailedShort": "Image parse failed"
     },
@@ -46,7 +46,7 @@
     "detail": {
       "label": "Partition Details",
       "default": "Select a partition to view details.",
-      "loading": "Scanning partition information in the background. Please wait.",
+      "loading": "Scanning partitions. Please wait.",
       "imageLine": "\nImage: %s  Index: %d  Arch: %s"
     },
     "loading": {
@@ -61,11 +61,11 @@
         "skip": "Skip"
       },
       "placeholder": {
-        "auto": "Boot partition will update automatically with the target partition",
+        "auto": "Boot partition updates automatically with the target partition.",
         "selectTarget": "Select the target partition first",
         "disabled": "Boot repair is disabled",
-        "autoBIOS": "Automatic repair will choose a BIOS boot partition",
-        "autoUEFI": "Automatic repair will choose an EFI system partition",
+        "autoBIOS": "Automatic selectsboot partition.",
+        "autoUEFI": "Automatic selectsboot partition.",
         "selectBIOS": "Select a BIOS boot partition",
         "selectUEFI": "Select an EFI system partition",
         "noUEFI": "No usable EFI partition found",
@@ -100,12 +100,12 @@
       }
     },
     "pe": {
-      "placeholder": "When automatic PE handling is off, specify a PE WIM manually",
+      "placeholder": "Choose the PE WIM file path.",
       "dialogTitle": "Select PE WIM"
     },
     "driver": {
       "title": "Driver Backup Rules",
-      "tip": "Select driver backup scope by INF wildcard patterns and device class GUIDs.",
+      "tip": "Define driver backup scope by INF patterns and device class GUIDs.",
       "patternLabel": "INF wildcard patterns (comma/semicolon/newline separated)",
       "patternPlaceholder": "Example: oem*.inf, net*.inf",
       "guidLabel": "Select by device class GUID",
@@ -173,7 +173,7 @@
     },
     "postprocess": {
       "title": "Post-Install Tasks",
-      "tip": "Edit files/folders to copy and shortcuts to create after installation. Copy items overwrite existing targets; missing sources are skipped. Unchecking Post-Install Tasks clears this session config.",
+      "tip": "Configure post-install copies and shortcuts. Existing targets are overwritten; missing sources are skipped. Disabling Post-Install Tasks clears this session’s settings.",
       "reset": "Reset",
       "section": {
         "file": "File/Folder Copy",
@@ -181,12 +181,13 @@
       },
       "label": {
         "src": "Source",
-        "dst": "Destination"
+        "dst": "Destination",
+        "launch": "Launch"
       },
       "placeholder": {
-        "src": "e.g. tools\\\\SetupComplete.cmd or tools\\\\Office",
-        "dst": "e.g. \\\\Windows\\\\Setup\\\\Scripts\\\\SetupComplete.cmd or \\\\Users\\\\Public\\\\Desktop\\\\Office",
-        "target": "Target, e.g. C:\\\\drive.exe or https://example.com",
+        "src": "e.g. tools\\\\S.cmd or tools\\\\Office",
+        "dst": "e.g. \\\\Setup\\\\S.cmd or \\\\Users",
+        "target": "Target, e.g. C:\\\\d.exe or http://e.com",
         "name": "Name, e.g. DriverTool",
         "dir": "Directory, e.g. \\\\Users\\\\Public\\\\Desktop"
       },
@@ -205,9 +206,9 @@
       "waitingIndex": "Image selected, waiting for index",
       "image": "Image: %s / Index %d / %s",
       "target": "Target: %s",
-      "currentAutoPE": "Current system partition detected, PE will be handled automatically",
-      "currentManualPE": "Current system partition detected, PE will be specified manually",
-      "offlineInstall": "Non-system partition selected, offline install will be used",
+      "currentAutoPE": "System partition detected. PE will be handled automatically.",
+      "currentManualPE": "System partition detected. Specify PE manually.",
+      "offlineInstall": "Non-system partition selected. Using offline installation.",
       "viewOnly": "Current selection %s is view-only",
       "noTarget": "No target partition selected",
       "optionsPrefix": "Options: ",
@@ -218,12 +219,12 @@
       "selectImage": "Select an installation image",
       "selectIndex": "Select an image index",
       "selectTarget": "Select a target partition",
-      "targetNotSelectable": "The current partition cannot be used as an installation target",
-      "peRequired": "The current system partition requires a PE WIM when automatic PE handling is off",
+      "targetNotSelectable": "This partition is not a valid installation target.",
+      "peRequired": "Current system partition requires a PE WIM when automatic PE handling is off.",
       "selectBoot": "Select a boot partition"
     },
     "partitions": {
-      "readFailed": "Failed to read partition information. Check the disk enumeration interface.",
+      "readFailed": "Unable to read partition information. Check the disk enumeration interface.",
       "none": "No usable partition was found.",
       "noneFound": "No usable partition was found"
     },
@@ -280,8 +281,8 @@
   },
   "install": {
     "auto": {
-      "prepareDone": "Preparation complete. The system will enter PE after reboot.",
-      "readInstallInfo": "Reading reinstall information...",
+      "prepareDone": "Ready. The system will boot into PE after reboot.",
+      "readInstallInfo": "Loading reinstall information...",
       "completed": "Installation complete. Rebooting...",
       "checkEnvironment": "Checking installation environment...",
       "findImage": "Searching for installation image...",
@@ -296,7 +297,7 @@
     },
     "manual": {
       "rebootToPE": "Rebooting into PE...",
-      "prepareDone": "Preparation complete. Reboot manually to enter PE.",
+      "prepareDone": "Ready. Reboot manually to enter PE.",
       "checkArgs": "Checking installation parameters...",
       "writePlan": "Writing installation plan...",
       "setNextBootPE": "Configuring next boot into PE...",
@@ -326,8 +327,8 @@
       "restore": "Restoring backed up drivers..."
     },
     "image": {
-      "moveToOtherDisk": "The install image is on the system volume. Moving it to another fixed disk...",
-      "moveToTempVolume": "The install image is on the system volume. Creating a temporary volume and moving the image..."
+      "moveToOtherDisk": "Install image found on the system volume. Moving it to another fixed disk...",
+      "moveToTempVolume": "Image is on the system volume. Creating a temporary volume and moving it…"
     },
     "pe": {
       "writeSelf": "Writing the current program into PE...",

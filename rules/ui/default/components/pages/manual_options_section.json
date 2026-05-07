@@ -1,0 +1,232 @@
+{
+    "_comment_zh": "子组件：options_section（从 manual_page 拆分）",
+    "component": "page-manual-options-section",
+    "node": {
+        "children": [
+            {
+                "children": [
+                    {
+                        "children": [
+                            {
+                                "checked": {
+                                    "bind": "manual.options.formatTarget",
+                                    "default": true
+                                },
+                                "frame": {
+                                    "h": 28,
+                                    "w": 147,
+                                    "x": 0,
+                                    "y": 0
+                                },
+                                "id": "manual-format-target",
+                                "onChange": "manual-format-change",
+                                "style": {
+                                    "indicatorStyle": "check"
+                                },
+                                "text": {
+                                    "bind": "i18n.manual.option.formatTarget",
+                                    "default": "格式化目标分区"
+                                },
+                                "type": "checkbox"
+                            }
+                        ],
+                        "type": "panel"
+                    },
+                    {
+                        "children": [
+                            {
+                                "checked": {
+                                    "bind": "manual.options.backupDrivers",
+                                    "default": false
+                                },
+                                "frame": {
+                                    "h": 28,
+                                    "w": 147,
+                                    "x": 0,
+                                    "y": 0
+                                },
+                                "id": "manual-backup-drivers",
+                                "onChange": "manual-backup-change",
+                                "style": {
+                                    "indicatorStyle": "check"
+                                },
+                                "text": {
+                                    "bind": "i18n.manual.option.backupDrivers",
+                                    "default": "备份驱动"
+                                },
+                                "type": "checkbox"
+                            }
+                        ],
+                        "type": "panel"
+                    },
+                    {
+                        "children": [
+                            {
+                                "checked": {
+                                    "bind": "manual.options.postProcess",
+                                    "default": false
+                                },
+                                "frame": {
+                                    "h": 28,
+                                    "w": 147,
+                                    "x": 0,
+                                    "y": 0
+                                },
+                                "id": "manual-postprocess",
+                                "onChange": "manual-postprocess-change",
+                                "style": {
+                                    "indicatorStyle": "check"
+                                },
+                                "text": {
+                                    "bind": "i18n.manual.option.postProcess",
+                                    "default": "安装完成后处理"
+                                },
+                                "type": "checkbox"
+                            }
+                        ],
+                        "type": "panel"
+                    },
+                    {
+                        "children": [
+                            {
+                                "checked": {
+                                    "bind": "manual.options.autoDeploy",
+                                    "default": true
+                                },
+                                "frame": {
+                                    "h": 28,
+                                    "w": 147,
+                                    "x": 0,
+                                    "y": 0
+                                },
+                                "id": "manual-auto-deploy",
+                                "onChange": "manual-deploy-change",
+                                "style": {
+                                    "indicatorStyle": "check"
+                                },
+                                "text": {
+                                    "bind": "i18n.manual.option.autoDeploy",
+                                    "default": "无人值守"
+                                },
+                                "type": "checkbox"
+                            }
+                        ],
+                        "type": "panel"
+                    },
+                    {
+                        "children": [
+                            {
+                                "checked": {
+                                    "bind": "manual.options.autoReboot",
+                                    "default": true
+                                },
+                                "frame": {
+                                    "h": 28,
+                                    "w": 147,
+                                    "x": 0,
+                                    "y": 0
+                                },
+                                "id": "manual-auto-reboot",
+                                "onChange": "manual-reboot-change",
+                                "style": {
+                                    "indicatorStyle": "check"
+                                },
+                                "text": {
+                                    "bind": "i18n.manual.option.autoReboot",
+                                    "default": "自动重启"
+                                },
+                                "type": "checkbox"
+                            }
+                        ],
+                        "type": "panel"
+                    },
+                    {
+                        "children": [
+                            {
+                                "checked": {
+                                    "bind": "manual.options.win7Fix",
+                                    "default": false
+                                },
+                                "frame": {
+                                    "h": 28,
+                                    "w": 147,
+                                    "x": 0,
+                                    "y": 0
+                                },
+                                "id": "manual-win7-fix",
+                                "onChange": "manual-win7-fix-change",
+                                "style": {
+                                    "indicatorStyle": "check"
+                                },
+                                "text": {
+                                    "bind": "i18n.manual.option.win7Fix",
+                                    "default": "Win7 修复"
+                                },
+                                "type": "checkbox"
+                            }
+                        ],
+                        "type": "panel"
+                    }
+                ],
+                "layout": {
+                    "colGap": 8,
+                    "cols": 3,
+                    "rowGap": 6,
+                    "type": "grid"
+                },
+                "type": "panel"
+            },
+            {
+                "children": [
+                    {
+                        "enabled": {
+                            "bind": "manual.options.startEnabled",
+                            "default": false
+                        },
+                        "frame": {
+                            "h": 32,
+                            "w": 108,
+                            "x": 0,
+                            "y": 0
+                        },
+                        "id": "manual-start",
+                        "onClick": "manual-start",
+                        "style": {
+                            "bg": "#2563eb",
+                            "border": "transparent",
+                            "disabledBg": "#60a5fa",
+                            "disabledFg": "#bfdbfe",
+                            "downFg": "#ffffff",
+                            "fg": "#ffffff",
+                            "font": "Microsoft YaHei UI",
+                            "hoverBg": "#1d4ed8",
+                            "pad": 12,
+                            "pressedBg": "#1e40af",
+                            "radius": 10,
+                            "size": 14,
+                            "weight": 700
+                        },
+                        "text": {
+                            "bind": "i18n.manual.start",
+                            "default": "开始重装"
+                        },
+                        "type": "button"
+                    }
+                ],
+                "type": "panel"
+            }
+        ],
+        "layout": {
+            "cross": "end",
+            "gap": 12,
+            "pad": [
+                0,
+                14,
+                0,
+                14
+            ],
+            "type": "row"
+        },
+        "type": "panel"
+    }
+}

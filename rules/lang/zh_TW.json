@@ -40,7 +40,8 @@
     },
     "target": {
       "label": "安裝分割區",
-      "unknown": "未知系統"
+      "unknown": "未知系統",
+      "other": "其他系統"
     },
     "detail": {
       "label": "分割區詳情",
@@ -87,11 +88,15 @@
       "backupDrivers": "備份驅動",
       "autoDeploy": "無人值守",
       "autoReboot": "自動重新啟動",
+      "postProcess": "安裝完成後處理",
+      "win7Fix": "Win7 修復",
       "short": {
         "format": "格式化",
         "backupDrivers": "備份驅動",
         "autoDeploy": "無人值守",
-        "autoReboot": "自動重啟"
+        "autoReboot": "自動重啟",
+        "postProcess": "後處理",
+        "win7Fix": "Win7 修復"
       }
     },
     "pe": {
@@ -104,12 +109,95 @@
       "patternLabel": "INF 萬用字元（逗號/分號/換行分隔）",
       "patternPlaceholder": "例如：oem*.inf, net*.inf",
       "guidLabel": "按裝置類別 GUID 選擇",
+      "guidOptions": {
+        "audio_processing_object": "音訊處理物件 (APO)",
+        "battery": "電池裝置",
+        "biometric": "生物識別裝置",
+        "bluetooth": "藍牙裝置",
+        "camera": "相機裝置",
+        "cdrom_drive": "CD-ROM 磁碟機",
+        "disk_drive": "磁碟磁碟機",
+        "display_adapter": "顯示卡",
+        "extension_inf": "擴充 INF",
+        "floppy_controller": "軟碟控制器",
+        "floppy_drive": "軟碟磁碟機",
+        "hard_disk_controller": "硬碟控制器",
+        "hid": "人機介面裝置 (HID)",
+        "ieee_1284_4": "IEEE 1284.4 裝置",
+        "ieee_1284_4_print": "IEEE 1284.4 列印功能",
+        "ieee_1394_61883": "支援 61883 協定的 IEEE 1394 裝置",
+        "ieee_1394_avc": "支援 AVC 協定的 IEEE 1394 裝置",
+        "ieee_1394_sbp2": "支援 SBP2 協定的 IEEE 1394 裝置",
+        "ieee_1394_controller": "IEEE 1394 主機匯流排控制器",
+        "image": "影像處理裝置",
+        "irda": "IrDA 裝置",
+        "keyboard": "鍵盤",
+        "medium_changer": "媒體更換器",
+        "memory_technology_driver": "記憶體技術驅動程式",
+        "modem": "數據機",
+        "monitor": "顯示器",
+        "mouse": "滑鼠",
+        "multifunction": "多功能裝置",
+        "multimedia": "多媒體",
+        "multiport_serial": "多連接埠序列介面卡",
+        "network_adapter": "網路介面卡",
+        "network_client": "網路用戶端",
+        "network_service": "網路服務",
+        "network_transport": "網路傳輸",
+        "pci_ssl_accelerator": "PCI SSL 加速器",
+        "pcmcia_adapter": "PCMCIA 介面卡",
+        "ports": "連接埠（COM 和 LPT 連接埠）",
+        "printer": "印表機",
+        "pnp_printers": "印表機、特定於匯流排的類別驅動程式",
+        "processor": "處理器",
+        "scsi_adapter": "SCSI、RAID 和 NVMe 控制器",
+        "security": "安全裝置",
+        "sensor": "感測器",
+        "smart_card_reader": "智慧卡讀卡機",
+        "software_component": "軟體元件",
+        "nvme_disk": "儲存磁碟",
+        "storage_volume": "儲存磁碟區",
+        "system": "系統裝置",
+        "tape_drive": "磁帶機",
+        "ucm": "USB 連接器管理員",
+        "usb_device": "USB 裝置",
+        "wceusbs": "Windows CE USB ActiveSync 裝置",
+        "wpd": "Windows 可攜式裝置（WPD）"
+      },
       "summary": {
         "empty": "尚未選擇任何規則，將取消勾選備份驅動。",
         "selected": "已選擇規則：INF %d 項，GUID %d 項。"
       },
       "confirm": "確定",
       "cancel": "取消"
+    },
+    "postprocess": {
+      "title": "安裝完成後處理",
+      "tip": "編輯安裝完成後要複製的檔案、目錄和建立的捷徑。複製項會自動覆蓋已有目標，來源路徑不存在時自動跳過。取消勾選「安裝完成後處理」會清空本次工作階段設定。",
+      "reset": "恢復預設",
+      "section": {
+        "file": "檔案/目錄複製",
+        "shortcut": "捷徑"
+      },
+      "label": {
+        "src": "來源路徑",
+        "dst": "目標路徑",
+        "launch": "啟動方式"
+      },
+      "placeholder": {
+        "src": "例如 tools\\\\SetupComplete.cmd 或 tools\\\\Office",
+        "dst": "例如 \\\\Windows\\\\Setup\\\\Scripts\\\\SetupComplete.cmd 或 \\\\Users\\\\Public\\\\Desktop\\\\Office",
+        "target": "目標，例如 C:\\\\drive.exe 或 https://example.com",
+        "name": "名稱，例如 驅動總裁",
+        "dir": "目錄，例如 \\\\Users\\\\Public\\\\Desktop"
+      },
+      "btn": {
+        "add": "新增",
+        "save": "儲存",
+        "delete": "刪除",
+        "confirm": "確定",
+        "cancel": "取消"
+      }
     },
     "start": "開始重裝",
     "summary": {
@@ -167,6 +255,18 @@
     "size": {
       "total": "總計 %s",
       "totalFree": "總計 %s / 可用 %s"
+    },
+    "system": {
+      "label": "系統",
+      "option": {
+        "win7": "Win7",
+        "win10": "Win10",
+        "win11": "Win11",
+        "other": "其他"
+      },
+      "subtitle": {
+        "other": "其他"
+      }
     }
   },
   "prompt": {

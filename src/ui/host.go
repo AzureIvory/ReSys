@@ -71,7 +71,7 @@ func loadUIJSON(store *jsonui.Store) (*jsonui.Document, error) {
 		AssetsDir:      assetsDir,
 		Data:           store,
 		DefaultMode:    widgets.ModeCustom,
-		Theme:          resysTheme(),
+		Theme:          widgets.DefaultTheme(),
 		ImageSizeDP:    48,
 	})
 }
@@ -127,6 +127,10 @@ func defaultUIState() map[string]any {
 			"system": map[string]any{
 				"selected": targetOther,
 				"items":    localizedTargetSystemItems(),
+			},
+			"language": map[string]any{
+				"selected": i18nLanguage,
+				"items":    availableLanguages(),
 			},
 			"partitions": map[string]any{
 				"selected":    "",
@@ -299,6 +303,9 @@ func uiActionHandlers() map[string]func(jsonui.ActionContext) {
 		"manual-system-change": func(ctx jsonui.ActionContext) {
 			HandleSystemChange(ctx.Value)
 		},
+		"manual-language-change": func(ctx jsonui.ActionContext) {
+			HandleLanguageChange(ctx.Value)
+		},
 		"manual-partition-change": func(ctx jsonui.ActionContext) {
 			HandlePartitionChange(ctx.Value)
 		},
@@ -355,6 +362,9 @@ func uiActionHandlers() map[string]func(jsonui.ActionContext) {
 		},
 		"manual-postprocess-file-required-change": func(ctx jsonui.ActionContext) {
 			manualSetState("manual.postprocess.files.form.required", ctx.Checked)
+		},
+		"manual-postprocess-file-launch-change": func(ctx jsonui.ActionContext) {
+			HandlePostProcessFileLaunchChange(ctx.Value)
 		},
 		"manual-postprocess-file-add": func(jsonui.ActionContext) {
 			HandlePostProcessFileAdd()

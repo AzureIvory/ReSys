@@ -4,6 +4,10 @@
         "manual-driver-modal": "components/modals/manual_driver_modal.json",
         "manual-postprocess-modal": "components/modals/manual_postprocess_modal.json",
         "page-manual": "components/pages/manual_page.json",
+        "page-manual-header": "components/pages/manual_header.json",
+        "page-manual-image-form": "components/pages/manual_image_form.json",
+        "page-manual-disk-section": "components/pages/manual_disk_section.json",
+        "page-manual-options-section": "components/pages/manual_options_section.json",
         "page-progress": "components/pages/progress_page.json",
         "page-select": "components/pages/select_page.json",
         "prompt-bitlocker": "components/modals/bitlocker_prompt.json"

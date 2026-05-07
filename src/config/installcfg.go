@@ -92,12 +92,20 @@ type FileConfig struct {
 	Items []FileItem `json:"items"`
 }
 
+// 启动方式常量。
+const (
+	LaunchNone       = "none"
+	LaunchFirstLogon = "firstLogon"
+	LaunchSpecialize = "specialize"
+)
+
 // FileItem 描述单个复制规则。
 type FileItem struct {
 	Src       string `json:"src"`
 	Dst       string `json:"dst"`
 	Overwrite bool   `json:"overwrite"`
 	Required  bool   `json:"required"`
+	Launch    string `json:"launch,omitempty"` // 启动方式：none / firstLogon / specialize
 }
 
 // Shortcut 定义安装后创建的快捷方式。

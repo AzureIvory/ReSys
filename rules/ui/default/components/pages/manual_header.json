@@ -1,0 +1,116 @@
+{
+    "_comment_zh": "子组件：header（从 manual_page 拆分）",
+    "component": "page-manual-header",
+    "node": {
+        "children": [
+            {
+                "children": [
+                    {
+                        "frame": {
+                            "h": 30,
+                            "w": 70,
+                            "x": 0,
+                            "y": 0
+                        },
+                        "id": "manual-back",
+                        "onClick": "manual-back",
+                        "style": {
+                            "bg": "#ffffff",
+                            "border": "#e2e8f0",
+                            "disabledBg": "#f1f5f9",
+                            "downFg": "#ffffff",
+                            "fg": "#475569",
+                            "font": "Microsoft YaHei",
+                            "hoverBg": "#f8fafc",
+                            "pad": 12,
+                            "pressedBg": "#0f172a",
+                            "radius": 10,
+                            "size": 14,
+                            "weight": 400
+                        },
+                        "text": {
+                            "bind": "i18n.manual.back",
+                            "default": "返回"
+                        },
+                        "type": "button"
+                    }
+                ],
+                "type": "panel"
+            },
+            {
+                "children": [
+                    {
+                        "frame": {
+                            "h": 30,
+                            "w": 520,
+                            "x": 0,
+                            "y": 0
+                        },
+                        "id": "manual-title",
+                        "style": {
+                            "align": "start",
+                            "fg": "#0f172a",
+                            "font": "Microsoft YaHei UI",
+                            "size": 18,
+                            "weight": 700
+                        },
+                        "text": {
+                            "bind": "i18n.manual.title",
+                            "default": "手动重装"
+                        },
+                        "type": "label"
+                    }
+                ],
+                "type": "panel"
+            },
+            {
+                "children": [
+                    {
+                        "frame": {
+                            "h": 28,
+                            "w": 110,
+                            "x": 0,
+                            "y": 0
+                        },
+                        "id": "manual-language",
+                        "items": {
+                            "bind": "manual.language.items",
+                            "default": []
+                        },
+                        "onChange": "manual-language-change",
+                        "sel": {
+                            "bind": "manual.language.selected",
+                            "default": "zh_CN"
+                        },
+                        "style": {
+                            "bg": "#ffffff",
+                            "border": "#cbd5e1",
+                            "fg": "#1e293b",
+                            "focusBorder": "#2563eb",
+                            "font": "Microsoft YaHei UI",
+                            "hoverBorder": "#3b82f6",
+                            "pad": 8,
+                            "ph": "#94a3b8",
+                            "radius": 10,
+                            "size": 12
+                        },
+                        "type": "select"
+                    }
+                ],
+                "type": "panel"
+            }
+        ],
+        "layout": {
+            "cross": "center",
+            "gap": 10,
+            "pad": [
+                14,
+                10,
+                0,
+                14
+            ],
+            "type": "row"
+        },
+        "type": "panel"
+    }
+}

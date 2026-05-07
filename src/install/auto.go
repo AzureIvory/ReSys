@@ -5,6 +5,7 @@ import (
 	"ReSys/src/log"
 	"ReSys/src/ui"
 	"ReSys/src/utils"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -33,7 +34,9 @@ func StartInstall(target string) {
 		return runAutoPrepareFlow(ctx)
 	}); err != nil {
 		log.LogWrite(-2, "[StartInstall] failed: %v", err)
-		ui.UiShowError("", err.Error())
+		if !errors.Is(err, ErrInstallCanceled) {
+			ui.UiShowError("", err.Error())
+		}
 		os.Exit(-1)
 		return
 	}

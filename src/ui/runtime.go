@@ -2,7 +2,7 @@
 
 // 手动模式（高级模式）的运行时逻辑。
 //
-// 这个文件负责“事件处理 + 异步加载 + Store 更新”，不负责实际的安装动作。
+// 这个文件负责"事件处理 + 异步加载 + Store 更新"，不负责实际的安装动作。
 // UI 的结构/布局在 JSON 中声明（json ui），Go 侧通过修改 Store 来驱动 UI：
 // - 镜像选择/索引：`manual.image.*`
 // - 分区列表/详情：`manual.partitions.*`
@@ -30,9 +30,9 @@ import (
 var StartManualInstall = func(src string) {}
 
 // UIState 是手动模式的内存状态缓存。
-// JSONUI 的 Store 适合做“可绑定的 UI 状态”，而一些派生数据/缓存更适合留在 Go 内存里：
+// JSONUI 的 Store 适合做"可绑定的 UI 状态"，而一些派生数据/缓存更适合留在 Go 内存里：
 // - imageInfos/partitionRows/bootRows：避免每次读取 Store 都要重复解析/计算；
-// - partitionLoadID：用于异步加载的“代号”，防止慢请求覆盖新请求的结果。
+// - partitionLoadID：用于异步加载的"代号"，防止慢请求覆盖新请求的结果。
 type UIState struct {
 	imagePath                 string
 	imageInfos                []dism.ImageMeta
@@ -51,13 +51,14 @@ type UIState struct {
 	postProcessShortcuts      []config.ShortcutItem
 	postProcessDraftShortcuts []config.ShortcutItem
 	postProcessOpen           postProcessModalSnapshot
+	postProcessLaunchPresets  map[string]string // 文件名 → 启动方式，从 .cmd 中解析
 }
 
 // PartitionRow 是手动模式里展示分区/卷信息的行模型。
 //
 // 其中 Ref 是 UI 列表项的 Value：
-// - 对“已挂载卷”通常是类似 `C:\` 的根路径；
-// - 对“未挂载/引导候选分区”通常是 `diskNumber:partitionNumber`。
+// - 对"已挂载卷"通常是类似 `C:\` 的根路径；
+// - 对"未挂载/引导候选分区"通常是 `diskNumber:partitionNumber`。
 type PartitionRow struct {
 	DiskNumber       int
 	PartitionNumber  int
@@ -79,7 +80,7 @@ type PartitionRow struct {
 	Detail           string
 }
 
-// BootTargetOption 是“引导分区”下拉框的候选项。
+// BootTargetOption 是"引导分区"下拉框的候选项。
 type BootTargetOption struct {
 	Ref  string
 	Text string
@@ -104,7 +105,7 @@ func destroyManualMode() {
 	manual = UIState{}
 }
 
-// UiShowManualMode 切换到“手动模式”页面，并异步加载分区列表。
+// UiShowManualMode 切换到"手动模式"页面，并异步加载分区列表。
 //
 // 设计要点：
 // - 页面切换必须在 UI 线程执行；
@@ -123,7 +124,7 @@ func UiShowManualMode() {
 	_ = ui.app.Post(show)
 }
 
-// HandleIndexChange 处理“镜像索引”变更。
+// HandleIndexChange 处理"镜像索引"变更。
 // 这里会更新 Store，并联动刷新：引导分区候选、详情文本、底部汇总说明。
 func HandleIndexChange(value string) {
 	manualSetState("manual.image.selected", strings.TrimSpace(value))
@@ -132,31 +133,31 @@ func HandleIndexChange(value string) {
 	manualUpdateSummary()
 }
 
-// HandleSystemChange 处理“目标系统”组合框变更。
+// HandleSystemChange 处理"目标系统"组合框变更。
 func HandleSystemChange(value string) {
 	manualApplySelectedTargetOS(value)
 	manualUpdateSummary()
 }
 
-// HandlePartitionChange 处理“目标分区”变更。
+// HandlePartitionChange 处理"目标分区"变更。
 func HandlePartitionChange(ref string) {
 	ApplyPartitionSelection(ref)
 }
 
-// HandleAutoPEChange 处理“自动处理 PE”开关。
+// HandleAutoPEChange 处理"自动处理 PE"开关。
 func HandleAutoPEChange(checked bool) {
 	manualSetState("manual.options.autoPE", checked)
 	manualUpdatePEInputState()
 	manualUpdateSummary()
 }
 
-// HandlePEPathChange 处理“PE WIM 路径”输入变更。
+// HandlePEPathChange 处理"PE WIM 路径"输入变更。
 func HandlePEPathChange(path string) {
 	manualSetState("manual.options.pePath", strings.TrimSpace(path))
 	manualUpdateSummary()
 }
 
-// HandleBootModeChange 处理“引导修复模式”变更。
+// HandleBootModeChange 处理"引导修复模式"变更。
 func HandleBootModeChange(value string) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -167,10 +168,22 @@ func HandleBootModeChange(value string) {
 	manualUpdateSummary()
 }
 
-// HandleBootTargetChange 处理“引导分区”下拉框变更。
+// HandleBootTargetChange 处理"引导分区"下拉框变更。
 func HandleBootTargetChange(value string) {
 	manualSetState("manual.boot.target", strings.TrimSpace(value))
 	manualUpdateSummary()
+}
+
+// HandleLanguageChange 处理语言切换下拉框变更。
+func HandleLanguageChange(value string) {
+	language := strings.TrimSpace(value)
+	if language == "" || language == i18nLanguage {
+		return
+	}
+	if err := setUILanguage(language); err != nil {
+		UiShowError("", "切换语言失败: "+err.Error())
+		manualSetState("manual.language.selected", i18nLanguage)
+	}
 }
 
 // HandleOptionChange 处理通用的布尔选项变更（格式化/备份驱动/无人值守/自动重启等）。
@@ -179,7 +192,7 @@ func HandleOptionChange(path string, checked bool) {
 	manualUpdateSummary()
 }
 
-// HandleStart 点击“开始重装”。
+// HandleStart 点击"开始重装"。
 // 这里仅做校验与二次确认，然后切到进度页并在后台调用 StartManualInstall。
 func HandleStart() {
 	text, err := manualBuildJSON()
@@ -199,7 +212,7 @@ func HandleStart() {
 	go StartManualInstall(exportPath)
 }
 
-// manualLoadImage 处理“安装镜像路径”变更：解析镜像并刷新索引列表。
+// manualLoadImage 处理"安装镜像路径"变更：解析镜像并刷新索引列表。
 //
 // 解析结果会缓存在 manual.imageInfos 中，用于后续派生：
 // - 自动推断目标系统（Win7/10/11）
@@ -269,7 +282,7 @@ func manualLoadImage(path string) {
 // RefreshPartitionsAsync 异步扫描分区/卷信息。
 //
 // 由于扫描可能耗时且会触发外部命令/系统 API，因此放到后台 goroutine。
-// partitionLoadID 用作“加载代号”：当多次触发刷新时，旧请求完成后会被丢弃，避免覆盖新结果。
+// partitionLoadID 用作"加载代号"：当多次触发刷新时，旧请求完成后会被丢弃，避免覆盖新结果。
 func RefreshPartitionsAsync() {
 	if ui.app == nil {
 		return
@@ -294,7 +307,7 @@ func RefreshPartitionsAsync() {
 	}(prevRef, loadID)
 }
 
-// manualSetLoading 同步更新“加载中/可操作”状态，并联动刷新派生状态。
+// manualSetLoading 同步更新"加载中/可操作"状态，并联动刷新派生状态。
 // 当 loading=true 时会禁用分区列表与引导选择，避免用户在数据未就绪时操作。
 func manualSetLoading(loading bool, text string) {
 	if strings.TrimSpace(text) == "" {
