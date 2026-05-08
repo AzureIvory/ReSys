@@ -23,13 +23,20 @@ func init() {
 
 // StartManualInstall starts the advanced manual reinstall flow.
 func StartManualInstall(src string) {
-	plan, err := buildManualInstallPlan(src)
+	cfg, err := parseCfg(src)
 	if err != nil {
-		ui.UiShowError("", err.Error())
-		ui.UiShowManualMode()
+		showErr(err, true)
 		return
 	}
+	startMan(cfg)
+}
 
+func startMan(cfg config.Config) {
+	plan, err := planMan(cfg)
+	if err != nil {
+		showErr(err, true)
+		return
+	}
 	ctx := NewInstallContext(plan)
 	log.LogWrite(0, "[StartManualInstall] image=%s index=%d target=%s mode=%s", plan.ImagePath, plan.ImageIndex, plan.TargetRoot, plan.Mode)
 
@@ -38,7 +45,7 @@ func StartManualInstall(src string) {
 			return runManualPrepareFlow(ctx)
 		}); err != nil {
 			log.LogWrite(-2, "[StartManualInstall] prepare failed: %v", err)
-			ui.UiShowError("", err.Error())
+			ui.Warning("", err.Error())
 			ui.UiShowManualMode()
 			return
 		}
@@ -57,7 +64,7 @@ func StartManualInstall(src string) {
 		return runManualDirectFlow(ctx)
 	}); err != nil {
 		log.LogWrite(-2, "[StartManualInstall] direct install failed: %v", err)
-		ui.UiShowError("", err.Error())
+		ui.Warning("", err.Error())
 		ui.UiShowManualMode()
 		return
 	}
@@ -66,11 +73,15 @@ func StartManualInstall(src string) {
 }
 
 func buildManualInstallPlan(src string) (*InstallPlan, error) {
-	cfg, err := config.ParseSource(src)
+	cfg, err := parseCfg(src)
 	if err != nil {
 		return nil, err
 	}
+	return planMan(cfg)
+}
 
+// planMan 负责把手动模式配置补齐为可执行的安装计划。
+func planMan(cfg config.Config) (*InstallPlan, error) {
 	plan := planFromCfg(cfg)
 	if err := NormalizeInstallPlan(plan); err != nil {
 		return nil, err

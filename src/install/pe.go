@@ -32,6 +32,8 @@ var peHTTP = download.HttpStatus
 var peRoot = ChoosePEWorkspaceRoot
 var peMkDir = file.EnsureCleanDir
 var peSdi = copySDIToPEWorkspace
+var getPEs = data.GetWinPE
+var getPEL = data.PELnk
 var peHas = utils.FileExists
 var peName = download.GetlinkName
 var peMD5 = tools.MatchMD5
@@ -417,6 +419,9 @@ func dlPECand(opt peDlOpt) (string, error) {
 	if len(links) == 0 {
 		return "", fmt.Errorf("PE links are empty")
 	}
+	if err := needNet("下载PE"); err != nil {
+		return "", err
+	}
 
 	root, err := peRoot(peNeedBytes(opt.meta, opt.size))
 	if err != nil {
@@ -490,7 +495,11 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 	}
 	log.LogWrite(0, "[downloadPE] downloading PE, target arch=%s", arch)
 
-	peList, err := data.GetWinPE()
+	if err := needNet("访问PE资源"); err != nil {
+		return "", "", err
+	}
+
+	peList, err := getPEs()
 	if err != nil {
 		log.LogWrite(0, "[downloadPE] failed to load PE list: %v", err)
 		return "", "", err
@@ -538,7 +547,7 @@ func downloadPE(arch string, failedPEImages map[string]struct{}) (string, string
 		}
 	}
 
-	if name, size, links, err := data.PELnk(); err == nil {
+	if name, size, links, err := getPEL(); err == nil {
 		if _, ok := failedPEImages[peLinksID]; !ok {
 			if wim, err := downloadPEUrls(name, size, arch, links); err == nil {
 				return wim, peLinksID, nil
@@ -579,7 +588,7 @@ func downloadPEUrls(name string, size float64, arch string, links []string) (str
 
 // matchPEMetaByLinks 根据名称、架构和链接回查规则元数据。
 func matchPEMetaByLinks(name, arch string, links []string) (data.WinPEImg, bool) {
-	list, err := data.GetWinPE()
+	list, err := getPEs()
 	if err != nil {
 		return data.WinPEImg{}, false
 	}

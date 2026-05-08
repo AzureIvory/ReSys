@@ -20,6 +20,7 @@ import (
 )
 
 var loadDownloadAppConfig = config.LoadAppConfig
+var getImgItems = data.GetInstallImageItems
 
 func normLanguageCode(lang string) string {
 	lang = strings.TrimSpace(lang)
@@ -192,7 +193,11 @@ func prepareImageDestination(it data.RuleItem, dstDir, link string) (string, boo
 // 选择顺序固定为：先用聚合后的规则列表，再按架构筛选，最后区分 URL 与非 URL。
 // 每个下载完成的镜像都会再做一次校验。
 func DownloadImage(target, arch string) (string, error) {
-	ent, err := data.GetInstallImageItems(target)
+	if err := needNet("访问镜像资源"); err != nil {
+		return "", err
+	}
+
+	ent, err := getImgItems(target)
 	if err != nil {
 		log.LogWrite(0, "[downloadImage] failed to load image list: %v", err)
 		return "", err
@@ -259,6 +264,9 @@ func DownloadImage(target, arch string) (string, error) {
 				log.LogWrite(0, "[downloadImage] image already exists: %s", dstPath)
 				ui.UiSetProgress(60)
 				return dstPath, nil
+			}
+			if err := needNet("下载镜像"); err != nil {
+				return "", err
 			}
 			ui.UiSetProgress(0)
 			ui.UiSetStatus(ui.Tr("install.download.start"))
@@ -333,6 +341,9 @@ func DownloadImage(target, arch string) (string, error) {
 				log.LogWrite(0, "[downloadImage] image already exists: %s", dstPath)
 				ui.UiSetProgress(60)
 				return dstPath, nil
+			}
+			if err := needNet("下载镜像"); err != nil {
+				return "", err
 			}
 
 			log.LogWrite(0, "[downloadImage] starting image download (BT): %s -> %s", link, dstDir)

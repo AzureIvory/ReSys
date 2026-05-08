@@ -20,22 +20,42 @@ func init() {
 
 // StartInstall 启动 Windows 侧的自动重装准备流程。
 func StartInstall(target string) {
-	plan, err := loadAutoInstallPlan(target)
+	cfg, err := autoCfg(target)
 	if err != nil {
 		log.LogWrite(-2, "[StartInstall] load config failed: %v", err)
-		ui.UiShowError("", err.Error())
-		os.Exit(-1)
+		if ui.Warning("", err.Error()) {
+			os.Exit(-1)
+		}
+		ui.UiShowSelectMode()
+		return
+	}
+	runAuto(cfg)
+}
+
+// startAuto 负责自动模式的通用启动逻辑，供 UI 与命令行共用。
+func startAuto(cfg config.Config) {
+	plan, err := planAuto(cfg)
+	if err != nil {
+		log.LogWrite(-2, "[startAuto] plan failed: %v", err)
+		if ui.Warning("", err.Error()) {
+			os.Exit(-1)
+		}
+		ui.UiShowSelectMode()
 		return
 	}
 	ctx := NewInstallContext(plan)
 
-	log.LogWrite(0, "[StartInstall] target=%s imageArch=%s peArch=%s", target, plan.ImageArch, plan.PEArch)
+	log.LogWrite(0, "[startAuto] target=%s imageArch=%s peArch=%s", plan.TargetOS, plan.ImageArch, plan.PEArch)
 	if err := runFlowWithGuard("StartInstall", func() error {
 		return runAutoPrepareFlow(ctx)
 	}); err != nil {
-		log.LogWrite(-2, "[StartInstall] failed: %v", err)
+		log.LogWrite(-2, "[startAuto] failed: %v", err)
 		if !errors.Is(err, ErrInstallCanceled) {
-			ui.UiShowError("", err.Error())
+			if ui.Warning("", err.Error()) {
+				os.Exit(-1)
+			}
+			ui.UiShowSelectMode()
+			return
 		}
 		os.Exit(-1)
 		return
@@ -43,23 +63,31 @@ func StartInstall(target string) {
 
 	ui.UiSetProgress(100)
 	ui.UiSetStatus(ui.Tr("install.auto.prepareDone"))
-	log.LogWrite(0, "[StartInstall] prepare finished")
+	log.LogWrite(0, "[startAuto] prepare finished")
 }
 
 // loadAutoInstallPlan 读取自动重装 JSON 并转换为安装计划。
 func loadAutoInstallPlan(target string) (*InstallPlan, error) {
+	cfg, err := autoCfg(target)
+	if err != nil {
+		return nil, err
+	}
+	return planAuto(cfg)
+}
+
+func autoCfg(target string) (config.Config, error) {
 	target = strings.ToLower(strings.TrimSpace(target))
 	if target == "" {
-		return nil, fmt.Errorf("empty target os")
+		return config.Config{}, fmt.Errorf("empty target os")
 	}
 
 	cfgPath, err := autoConfigPath(target)
 	if err != nil {
-		return nil, err
+		return config.Config{}, err
 	}
 	cfg, err := config.ParseSource(cfgPath)
 	if err != nil {
-		return nil, err
+		return config.Config{}, err
 	}
 	if strings.TrimSpace(cfg.Mode) == "" {
 		cfg.Mode = string(ReinstallModeAuto)
@@ -67,12 +95,12 @@ func loadAutoInstallPlan(target string) (*InstallPlan, error) {
 	if strings.TrimSpace(cfg.TargetOS) == "" {
 		cfg.TargetOS = target
 	}
+	return cfg, nil
+}
 
+func planAuto(cfg config.Config) (*InstallPlan, error) {
 	plan := planFromCfg(cfg)
 	plan.Mode = ReinstallModeAuto
-	if strings.TrimSpace(plan.TargetOS) == "" {
-		plan.TargetOS = target
-	}
 	if err := NormalizeInstallPlan(plan); err != nil {
 		return nil, err
 	}

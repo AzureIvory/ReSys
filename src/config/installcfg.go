@@ -50,7 +50,6 @@ type Config struct {
 	PEWIM        string       `json:"PEwim"`
 	Boot         Boot         `json:"boot"`
 	Restart      bool         `json:"restart"`
-	Unattended   Unattended   `json:"unattended"`
 	BackupDriver BackupDriver `json:"backup_driver"`
 	Format       Format       `json:"format"`
 	File         FileConfig   `json:"file"`
@@ -62,12 +61,6 @@ type Config struct {
 type Boot struct {
 	Method        string `json:"method"`
 	BootPartition string `json:"boot_partition"`
-}
-
-// Unattended 是无人值守相关配置。
-type Unattended struct {
-	State bool   `json:"state"`
-	File  string `json:"unattended_file"`
 }
 
 // BackupDriver 是驱动备份相关配置。
@@ -203,7 +196,6 @@ func (cfg *Config) Normalize() error {
 	if err := cfg.Boot.normalize(); err != nil {
 		return err
 	}
-	cfg.Unattended.normalize()
 	cfg.BackupDriver.normalize()
 	if err := cfg.Format.normalize(); err != nil {
 		return err
@@ -247,16 +239,6 @@ func (b *Boot) normalize() error {
 	}
 
 	return nil
-}
-
-func (u *Unattended) normalize() {
-	if u == nil {
-		return
-	}
-	u.File = strings.TrimSpace(u.File)
-	if u.File == "" || strings.EqualFold(u.File, Auto) {
-		u.File = Auto
-	}
 }
 
 func (b *BackupDriver) normalize() {
@@ -436,12 +418,46 @@ func readSource(src string) (string, error) {
 	if src == "" {
 		return "", fmt.Errorf("empty install config source")
 	}
+	if isJSON(src) {
+		return src, nil
+	}
 
-	if filepath.IsAbs(src) {
-		if data, err := os.ReadFile(src); err == nil {
-			return string(data), nil
-		}
+	if text, ok, err := readFile(src); ok || err != nil {
+		return text, err
 	}
 
 	return src, nil
+}
+
+// readFile 尝试把 source 当作文件路径读取，兼容绝对路径与当前目录下的相对路径。
+func readFile(src string) (string, bool, error) {
+	if !filepath.IsAbs(src) {
+		if _, err := os.Stat(src); err != nil {
+			if os.IsNotExist(err) {
+				return "", false, nil
+			}
+			return "", true, err
+		}
+	}
+
+	data, err := os.ReadFile(src)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", false, nil
+		}
+		return "", true, err
+	}
+	return string(data), true, nil
+}
+
+func isJSON(src string) bool {
+	if src == "" {
+		return false
+	}
+	switch src[0] {
+	case '{', '[':
+		return true
+	default:
+		return false
+	}
 }
