@@ -212,21 +212,52 @@ func GetCurrentWinVersion() (int, string, error) {
 	}
 	productName, _ := registry.RegGetString(h, "ProductName")
 	buildStr, _ := registry.RegGetString(h, "CurrentBuildNumber")
+	majorValue, minorValue, majorOK, minorOK := readCurrentVersionNumbers()
 
-	// 将 "6.1", "10.0" 这种字符串解析成数字
-	var major, minor uint16
-	fmt.Sscanf(currentVersion, "%d.%d", &major, &minor)
-
-	// 解析 Build 号
 	var build int
 	if buildStr != "" {
 		build, _ = strconv.Atoi(buildStr)
 	}
 
-	version := ParseToVers(major, minor, uint16(build), productName)
+	version, err := resolveCurrentRegistryVersion(
+		currentVersion,
+		build,
+		productName,
+		majorValue,
+		minorValue,
+		majorOK,
+		minorOK,
+	)
+	if err != nil {
+		return 0, "", err
+	}
 
+	arch := "32"
+	if SystemArch() == "64" {
+		arch = "64"
+	}
+	return version, arch, nil
+}
+
+// GetCurrentNtdllVersion 使用当前系统的 ntdll.dll 通过文件版本号判断当前系统版本。
+func GetCurrentNtdllVersion() (int, string, error) {
+	systemRoot := strings.TrimSpace(os.Getenv("SystemRoot"))
+	if systemRoot == "" {
+		systemRoot = filepath.Join(os.Getenv("WINDIR"))
+	}
+	if strings.TrimSpace(systemRoot) == "" {
+		systemRoot = `C:\Windows`
+	}
+
+	ntdllPath := filepath.Join(systemRoot, "System32", "ntdll.dll")
+	major, minor, build, err := getFileVersion(ntdllPath)
+	if err != nil {
+		return 0, "", err
+	}
+
+	version := resolveVersionFromNtdll(major, minor, build)
 	if version == 0 {
-		return 0, "", fmt.Errorf("unsupported Windows version: %s (Build: %d)", currentVersion, build)
+		return 0, "", fmt.Errorf("unsupported Windows version from ntdll: %d.%d.%d", major, minor, build)
 	}
 
 	arch := "32"
@@ -315,7 +346,7 @@ func GetImgVers(imagePath string, index uint32) (int, string, error) {
 	if err != nil {
 		return 0, "", fmt.Errorf("无法从 WIM/ESD 提取版本信息: %w", err)
 	}
-	version := ParseToVers(major, minor, build, "")
+	version := resolveVersionFromNtdll(major, minor, build)
 	if version == 0 {
 		return 0, "", fmt.Errorf("识别到未知的内核版本: %d.%d.%d", major, minor, build)
 	}
@@ -330,6 +361,63 @@ func GetImgVers(imagePath string, index uint32) (int, string, error) {
 	}
 
 	return version, arch, nil
+}
+
+func readCurrentVersionNumbers() (major uint64, minor uint64, majorOK bool, minorOK bool) {
+	k, err := reg.OpenKey(reg.LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows NT\CurrentVersion`, reg.QUERY_VALUE)
+	if err != nil {
+		return 0, 0, false, false
+	}
+	defer k.Close()
+
+	if value, _, err := k.GetIntegerValue("CurrentMajorVersionNumber"); err == nil {
+		major = value
+		majorOK = true
+	}
+	if value, _, err := k.GetIntegerValue("CurrentMinorVersionNumber"); err == nil {
+		minor = value
+		minorOK = true
+	}
+	return major, minor, majorOK, minorOK
+}
+
+func resolveCurrentRegistryVersion(
+	currentVersion string,
+	build int,
+	productName string,
+	majorValue uint64,
+	minorValue uint64,
+	majorOK bool,
+	minorOK bool,
+) (int, error) {
+	var major, minor uint16
+	if majorOK && minorOK {
+		major = uint16(majorValue)
+		minor = uint16(minorValue)
+	} else {
+		fmt.Sscanf(currentVersion, "%d.%d", &major, &minor)
+	}
+
+	version := ParseToVers(major, minor, uint16(build), productName)
+	if version == 0 {
+		return 0, fmt.Errorf("unsupported Windows version: %s (Build: %d)", currentVersion, build)
+	}
+	return version, nil
+}
+
+func resolveVersionFromNtdll(major, minor, build uint16) int {
+	switch {
+	case major == 6 && minor == 2 && build >= 22000:
+		return 11
+	case major == 6 && minor == 2 && build >= 10240:
+		return 10
+	case major == 6 && minor == 3 && build >= 22000:
+		return 11
+	case major == 6 && minor == 3 && build >= 10240:
+		return 10
+	default:
+		return ParseToVers(major, minor, build, "")
+	}
 }
 
 // 使用 wimlib 提取 ntdll.dll 并获取完整版本号
