@@ -1,9 +1,16 @@
 {
     "images": [
         {
-            "file": "镜像文件名.iso",
+            "file": "镜像文件名.esd",
             "index": 1,
             "version": "10",
+            "arch": "64",
+            "verify": true
+        },
+        {
+            "file": "镜像文件名1.esd",
+            "index": 1,
+            "version": "7",
             "arch": "64",
             "verify": true
         }

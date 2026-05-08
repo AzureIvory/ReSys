@@ -155,7 +155,6 @@ func defaultUIState() map[string]any {
 				"peEnabled":      false,
 				"formatTarget":   true,
 				"backupDrivers":  false,
-				"autoDeploy":     true,
 				"autoReboot":     true,
 				"win7Fix":        false,
 				"win7FixEnabled": false,
@@ -196,6 +195,21 @@ func defaultUIState() map[string]any {
 			"text":       "",
 			"error":      "",
 			"credential": "",
+		},
+		"msgbox": map[string]any{
+			"visible":    false,
+			"title":      "",
+			"text":       "",
+			"showOk":     false,
+			"showCancel": false,
+			"showYes":    false,
+			"showNo":     false,
+			"showRetry":  false,
+			"okText":     T("common.ok"),
+			"cancelText": T("common.cancel"),
+			"yesText":    T("common.yes"),
+			"noText":     T("common.no"),
+			"retryText":  T("common.retry"),
 		},
 	}
 }
@@ -288,6 +302,9 @@ func uiActionHandlers() map[string]func(jsonui.ActionContext) {
 		"install-win11": func(jsonui.ActionContext) {
 			startInstall(targetWin11)
 		},
+		"install-smart": func(jsonui.ActionContext) {
+			runSmart()
+		},
 		"open-manual": func(jsonui.ActionContext) {
 			UiShowManualMode()
 		},
@@ -335,9 +352,6 @@ func uiActionHandlers() map[string]func(jsonui.ActionContext) {
 		},
 		"manual-driver-cancel": func(jsonui.ActionContext) {
 			HandleDriverDialogCancel()
-		},
-		"manual-deploy-change": func(ctx jsonui.ActionContext) {
-			HandleOptionChange("manual.options.autoDeploy", ctx.Checked)
 		},
 		"manual-reboot-change": func(ctx jsonui.ActionContext) {
 			HandleOptionChange("manual.options.autoReboot", ctx.Checked)
@@ -419,6 +433,21 @@ func uiActionHandlers() map[string]func(jsonui.ActionContext) {
 		},
 		"prompt-cancel": func(jsonui.ActionContext) {
 			cancelBitLocker()
+		},
+		"msgbox-ok": func(jsonui.ActionContext) {
+			resolveMsgBox(msgBoxBtnOK)
+		},
+		"msgbox-cancel": func(jsonui.ActionContext) {
+			resolveMsgBox(msgBoxBtnCancel)
+		},
+		"msgbox-yes": func(jsonui.ActionContext) {
+			resolveMsgBox(msgBoxBtnYes)
+		},
+		"msgbox-no": func(jsonui.ActionContext) {
+			resolveMsgBox(msgBoxBtnNo)
+		},
+		"msgbox-retry": func(jsonui.ActionContext) {
+			resolveMsgBox(msgBoxBtnRetry)
 		},
 	}
 }

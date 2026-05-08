@@ -90,33 +90,6 @@
                         "children": [
                             {
                                 "checked": {
-                                    "bind": "manual.options.autoDeploy",
-                                    "default": true
-                                },
-                                "frame": {
-                                    "h": 28,
-                                    "w": 147,
-                                    "x": 0,
-                                    "y": 0
-                                },
-                                "id": "manual-auto-deploy",
-                                "onChange": "manual-deploy-change",
-                                "style": {
-                                    "indicatorStyle": "check"
-                                },
-                                "text": {
-                                    "bind": "i18n.manual.option.autoDeploy",
-                                    "default": "无人值守"
-                                },
-                                "type": "checkbox"
-                            }
-                        ],
-                        "type": "panel"
-                    },
-                    {
-                        "children": [
-                            {
-                                "checked": {
                                     "bind": "manual.options.autoReboot",
                                     "default": true
                                 },

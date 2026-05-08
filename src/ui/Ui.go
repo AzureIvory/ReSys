@@ -14,7 +14,6 @@ package ui
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/AzureIvory/winui/core"
 	"github.com/AzureIvory/winui/widgets"
@@ -54,6 +53,10 @@ type adapterUI struct {
 
 	bitLockerPromptVisible bool
 	bitLockerPromptResult  chan bitLockerPromptResult
+
+	msgBoxVisible  bool
+	msgBoxResultCh chan msgBoxButton
+	msgBoxCallback msgBoxCallback
 }
 
 var ui adapterUI
@@ -122,13 +125,21 @@ func UiSetProgress(value int32) {
 	ui.store.Set("progress.value", value)
 }
 
-// UiShowError 弹出一个错误提示框（同步 MessageBox）。
+// UiShowError 弹出一个错误提示框。
 func UiShowError(title, text string) {
+	if ui.app == nil {
+		return
+	}
 	if strings.TrimSpace(title) == "" {
 		title = T("dialog.error")
 	}
 	_ = core.MessageBeep()
-	Message(title, text)
+	cfg := msgBoxConfig{title: title, text: text, buttons: []msgBoxButton{msgBoxBtnOK}}
+	if ui.app.IsUIThread() {
+		showMsgBoxAsync(cfg, nil)
+	} else {
+		showMsgBoxSync(cfg)
+	}
 }
 
 // Win2 是历史遗留的入口（旧代码可能调用它切到进度页）。
@@ -136,16 +147,35 @@ func Win2() {
 	switchToProgress()
 }
 
-// Message 弹出 OK/Cancel，对用户点击 OK 返回 true。
-func Message(title, text string) bool {
+// Message 弹出 OK/Cancel 确认框，通过回调返回用户选择。
+func Message(title, text string, onConfirm func(bool)) {
+	if ui.app == nil {
+		if onConfirm != nil {
+			onConfirm(false)
+		}
+		return
+	}
+	if strings.TrimSpace(title) == "" {
+		title = T("dialog.prompt")
+	}
+	cfg := msgBoxConfig{title: title, text: text, buttons: []msgBoxButton{msgBoxBtnOK, msgBoxBtnCancel}}
+	showMsgBoxAsync(cfg, func(button msgBoxButton) {
+		if onConfirm != nil {
+			onConfirm(button == msgBoxBtnOK)
+		}
+	})
+}
+
+// Warning 弹出 OK/Cancel 警告确认框，用户点击 OK 返回 true。可在任意线程调用。
+func Warning(title, text string) bool {
 	if ui.app == nil {
 		return false
 	}
 	if strings.TrimSpace(title) == "" {
 		title = T("dialog.prompt")
 	}
-	ret, _ := ui.app.MessageBox(title, text, core.MessageBoxOKCancel, 10*time.Second)
-	return ret == core.MessageBoxResultOK
+	cfg := msgBoxConfig{title: title, text: text, buttons: []msgBoxButton{msgBoxBtnOK, msgBoxBtnCancel}}
+	return showMsgBoxSync(cfg) == msgBoxBtnOK
 }
 
 // ImageIndexAction 表示镜像索引无效时用户的处理选择。
@@ -172,14 +202,14 @@ func ShowImageIndexError(imageFile string, expectedIndex int) ImageIndexAction {
 		return ImageIndexCancel
 	}
 
-	// MB_YESNOCANCEL = 0x03，Windows 原生三按钮消息框
-	ret, _ := ui.app.MessageBox(title, text, 3, 0)
-	switch ret {
-	case 6: // IDYES
+	cfg := msgBoxConfig{title: title, text: text, buttons: []msgBoxButton{msgBoxBtnYes, msgBoxBtnNo, msgBoxBtnCancel}}
+	result := showMsgBoxSync(cfg)
+	switch result {
+	case msgBoxBtnYes:
 		return ImageIndexAuto
-	case 7: // IDNO
+	case msgBoxBtnNo:
 		return ImageIndexSkip
-	default: // IDCANCEL = 2，窗口关闭也视为取消
+	default:
 		return ImageIndexCancel
 	}
 }
@@ -192,8 +222,8 @@ func MessageRetryExit(title, text string) bool {
 	if strings.TrimSpace(title) == "" {
 		title = T("dialog.prompt")
 	}
-	ret, _ := ui.app.MessageBox(title, text, core.MessageBoxRetryCancel, 0)
-	return ret == core.MessageBoxResultRetry
+	cfg := msgBoxConfig{title: title, text: text, buttons: []msgBoxButton{msgBoxBtnRetry, msgBoxBtnCancel}}
+	return showMsgBoxSync(cfg) == msgBoxBtnRetry
 }
 
 // onCreate 在窗口创建时触发：加载 JSONUI 文档、attach 到 scene，并设置初始 bounds。
@@ -248,6 +278,7 @@ func syncRootBounds(size core.Size) bool {
 // onDestroy 清理 UI 相关引用与可能挂起的弹窗。
 func onDestroy(_ *core.App, _ *widgets.Scene) {
 	bitlockerClean()
+	msgBoxClean()
 	destroyManualMode()
 	ui.scene = nil
 	ui.store = nil
@@ -278,11 +309,13 @@ func applyMode(mode uiMode) {
 // 2) 切到进度页
 // 3) 异步调用安装层注入的 StartInstall
 func startInstall(target string) {
-	if !Message("", T("dialog.installConfirm")) {
-		return
-	}
-	applyMode(modeProgress)
-	go StartInstall(target)
+	Message("", T("dialog.installConfirm"), func(ok bool) {
+		if !ok {
+			return
+		}
+		applyMode(modeProgress)
+		go StartInstall(target)
+	})
 }
 
 // secondaryButtonStyle 返回“次级按钮”样式，用于返回/浏览/取消等非主操作按钮。

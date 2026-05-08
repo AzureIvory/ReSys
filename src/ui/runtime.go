@@ -124,6 +124,18 @@ func UiShowManualMode() {
 	_ = ui.app.Post(show)
 }
 
+// UiShowSelectMode 切回选择页面。
+func UiShowSelectMode() {
+	show := func() {
+		applyMode(modeSelect)
+	}
+	if ui.app == nil || ui.app.IsUIThread() {
+		show()
+		return
+	}
+	_ = ui.app.Post(show)
+}
+
 // HandleIndexChange 处理"镜像索引"变更。
 // 这里会更新 Store，并联动刷新：引导分区候选、详情文本、底部汇总说明。
 func HandleIndexChange(value string) {
@@ -186,7 +198,7 @@ func HandleLanguageChange(value string) {
 	}
 }
 
-// HandleOptionChange 处理通用的布尔选项变更（格式化/备份驱动/无人值守/自动重启等）。
+// HandleOptionChange 处理通用的布尔选项变更（格式化/备份驱动/自动重启等）。
 func HandleOptionChange(path string, checked bool) {
 	manualSetState(path, checked)
 	manualUpdateSummary()
@@ -205,11 +217,13 @@ func HandleStart() {
 		UiShowError("", err.Error())
 		return
 	}
-	if !Message("", T("dialog.manualInstallConfirm")) {
-		return
-	}
-	applyMode(modeProgress)
-	go StartManualInstall(exportPath)
+	Message("", T("dialog.manualInstallConfirm"), func(ok bool) {
+		if !ok {
+			return
+		}
+		applyMode(modeProgress)
+		go StartManualInstall(exportPath)
+	})
 }
 
 // manualLoadImage 处理"安装镜像路径"变更：解析镜像并刷新索引列表。

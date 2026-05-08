@@ -260,7 +260,7 @@ func manualSyncDerivedOptionState() {
 // - 镜像是否已解析、目标系统/架构信息
 // - 目标分区是否可作为安装目标
 // - 引导修复概览（自动/UEFI/BIOS/关闭）
-// - 选项开关（格式化/备份驱动/无人值守/自动重启）
+// - 选项开关（格式化/备份驱动/自动重启）
 // - 未就绪原因（manualValidationReason）
 func manualUpdateSummary() {
 	if ui.store == nil {
@@ -314,15 +314,12 @@ func manualUpdateSummary() {
 		parts = append(parts, bootSummary)
 	}
 
-	options := make([]string, 0, 6)
+	options := make([]string, 0, 5)
 	if manualOptionFormatTarget() {
 		options = append(options, T("manual.option.short.format"))
 	}
 	if manualOptionBackupDrivers() {
 		options = append(options, T("manual.option.short.backupDrivers"))
-	}
-	if manualOptionAutoDeploy() {
-		options = append(options, T("manual.option.short.autoDeploy"))
 	}
 	if manualOptionAutoReboot() {
 		options = append(options, T("manual.option.short.autoReboot"))
@@ -408,10 +405,6 @@ func manualBuildJSON() (string, error) {
 		BootPartition: bootPart,
 	}
 	cfg.Restart = manualOptionAutoReboot()
-	cfg.Unattended = config.Unattended{
-		State: manualOptionAutoDeploy(),
-		File:  config.Auto,
-	}
 	cfg.BackupDriver = config.BackupDriver{
 		State: backupDrivers,
 		File:  fileRules,
@@ -584,11 +577,6 @@ func manualOptionFormatTarget() bool {
 // manualOptionBackupDrivers 从 Store 读取“备份驱动”开关。
 func manualOptionBackupDrivers() bool {
 	return manualStoreBool("manual.options.backupDrivers", false)
-}
-
-// manualOptionAutoDeploy 从 Store 读取“无人值守”开关。
-func manualOptionAutoDeploy() bool {
-	return manualStoreBool("manual.options.autoDeploy", true)
 }
 
 // manualOptionAutoReboot 从 Store 读取“自动重启”开关。

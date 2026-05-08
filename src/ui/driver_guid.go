@@ -108,3 +108,17 @@ func localizedDriverGUIDLabel(entry driverGUID) string {
 	}
 	return label
 }
+
+// relocalizeDriverGUIDOptions 在语言切换后重建 GUID 选项标题，并保留勾选状态。
+func relocalizeDriverGUIDOptions() {
+	if len(manual.driverGUIDOptions) == 0 {
+		return
+	}
+
+	items, err := loadDriverGUIDOptions()
+	if err != nil {
+		return
+	}
+	manual.driverGUIDOptions = items
+	RenderDriverGUIDOptions()
+}

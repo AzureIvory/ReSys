@@ -1,4 +1,4 @@
-# AI 速查：UI 组件树
+# UI 组件树
 
 本目录是 ReSys 的 **WinUI 声明式 JSON 模板**，代码由 `src/ui/host.go` 加载并构建真实的 WinUI 窗口。
 

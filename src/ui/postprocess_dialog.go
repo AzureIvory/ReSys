@@ -96,12 +96,12 @@ func HandlePostProcessFileSelect(value string) {
 		launch, launchEnabled := detectLaunchType(item.Dst)
 		manual.postProcessDraftFiles[idx].Launch = launch
 		manualPatchState(map[string]any{
-			"manual.postprocess.files.selected":         strconv.Itoa(idx),
-			"manual.postprocess.files.form.src":         item.Src,
-			"manual.postprocess.files.form.dst":         item.Dst,
-			"manual.postprocess.files.form.overwrite":   item.Overwrite,
-			"manual.postprocess.files.form.required":    item.Required,
-			"manual.postprocess.files.form.launch":      launch,
+			"manual.postprocess.files.selected":           strconv.Itoa(idx),
+			"manual.postprocess.files.form.src":           item.Src,
+			"manual.postprocess.files.form.dst":           item.Dst,
+			"manual.postprocess.files.form.overwrite":     item.Overwrite,
+			"manual.postprocess.files.form.required":      item.Required,
+			"manual.postprocess.files.form.launch":        launch,
 			"manual.postprocess.files.form.launchEnabled": launchEnabled,
 		})
 		return
@@ -261,21 +261,21 @@ func manualResetPostProcessState() {
 	manual.postProcessDraftShortcuts = nil
 	manual.postProcessOpen = postProcessModalSnapshot{}
 	manualPatchState(map[string]any{
-		"manual.postprocess.visible":               false,
-		"manual.postprocess.files.items":           []widgets.ListItem{},
-		"manual.postprocess.files.selected":        "",
-		"manual.postprocess.files.form.src":        "",
-		"manual.postprocess.files.form.dst":        "",
-		"manual.postprocess.files.form.overwrite":  true,
-		"manual.postprocess.files.form.required":   false,
-		"manual.postprocess.files.form.launch":       config.LaunchNone,
-		"manual.postprocess.files.form.launchItems":  postProcessLaunchItems(),
+		"manual.postprocess.visible":                  false,
+		"manual.postprocess.files.items":              []widgets.ListItem{},
+		"manual.postprocess.files.selected":           "",
+		"manual.postprocess.files.form.src":           "",
+		"manual.postprocess.files.form.dst":           "",
+		"manual.postprocess.files.form.overwrite":     true,
+		"manual.postprocess.files.form.required":      false,
+		"manual.postprocess.files.form.launch":        config.LaunchNone,
+		"manual.postprocess.files.form.launchItems":   postProcessLaunchItems(),
 		"manual.postprocess.files.form.launchEnabled": false,
-		"manual.postprocess.shortcuts.items":       []widgets.ListItem{},
-		"manual.postprocess.shortcuts.selected":    "",
-		"manual.postprocess.shortcuts.form.target": "",
-		"manual.postprocess.shortcuts.form.name":   "",
-		"manual.postprocess.shortcuts.form.dir":    defaultPostProcessShortcutDir,
+		"manual.postprocess.shortcuts.items":          []widgets.ListItem{},
+		"manual.postprocess.shortcuts.selected":       "",
+		"manual.postprocess.shortcuts.form.target":    "",
+		"manual.postprocess.shortcuts.form.name":      "",
+		"manual.postprocess.shortcuts.form.dir":       defaultPostProcessShortcutDir,
 	})
 }
 
@@ -289,13 +289,13 @@ func manualSyncPostProcessStore() {
 		item := manual.postProcessDraftFiles[idx]
 		_, launchEnabled := detectLaunchType(item.Dst)
 		fileFormPatch = map[string]any{
-			"manual.postprocess.files.selected":          strconv.Itoa(idx),
-			"manual.postprocess.files.form.src":          item.Src,
-			"manual.postprocess.files.form.dst":          item.Dst,
-			"manual.postprocess.files.form.overwrite":    item.Overwrite,
-			"manual.postprocess.files.form.required":     item.Required,
-			"manual.postprocess.files.form.launch":       item.Launch,
-			"manual.postprocess.files.form.launchItems":  postProcessLaunchItems(),
+			"manual.postprocess.files.selected":           strconv.Itoa(idx),
+			"manual.postprocess.files.form.src":           item.Src,
+			"manual.postprocess.files.form.dst":           item.Dst,
+			"manual.postprocess.files.form.overwrite":     item.Overwrite,
+			"manual.postprocess.files.form.required":      item.Required,
+			"manual.postprocess.files.form.launch":        item.Launch,
+			"manual.postprocess.files.form.launchItems":   postProcessLaunchItems(),
 			"manual.postprocess.files.form.launchEnabled": launchEnabled,
 		}
 	}
@@ -397,13 +397,13 @@ func postProcessFileListItems(items []config.FileItem) []widgets.ListItem {
 	return out
 }
 
-// postProcessLaunchBadge 返回启动方式的简短中文标签。
+// postProcessLaunchBadge 返回启动方式的简短本地化标签。
 func postProcessLaunchBadge(launch string) string {
 	switch launch {
 	case config.LaunchFirstLogon:
-		return "[首次登录]"
+		return "[" + T("manual.postprocess.launch.badge.firstLogon") + "]"
 	case config.LaunchSpecialize:
-		return "[specialize]"
+		return "[" + T("manual.postprocess.launch.badge.specialize") + "]"
 	default:
 		return ""
 	}
@@ -412,9 +412,9 @@ func postProcessLaunchBadge(launch string) string {
 // postProcessLaunchItems 返回启动方式下拉框的三个选项。
 func postProcessLaunchItems() []widgets.ListItem {
 	return []widgets.ListItem{
-		{Value: config.LaunchNone, Text: "不启动"},
-		{Value: config.LaunchFirstLogon, Text: "首次进入桌面后启动"},
-		{Value: config.LaunchSpecialize, Text: "specialize阶段启动"},
+		{Value: config.LaunchNone, Text: T("manual.postprocess.launch.none")},
+		{Value: config.LaunchFirstLogon, Text: T("manual.postprocess.launch.firstLogon")},
+		{Value: config.LaunchSpecialize, Text: T("manual.postprocess.launch.specialize")},
 	}
 }
 
@@ -446,13 +446,13 @@ func postProcessShortcutListItems(items []config.ShortcutItem) []widgets.ListIte
 // blankPostProcessFileFormPatch 返回清空文件表单的状态补丁。
 func blankPostProcessFileFormPatch(selected string) map[string]any {
 	return map[string]any{
-		"manual.postprocess.files.selected":          selected,
-		"manual.postprocess.files.form.src":          "",
-		"manual.postprocess.files.form.dst":          "",
-		"manual.postprocess.files.form.overwrite":    true,
-		"manual.postprocess.files.form.required":     false,
-		"manual.postprocess.files.form.launch":       config.LaunchNone,
-		"manual.postprocess.files.form.launchItems":  postProcessLaunchItems(),
+		"manual.postprocess.files.selected":           selected,
+		"manual.postprocess.files.form.src":           "",
+		"manual.postprocess.files.form.dst":           "",
+		"manual.postprocess.files.form.overwrite":     true,
+		"manual.postprocess.files.form.required":      false,
+		"manual.postprocess.files.form.launch":        config.LaunchNone,
+		"manual.postprocess.files.form.launchItems":   postProcessLaunchItems(),
 		"manual.postprocess.files.form.launchEnabled": false,
 	}
 }

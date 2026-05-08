@@ -158,22 +158,6 @@ PE 架构。
 
 大多数情况下保持 `AUTO` 即可。
 
-## `unattended`
-
-无人值守配置。
-
-### `unattended.state`
-
-- `true`：启用无人值守
-- `false`：禁用无人值守
-
-### `unattended.unattended_file`
-
-- `AUTO`：自动选择无人值守文件
-- 其他路径：使用你指定的 XML 文件
-
-`AUTO` 时会按目标系统自动选用内置 XML。
-
 ## `backup_driver`
 
 驱动备份与恢复配置。

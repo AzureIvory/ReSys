@@ -10,7 +10,7 @@
                         "children": [
                             {
                                 "frame": {
-                                    "h": 120,
+                                    "h": 88,
                                     "w": 1,
                                     "x": 0,
                                     "y": 0
@@ -25,7 +25,7 @@
                         "children": [
                             {
                                 "frame": {
-                                    "h": 40,
+                                    "h": 28,
                                     "w": 1,
                                     "x": 0,
                                     "y": 0
@@ -62,7 +62,7 @@
                         "children": [
                             {
                                 "frame": {
-                                    "h": 40,
+                                    "h": 24,
                                     "w": 1,
                                     "x": 0,
                                     "y": 0
@@ -77,7 +77,7 @@
                         "children": [
                             {
                                 "frame": {
-                                    "h": 120,
+                                    "h": 84,
                                     "w": 1,
                                     "x": 0,
                                     "y": 0
@@ -181,6 +181,72 @@
                                     "type": "grid"
                                 },
                                 "scale": "px",
+                                "type": "panel"
+                            }
+                        ],
+                        "type": "panel"
+                    },
+                    {
+                        "children": [
+                            {
+                                "frame": {
+                                    "h": 36,
+                                    "w": 1,
+                                    "x": 0,
+                                    "y": 0
+                                },
+                                "text": "",
+                                "type": "label"
+                            },
+                            {
+                                "children": [
+                                    {
+                                        "frame": {
+                                            "h": 102,
+                                            "w": 120,
+                                            "x": "(parentW-120)/2",
+                                            "y": 0
+                                        },
+                                        "id": "btn-smart-install",
+                                        "image": "icon.png",
+                                        "imagePos": "top",
+                                        "imageSizeDP": 60,
+                                        "onClick": "install-smart",
+                                        "style": {
+                                            "border": "transparent"
+                                        },
+                                        "text": "",
+                                        "type": "button"
+                                    },
+                                    {
+                                        "frame": {
+                                            "h": 36,
+                                            "w": 220,
+                                            "x": 10,
+                                            "y": 108
+                                        },
+                                        "id": "smart-install-label",
+                                        "style": {
+                                            "align": "center",
+                                            "fg": "#475569",
+                                            "font": "Microsoft YaHei UI",
+                                            "size": 15,
+                                            "weight": 700
+                                        },
+                                        "text": {
+                                            "bind": "i18n.select.smart",
+                                            "default": "啥都不懂就点我"
+                                        },
+                                        "type": "label"
+                                    }
+                                ],
+                                "frame": {
+                                    "h": 148,
+                                    "w": 240,
+                                    "x": "(parentW-240)/2",
+                                    "y": 0
+                                },
+                                "id": "select-smart-entry",
                                 "type": "panel"
                             }
                         ],

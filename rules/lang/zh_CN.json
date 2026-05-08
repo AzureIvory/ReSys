@@ -5,7 +5,10 @@
   "common": {
     "browse": "浏览",
     "yes": "是",
-    "no": "否"
+    "no": "否",
+    "ok": "确定",
+    "cancel": "取消",
+    "retry": "重试"
   },
   "dialog": {
     "error": "错误",
@@ -18,7 +21,8 @@
     "win7": "重装 Win7",
     "win10": "重装 Win10",
     "win11": "重装 Win11",
-    "advanced": "高级模式"
+    "advanced": "高级模式",
+    "smart": "啥都不懂就点我"
   },
   "progress": {
     "preparing": "正在准备...",
@@ -87,14 +91,12 @@
       "formatTarget": "格式化目标分区",
       "backupDrivers": "备份驱动",
       "postProcess": "安装完成后处理",
-      "autoDeploy": "无人值守",
       "autoReboot": "自动重启",
       "win7Fix": "Win7 修复",
       "short": {
         "format": "格式化",
         "backupDrivers": "备份驱动",
         "postProcess": "后处理",
-        "autoDeploy": "无人值守",
         "autoReboot": "自动重启",
         "win7Fix": "Win7 修复"
       }
@@ -197,6 +199,15 @@
         "delete": "删除",
         "confirm": "确定",
         "cancel": "取消"
+      },
+      "launch": {
+        "none": "不启动",
+        "firstLogon": "首次进入桌面后启动",
+        "specialize": "specialize阶段启动",
+        "badge": {
+          "firstLogon": "首次登录",
+          "specialize": "specialize"
+        }
       }
     },
     "start": "开始重装",

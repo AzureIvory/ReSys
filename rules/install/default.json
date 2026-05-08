@@ -15,11 +15,6 @@
 		"boot_partition": "AUTO"
 	},
 	"restart": true,
-	"unattended": {
-		"state": false,
-		"_": "AUTO 会按目标系统自动选用 tools\\win7.xml 或 tools\\win10.xml",
-		"unattended_file": "AUTO"
-	},
 	"backup_driver": {
 		"_": "支持文件规则和设备类 GUID，留空则不备份；常见 GUID 见 docs/driver-guid.md",
 		"state": true,

@@ -12,10 +12,6 @@
 		"boot_partition": "AUTO"
 	},
 	"restart": true,
-	"unattended": {
-		"state": true,
-		"unattended_file": "AUTO"
-	},
 	"backup_driver": {
 		"state": false,
 		"file": [
