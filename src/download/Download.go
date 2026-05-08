@@ -19,6 +19,28 @@ import (
 
 const defaultDownloadUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
 
+var netURL = "http://www.msftconnecttest.com/connecttest.txt"
+var netWant = "Microsoft Connect Test"
+var newNetCli = func() *http.Client {
+	dialer := &net.Dialer{
+		Timeout: 3 * time.Second,
+	}
+
+	transport := &http.Transport{
+		Proxy:       http.ProxyFromEnvironment,
+		DialContext: dialer.DialContext,
+
+		TLSHandshakeTimeout:   3 * time.Second,
+		ResponseHeaderTimeout: 3 * time.Second,
+		ForceAttemptHTTP2:     true,
+	}
+
+	return &http.Client{
+		Transport: transport,
+		Timeout:   5 * time.Second,
+	}
+}
+
 func commonDownloadHeaders() []string {
 	return []string{
 		"Accept: */*",
@@ -226,29 +248,12 @@ func DownloadFile(ctx context.Context, url, dstPath string, progressCallback fun
 	return nil
 }
 func CheckNetwork(ctx context.Context) (ok bool, err error) {
-	dialer := &net.Dialer{
-		Timeout: 3 * time.Second,
-	}
-
-	transport := &http.Transport{
-		Proxy:       http.ProxyFromEnvironment,
-		DialContext: dialer.DialContext,
-
-		TLSHandshakeTimeout:   3 * time.Second,
-		ResponseHeaderTimeout: 3 * time.Second,
-		ForceAttemptHTTP2:     true,
-	}
-
-	client := &http.Client{
-		Transport: transport,
-		Timeout:   5 * time.Second,
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://www.baidu.com", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, netURL, nil)
 	if err != nil {
 		return false, err
 	}
 
+	client := newNetCli()
 	resp, err := client.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -258,10 +263,15 @@ func CheckNetwork(ctx context.Context) (ok bool, err error) {
 	}
 	defer resp.Body.Close()
 
-	_, _ = io.Copy(io.Discard, resp.Body)
-
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return false, fmt.Errorf("network check failed: http status %s", resp.Status)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, fmt.Errorf("network check failed: %w", err)
+	}
+	if strings.TrimSpace(string(body)) != netWant {
+		return false, fmt.Errorf("network check failed: unexpected body")
 	}
 
 	return true, nil
