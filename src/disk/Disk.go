@@ -526,6 +526,7 @@ func Format(letter, fs, label string, quick bool) error {
 	if quick {
 		line += " quick"
 	}
+	line += " override"
 
 	lines := []string{
 		fmt.Sprintf("select volume %s", volLetter),

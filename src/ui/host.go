@@ -196,21 +196,6 @@ func defaultUIState() map[string]any {
 			"error":      "",
 			"credential": "",
 		},
-		"msgbox": map[string]any{
-			"visible":    false,
-			"title":      "",
-			"text":       "",
-			"showOk":     false,
-			"showCancel": false,
-			"showYes":    false,
-			"showNo":     false,
-			"showRetry":  false,
-			"okText":     T("common.ok"),
-			"cancelText": T("common.cancel"),
-			"yesText":    T("common.yes"),
-			"noText":     T("common.no"),
-			"retryText":  T("common.retry"),
-		},
 	}
 }
 
@@ -433,21 +418,6 @@ func uiActionHandlers() map[string]func(jsonui.ActionContext) {
 		},
 		"prompt-cancel": func(jsonui.ActionContext) {
 			cancelBitLocker()
-		},
-		"msgbox-ok": func(jsonui.ActionContext) {
-			resolveMsgBox(msgBoxBtnOK)
-		},
-		"msgbox-cancel": func(jsonui.ActionContext) {
-			resolveMsgBox(msgBoxBtnCancel)
-		},
-		"msgbox-yes": func(jsonui.ActionContext) {
-			resolveMsgBox(msgBoxBtnYes)
-		},
-		"msgbox-no": func(jsonui.ActionContext) {
-			resolveMsgBox(msgBoxBtnNo)
-		},
-		"msgbox-retry": func(jsonui.ActionContext) {
-			resolveMsgBox(msgBoxBtnRetry)
 		},
 	}
 }

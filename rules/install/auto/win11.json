@@ -39,7 +39,7 @@
 			},
 			{
 				"src": "tools\\Setup\\Scripts",
-				"dst": "\\Windows\\Setup",
+				"dst": "\\Windows\\Setup\\Scripts",
 				"overwrite": true,
 				"required": false
 			},

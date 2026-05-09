@@ -1,4 +1,3 @@
-//lint:file-ignore U1000 Keep compatibility helpers for future driver maintenance flows.
 package driver
 
 import (
@@ -21,8 +20,7 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
-var t = D.NewDism()
-var dism, _ = t.GetDismCmd()
+var dism, _ = D.Default().GetDismCmd()
 
 const (
 	DIGCF_PRESENT    = 0x00000002

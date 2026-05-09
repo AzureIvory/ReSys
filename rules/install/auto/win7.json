@@ -32,14 +32,14 @@
 		"state": true,
 		"items": [
 			{
-				"src": "tools\\Setup\\win10.xml",
+				"src": "tools\\Setup\\win7.xml",
 				"dst": "\\Windows\\Panther\\Unattend.xml",
 				"overwrite": true,
 				"required": false
 			},
 			{
-				"src": "tools\\Setup\\Scripts",
-				"dst": "\\Windows\\Setup",
+				"src": "tools\\Setup\\Scripts7\\Scripts",
+				"dst": "\\Windows\\Setup\\Scripts",
 				"overwrite": true,
 				"required": false
 			},

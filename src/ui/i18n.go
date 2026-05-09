@@ -288,8 +288,6 @@ func availableLanguages() []widgets.ListItem {
 
 // setUILanguage 切换 UI 语言：重新加载语言包并刷新界面文本。
 func setUILanguage(language string) error {
-	prevPromptTitle := T("prompt.title")
-	prevDialogPrompt := T("dialog.prompt")
 	prevPreparing := T("progress.preparing")
 	prevPreparingInstall := T("progress.preparingInstall")
 
@@ -299,7 +297,7 @@ func setUILanguage(language string) error {
 	}
 	i18nLanguage = language
 	i18nTable = table
-	refreshLocalizedRuntimeState(language, prevPromptTitle, prevDialogPrompt, prevPreparing, prevPreparingInstall)
+	refreshLocalizedRuntimeState(language, prevPreparing, prevPreparingInstall)
 	return nil
 }
 
@@ -308,8 +306,6 @@ func setUILanguage(language string) error {
 // 是以普通 store 字段或 Go 缓存形式保存的，需要一起重算。
 func refreshLocalizedRuntimeState(
 	language string,
-	prevPromptTitle string,
-	prevDialogPrompt string,
 	prevPreparing string,
 	prevPreparingInstall string,
 ) {
@@ -329,21 +325,12 @@ func refreshLocalizedRuntimeState(
 		"manual.partitions.loadingText":             T("manual.loading.disks"),
 		"manual.postprocess.files.form.launchItems": postProcessLaunchItems(),
 		"prompt.title":                              T("prompt.title"),
-		"msgbox.okText":                             T("common.ok"),
-		"msgbox.cancelText":                         T("common.cancel"),
-		"msgbox.yesText":                            T("common.yes"),
-		"msgbox.noText":                             T("common.no"),
-		"msgbox.retryText":                          T("common.retry"),
 	}
 
 	if current := manualStoreString("progress.status", ""); current == prevPreparing {
 		patch["progress.status"] = T("progress.preparing")
 	} else if current == prevPreparingInstall {
 		patch["progress.status"] = T("progress.preparingInstall")
-	}
-
-	if current := manualStoreString("msgbox.title", ""); current == prevDialogPrompt || current == prevPromptTitle {
-		patch["msgbox.title"] = T("dialog.prompt")
 	}
 
 	manualPatchState(patch)

@@ -27,7 +27,7 @@ const (
 )
 
 var (
-	t = dism.NewDism()
+	t = dism.Default()
 
 	findImg   = Findimg
 	hitTarget = targetMatchesImage

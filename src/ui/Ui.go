@@ -67,6 +67,7 @@ func Uiinit() {
 	if ui.app != nil {
 		return
 	}
+	progReset()
 	if err := initI18n(); err != nil {
 		panic(err)
 	}
@@ -112,17 +113,21 @@ func UiRun() {
 // UiSetStatus 更新进度页状态文本（只改 store，不直接操作控件树）。
 func UiSetStatus(status string) {
 	if ui.store == nil {
+		progMsg(status)
 		return
 	}
 	ui.store.Set("progress.status", status)
+	progMsg(status)
 }
 
 // UiSetProgress 更新进度条百分比（只改 store，不直接操作控件树）。
 func UiSetProgress(value int32) {
 	if ui.store == nil {
+		progPct(value)
 		return
 	}
 	ui.store.Set("progress.value", value)
+	progPct(value)
 }
 
 // UiShowError 弹出一个错误提示框。

@@ -5,6 +5,7 @@
 ### win10.xml
 
 Windows 10 自动应答文件，用于自动化安装与首次登录配置。
+存放位置：C\\Windows\\Panther\\Unattend.xml
 
 功能说明：
 
@@ -29,6 +30,7 @@ Windows 10 自动应答文件，用于自动化安装与首次登录配置。
 ### win7.xml
 
 Windows 7 自动应答文件，用于简化 OOBE 阶段配置。
+存放位置：C\\Windows\\Panther\\Unattend.xml
 
 功能说明：
 

@@ -67,6 +67,19 @@ func NewDism() *Dism {
 	return d
 }
 
+var (
+	defaultDism     *Dism
+	defaultDismOnce sync.Once
+)
+
+// Default 返回全局唯一的 Dism 单例。
+func Default() *Dism {
+	defaultDismOnce.Do(func() {
+		defaultDism = NewDism()
+	})
+	return defaultDism
+}
+
 // GetDismCmd 返回可用的 dism.exe 路径，并缓存到实例中。
 // 搜索顺序：tools 目录 -> PE 环境 -> PATH -> 系统目录。
 func (d *Dism) GetDismCmd() (string, error) {

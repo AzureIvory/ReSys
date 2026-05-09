@@ -673,9 +673,21 @@ func fetchRuleJSON(rf ruleFile, rawURL string) (any, error) {
 		return nil, err
 	}
 
-	var root any
-	if err := json.Unmarshal(b, &root); err != nil {
+	root, err := parseJSONRoot(b)
+	if err != nil {
 		return nil, fmt.Errorf("解析响应 JSON 失败: %w", err)
+	}
+	return root, nil
+}
+
+// parseJSONRoot reads only the first complete top-level JSON value.
+// Ignore trailing junk because some upstream endpoints append invalid tail data.
+func parseJSONRoot(body []byte) (any, error) {
+	dec := json.NewDecoder(bytes.NewReader(body))
+
+	var root any
+	if err := dec.Decode(&root); err != nil {
+		return nil, err
 	}
 	return root, nil
 }

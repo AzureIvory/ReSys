@@ -10,8 +10,7 @@
         "page-manual-options-section": "components/pages/manual_options_section.json",
         "page-progress": "components/pages/progress_page.json",
         "page-select": "components/pages/select_page.json",
-        "prompt-bitlocker": "components/modals/bitlocker_prompt.json",
-        "msgbox-modal": "components/modals/msgbox_modal.json"
+        "prompt-bitlocker": "components/modals/bitlocker_prompt.json"
     },
     "wins": [
         {
@@ -40,9 +39,6 @@
                     },
                     {
                         "component": "prompt-bitlocker"
-                    },
-                    {
-                        "component": "msgbox-modal"
                     }
                 ],
                 "id": "root",

@@ -2,7 +2,23 @@
 
 package ui
 
-import "strings"
+// Windows MessageBox constants.
+const (
+	MB_OK          = 0x00000000
+	MB_OKCANCEL    = 0x00000001
+	MB_YESNOCANCEL = 0x00000003
+	MB_RETRYCANCEL = 0x00000005
+
+	MB_ICONERROR       = 0x00000010
+	MB_ICONWARNING     = 0x00000030
+	MB_ICONINFORMATION = 0x00000040
+
+	IDOK     = 1
+	IDCANCEL = 2
+	IDRETRY  = 4
+	IDYES    = 6
+	IDNO     = 7
+)
 
 // msgBoxButton 表示消息框的按钮类型。
 type msgBoxButton int
@@ -25,78 +41,65 @@ type msgBoxConfig struct {
 // msgBoxCallback 是异步消息框的回调类型。
 type msgBoxCallback func(button msgBoxButton)
 
-// showMsgBox 在 UI 线程上展示消息框 modal。
-// resultCh 非 nil 时使用同步模式（channel 回传），cb 非 nil 时使用异步模式（回调）。
-func showMsgBox(cfg msgBoxConfig, resultCh chan msgBoxButton, cb msgBoxCallback) {
-	if ui.store == nil {
-		if resultCh != nil {
-			resultCh <- msgBoxBtnCancel
-			close(resultCh)
-		}
-		if cb != nil {
-			cb(msgBoxBtnCancel)
-		}
-		return
+// msgBoxFlags 根据按钮组合计算出对应的 MessageBox flags。
+func msgBoxFlags(cfg msgBoxConfig) uint32 {
+	var buttonFlag uint32
+	switch {
+	case hasButtons(cfg.buttons, msgBoxBtnRetry):
+		buttonFlag = MB_RETRYCANCEL
+	case hasButtons(cfg.buttons, msgBoxBtnYes):
+		buttonFlag = MB_YESNOCANCEL
+	case hasButtons(cfg.buttons, msgBoxBtnCancel):
+		buttonFlag = MB_OKCANCEL
+	default:
+		buttonFlag = MB_OK
 	}
 
-	ui.msgBoxVisible = true
-	ui.msgBoxResultCh = resultCh
-	ui.msgBoxCallback = cb
-
-	if ui.scene != nil {
-		ui.scene.Blur()
+	switch {
+	case !hasButtons(cfg.buttons, msgBoxBtnCancel) && !hasButtons(cfg.buttons, msgBoxBtnYes):
+		return buttonFlag | MB_ICONERROR
+	default:
+		return buttonFlag | MB_ICONWARNING
 	}
-
-	hasButton := func(b msgBoxButton) bool {
-		for _, btn := range cfg.buttons {
-			if btn == b {
-				return true
-			}
-		}
-		return false
-	}
-
-	title := strings.TrimSpace(cfg.title)
-	if title == "" {
-		title = T("dialog.prompt")
-	}
-
-	ui.store.Patch(map[string]any{
-		"msgbox.visible":    true,
-		"msgbox.title":      title,
-		"msgbox.text":       cfg.text,
-		"msgbox.showOk":     hasButton(msgBoxBtnOK),
-		"msgbox.showCancel": hasButton(msgBoxBtnCancel),
-		"msgbox.showYes":    hasButton(msgBoxBtnYes),
-		"msgbox.showNo":     hasButton(msgBoxBtnNo),
-		"msgbox.showRetry":  hasButton(msgBoxBtnRetry),
-	})
 }
 
-// resolveMsgBox 关闭消息框 modal 并回传结果。
-func resolveMsgBox(button msgBoxButton) {
-	if !ui.msgBoxVisible {
-		return
+func hasButtons(buttons []msgBoxButton, btn msgBoxButton) bool {
+	for _, b := range buttons {
+		if b == btn {
+			return true
+		}
 	}
+	return false
+}
+
+func mapResult(result int) msgBoxButton {
+	switch result {
+	case IDOK:
+		return msgBoxBtnOK
+	case IDCANCEL:
+		return msgBoxBtnCancel
+	case IDYES:
+		return msgBoxBtnYes
+	case IDNO:
+		return msgBoxBtnNo
+	case IDRETRY:
+		return msgBoxBtnRetry
+	default:
+		return msgBoxBtnCancel
+	}
+}
+
+// showMsgBox 展示原生 Windows MessageBox 并回传结果。
+func showMsgBox(cfg msgBoxConfig, resultCh chan msgBoxButton, cb msgBoxCallback) {
+	ui.msgBoxVisible = true
+
+	result, err := ui.app.MessageBox(cfg.title, cfg.text, msgBoxFlags(cfg), 0)
 
 	ui.msgBoxVisible = false
-	resultCh := ui.msgBoxResultCh
-	cb := ui.msgBoxCallback
-	ui.msgBoxResultCh = nil
-	ui.msgBoxCallback = nil
 
-	if ui.store != nil {
-		ui.store.Patch(map[string]any{
-			"msgbox.visible":    false,
-			"msgbox.showOk":     false,
-			"msgbox.showCancel": false,
-			"msgbox.showYes":    false,
-			"msgbox.showNo":     false,
-			"msgbox.showRetry":  false,
-		})
-	}
-	if ui.scene != nil {
-		ui.scene.Blur()
+	button := msgBoxBtnCancel
+	if err == nil {
+		button = mapResult(result)
 	}
 
 	if resultCh != nil {
@@ -106,6 +109,16 @@ func resolveMsgBox(button msgBoxButton) {
 	if cb != nil {
 		cb(button)
 	}
+}
+
+// resolveMsgBox 在窗口销毁时兜底清理消息框状态。
+func resolveMsgBox() {
+	if !ui.msgBoxVisible {
+		return
+	}
+	ui.msgBoxVisible = false
+	ui.msgBoxResultCh = nil
+	ui.msgBoxCallback = nil
 }
 
 // showMsgBoxSync 同步展示消息框，阻塞直到用户响应。必须在非 UI 线程调用。
@@ -139,12 +152,18 @@ func showMsgBoxAsync(cfg msgBoxConfig, cb msgBoxCallback) {
 	if cb == nil {
 		cb = func(msgBoxButton) {}
 	}
-	showMsgBox(cfg, nil, cb)
+	if ui.app.IsUIThread() {
+		showMsgBox(cfg, nil, cb)
+		return
+	}
+	if err := ui.app.Post(func() {
+		showMsgBox(cfg, nil, cb)
+	}); err != nil {
+		cb(msgBoxBtnCancel)
+	}
 }
 
 // msgBoxClean 在窗口销毁时清理未关闭的消息框。
 func msgBoxClean() {
-	if ui.msgBoxVisible {
-		resolveMsgBox(msgBoxBtnCancel)
-	}
+	resolveMsgBox()
 }
