@@ -41,7 +41,6 @@
                                     "y": 0
                                 },
                                 "id": "select-title",
-                                "scale": "px",
                                 "style": {
                                     "align": "center",
                                     "fg": "#0f172a",
@@ -180,7 +179,6 @@
                                     "cols": 3,
                                     "type": "grid"
                                 },
-                                "scale": "px",
                                 "type": "panel"
                             }
                         ],
@@ -275,7 +273,6 @@
                 },
                 "id": "btn-advanced",
                 "onClick": "open-manual",
-                "scale": "px",
                 "style": {
                     "bg": "#ffffff",
                     "border": "#e2e8f0",
@@ -305,7 +302,6 @@
         },
         "id": "page-select",
         "layout": "abs",
-        "scale": "px",
         "type": "panel",
         "visible": {
             "bind": "pages.selectVisible",

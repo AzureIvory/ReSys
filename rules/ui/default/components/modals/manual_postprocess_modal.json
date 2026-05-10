@@ -671,7 +671,6 @@
                 },
                 "id": "manual-postprocess-card",
                 "layout": "abs",
-                "scale": "px",
                 "style": {
                     "bg": "#ffffff",
                     "border": "#cbd5e1",

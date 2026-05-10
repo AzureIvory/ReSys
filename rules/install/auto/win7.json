@@ -44,6 +44,12 @@
 				"required": false
 			},
 			{
+				"src": "tools\\WD.cmd",
+				"dst": "\\WD.cmd",
+				"overwrite": true,
+				"required": false
+			},
+			{
 				"src": "tools\\HEU_KMS_Activator.exe",
 				"dst": "\\HEU_KMS_Activator.exe",
 				"overwrite": true,

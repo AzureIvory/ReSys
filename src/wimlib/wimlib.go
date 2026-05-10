@@ -1,10 +1,7 @@
 package wimlib
 
 import (
-	"ReSys/src/disk"
 	"ReSys/src/dism"
-	"ReSys/src/file"
-	"ReSys/src/image"
 	"ReSys/src/log"
 	"ReSys/src/tools"
 	"ReSys/src/utils"
@@ -17,7 +14,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 )
 
 var (
@@ -241,53 +237,4 @@ func ApplyWimImage(wimPath string, index int, targetVol string) error {
 
 func ApplyEsdImage(esdPath string, index int, targetVol string) error {
 	return ApplyImage(esdPath, index, targetVol)
-}
-
-func ApplyISOImage(isoPath string, index int, targetVol string) error {
-	isoRoot, err := image.MountISO(isoPath, 30*time.Second)
-	if err != nil {
-		parts := disk.Findpart()
-		if len(parts) == 0 {
-			return fmt.Errorf("未找到可用分区用于解包ISO")
-		}
-
-		var lastErr error
-		for _, part := range parts {
-			tempDir := filepath.Join(part, "TEMPISO")
-			if err := os.MkdirAll(tempDir, 0o755); err != nil {
-				lastErr = err
-				continue
-			}
-			if err := image.UnpackISO(isoPath, tempDir); err != nil {
-				lastErr = err
-				continue
-			}
-			isoRoot = tempDir
-			lastErr = nil
-			break
-		}
-		if lastErr != nil || isoRoot == "" {
-			return fmt.Errorf("解包ISO失败")
-		}
-	}
-
-	installPath := filepath.Join(isoRoot, "sources", "install.wim")
-	if _, err := os.Stat(installPath); err != nil {
-		installPath = filepath.Join(isoRoot, "sources", "install.esd")
-	}
-	if _, err := os.Stat(installPath); err != nil {
-		found, findErr := file.FindFile(isoRoot, "install.wim|install.esd", 3)
-		if findErr != nil || len(found) == 0 {
-			return fmt.Errorf("ISO中未找到安装镜像")
-		}
-		installPath = found[0]
-	}
-
-	if strings.EqualFold(filepath.Ext(installPath), ".esd") {
-		return ApplyEsdImage(installPath, index, targetVol)
-	}
-	if strings.EqualFold(filepath.Ext(installPath), ".wim") {
-		return ApplyWimImage(installPath, index, targetVol)
-	}
-	return fmt.Errorf("ISO安装镜像类型不支持")
 }

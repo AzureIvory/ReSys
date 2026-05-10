@@ -646,26 +646,27 @@ func tpmViaWMI() (enabled bool, version string, ok bool, err error) {
 }
 
 // 根据物理内存大小判断期望架构：
-// - <4GB 使用 32 位
-// - >=4GB 使用 64 位
+// - <2GB 使用 32 位
+// - >=2GB 使用 64 位
 // - 获取失败默认 64 位
 // - win11 强制 64 位
 func DesiredArch() string {
 	version, _, _ := GetCurrentWinVersion()
-	if version == 11 {
-		return "64"
-	}
 	mem, err := tools.GetMemory()
 	log.LogWrite(0, "[desiredArch]物理内存大小：%d GB, err=%v", mem, err)
-	if err == nil {
-		// 判断是否小于 4GB
-		if mem < 4 {
-			return "32"
-		}
-		return "64" // >= 4GB
-	}
+	return archByMem(version, mem, err == nil)
+}
 
-	// 获取失败默认 64 位
+func archByMem(ver int, mem float64, ok bool) string {
+	if ver == 11 {
+		return "64"
+	}
+	if !ok {
+		return "64"
+	}
+	if mem < 2 {
+		return "32"
+	}
 	return "64"
 }
 

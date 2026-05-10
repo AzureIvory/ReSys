@@ -12,7 +12,6 @@ import (
 	"ReSys/src/windows"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -224,6 +223,14 @@ func runManualPrepareFlow(ctx *InstallContext) error {
 				ui.UiSetProgress(20)
 				ui.UiSetStatus(ui.Tr("install.auto.handleBitLocker"))
 				return handleBitLocker(ctx)
+			},
+		},
+		{
+			Name: "准备ISO镜像",
+			Run: func(ctx *InstallContext) error {
+				ui.UiSetProgress(30)
+				ui.UiSetStatus("准备ISO安装镜像")
+				return prepISO(ctx.Plan)
 			},
 		},
 		{
@@ -571,27 +578,4 @@ func findBootPartition(ref string) (disk.PartitionInfo, error) {
 		return disk.PartitionInfo{}, err
 	}
 	return part, nil
-}
-
-func detectManualInstallWIM(imagePath string) (string, error) {
-	path := strings.TrimSpace(imagePath)
-	if path == "" {
-		return "", fmt.Errorf("empty image path")
-	}
-	if !strings.EqualFold(filepath.Ext(path), ".iso") {
-		return path, nil
-	}
-	isoRoot, err := imgsvc.MountISO(path, 30*time.Second)
-	if err != nil {
-		return "", err
-	}
-	installPath := filepath.Join(isoRoot, "sources", "install.wim")
-	if _, err := os.Stat(installPath); err == nil {
-		return installPath, nil
-	}
-	installPath = filepath.Join(isoRoot, "sources", "install.esd")
-	if _, err := os.Stat(installPath); err == nil {
-		return installPath, nil
-	}
-	return "", fmt.Errorf("ISO 中未找到安装镜像")
 }

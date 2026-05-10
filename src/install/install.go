@@ -887,21 +887,13 @@ func ApplyInstallImage(plan *InstallPlan, progress func(string, float64, string)
 		return fmt.Errorf("install image or target root is empty")
 	}
 
-	ext := strings.ToLower(filepath.Ext(imagePath))
-	applyPath := imagePath
-	if ext == ".iso" {
-		isoRoot, err := image.MountISO(imagePath, 30*time.Second)
-		if err != nil {
-			return err
-		}
-		applyPath = filepath.Join(isoRoot, "sources", "install.wim")
-		if _, err := os.Stat(applyPath); err != nil {
-			applyPath = filepath.Join(isoRoot, "sources", "install.esd")
-		}
+	// ISO 只允许在进入 PE 前预处理为 install.wim/install.esd。
+	if strings.EqualFold(filepath.Ext(imagePath), ".iso") {
+		return fmt.Errorf("PE 阶段不支持直接应用 ISO，请先在进入 PE 前准备 install.wim/install.esd")
 	}
 
-	log.LogWrite(0, "[ApplyInstallImage] ext=%s image=%s applyPath=%s target=%s index=%d", ext, imagePath, applyPath, targetRoot, plan.ImageIndex)
-	return applyImage(applyPath, targetRoot, plan.ImageIndex, progress)
+	log.LogWrite(0, "[ApplyInstallImage] image=%s target=%s index=%d", imagePath, targetRoot, plan.ImageIndex)
+	return applyImage(imagePath, targetRoot, plan.ImageIndex, progress)
 }
 
 func applyImage(

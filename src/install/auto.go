@@ -175,6 +175,15 @@ func runAutoPrepareFlow(ctx *InstallContext) error {
 			},
 		},
 		{
+			Name:      "准备ISO镜像",
+			Retryable: true,
+			Run: func(ctx *InstallContext) error {
+				ui.UiSetProgress(55)
+				ui.UiSetStatus("准备ISO安装镜像")
+				return prepISO(ctx.Plan)
+			},
+		},
+		{
 			Name:      "保存安装计划",
 			Retryable: true,
 			Run: func(ctx *InstallContext) error {

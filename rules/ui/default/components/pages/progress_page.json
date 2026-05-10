@@ -138,7 +138,6 @@
             "cross": "stretch",
             "type": "col"
         },
-        "scale": "px",
         "type": "panel",
         "visible": {
             "bind": "pages.progressVisible",

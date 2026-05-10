@@ -280,7 +280,6 @@
                     "cross": "stretch",
                     "type": "col"
                 },
-                "scale": "px",
                 "style": {
                     "bg": "#ffffff",
                     "border": "#cbd5e1",
