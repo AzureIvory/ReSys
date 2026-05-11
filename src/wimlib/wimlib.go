@@ -8,12 +8,15 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 )
 
 var (
@@ -87,14 +90,12 @@ func ApplyImageProgress(imagePath string, index int, targetVol string, progress 
 	args := []string{"apply", imagePath, fmt.Sprintf("%d", index), targetRoot}
 	emit(0, "Applying image")
 	onLine := func(line string) {
-		for _, part := range splitApplyLines(line) {
-			if pct, ok := parseApplyProgressLine(part); ok {
-				emit(pct, part)
-			}
+		if pct, ok := parseApplyProgressLine(line); ok {
+			emit(pct, line)
 		}
 	}
 
-	if _, err := runCmd(wimlib, nil, onLine, "", args...); err != nil {
+	if _, err := runProg(wimlib, args, onLine); err != nil {
 		log.LogWrite(0, "[wimlib.ApplyImage] wimlib-imagex apply failed: %v", err)
 		return err
 	}
@@ -102,18 +103,105 @@ func ApplyImageProgress(imagePath string, index int, targetVol string, progress 
 	return nil
 }
 
-func splitApplyLines(line string) []string {
-	parts := strings.FieldsFunc(line, func(r rune) bool {
-		return r == '\r' || r == '\n'
-	})
-	out := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part != "" {
-			out = append(out, part)
+// runProg 以流式方式执行 wimlib-imagex，确保 \r 原地刷新的进度也能实时抛出。
+func runProg(bin string, args []string, onLine func(string)) (string, error) {
+	cmd := exec.Command(bin, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+
+	out1, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", fmt.Errorf("stdout pipe failed: %w", err)
+	}
+	out2, err := cmd.StderrPipe()
+	if err != nil {
+		return "", fmt.Errorf("stderr pipe failed: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+
+	var (
+		lines []string
+		mu    sync.Mutex
+		rdErr error
+		wg    sync.WaitGroup
+	)
+
+	emit := func(line string) {
+		if line == "" {
+			return
+		}
+		mu.Lock()
+		lines = append(lines, line)
+		mu.Unlock()
+		if onLine != nil {
+			onLine(line)
 		}
 	}
-	return out
+
+	read := func(r io.Reader) {
+		defer wg.Done()
+		if err := scanProg(r, emit); err != nil {
+			mu.Lock()
+			if rdErr == nil {
+				rdErr = err
+			}
+			mu.Unlock()
+		}
+	}
+
+	wg.Add(2)
+	go read(out1)
+	go read(out2)
+
+	waitErr := cmd.Wait()
+	wg.Wait()
+
+	mu.Lock()
+	out := strings.Join(lines, "\n")
+	err = rdErr
+	mu.Unlock()
+
+	if err != nil {
+		return out, fmt.Errorf("read wimlib output failed: %w", err)
+	}
+	if waitErr != nil {
+		return out, fmt.Errorf("%s %v failed: %w\n%s", bin, args, waitErr, out)
+	}
+	return out, nil
+}
+
+// scanProg 按字节流切分 stdout/stderr，遇到 \r 或 \n 就立即输出一条文本。
+func scanProg(r io.Reader, emit func(string)) error {
+	buf := make([]byte, 4096)
+	part := make([]byte, 0, 256)
+	flush := func() {
+		if len(part) == 0 {
+			return
+		}
+		emit(strings.TrimSpace(string(part)))
+		part = part[:0]
+	}
+
+	for {
+		n, err := r.Read(buf)
+		if n > 0 {
+			for _, b := range buf[:n] {
+				if b == '\r' || b == '\n' {
+					flush()
+					continue
+				}
+				part = append(part, b)
+			}
+		}
+		if err != nil {
+			flush()
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+	}
 }
 
 func parseApplyProgressLine(line string) (uint8, bool) {

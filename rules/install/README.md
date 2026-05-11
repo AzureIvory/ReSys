@@ -306,13 +306,14 @@ PE 架构。
 
 Windows 7 专用修复资源。
 只有目标系统是 `win7` 时才有意义。
+目前只支持相对路径。
 
 字段：
 
-- `nvme`：NVMe 驱动目录
-- `storage_controller`：存储控制器驱动目录
-- `usb3`：USB3 驱动目录
-- `uefi`：Win7 UEFI 修复资源目录
+- `nvme`：NVMe 驱动相对路径目录
+- `storage_controller`：存储控制器驱动相对路径目录
+- `usb3`：USB3 驱动相对路径目录
+- `uefi`：Win7 UEFI 修复资源相对路径目录
 
 非 Win7 可以留空。
 

@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 
 	win "golang.org/x/sys/windows"
@@ -30,6 +31,11 @@ var (
 	procGetFileVersionInfo          = version.NewProc("GetFileVersionInfoW")
 	procVerQueryValue               = version.NewProc("VerQueryValueW")
 	procSHEmptyRecycleBinW          = Shell32.NewProc("SHEmptyRecycleBinW")
+	normalizeDrive                  = utils.NormalizeDrive
+	regLoadHive                     = registry.RegLoadHive
+	regUnloadHiveRetry              = registry.RegUnloadHiveRetry
+	regCreateKey                    = registry.RegCreateKey
+	regSetDword                     = registry.RegSetDword
 )
 
 // 清空回收站标志
@@ -153,6 +159,44 @@ func DetectWin(drive string) (string, error) {
 	arch := DetectArch(root, hasPFx86, hasSysWOW, systemLoaded)
 
 	return fmt.Sprintf("%s %s", osName, arch), nil
+}
+
+// CloseWD 通过加载离线 SOFTWARE hive 写入组策略，关闭离线系统中的 Windows Defender。
+func CloseWD(drive string) (err error) {
+	root, err := normalizeDrive(drive, 0)
+	if err != nil {
+		return err
+	}
+
+	winDir := filepath.Join(root, "Windows")
+	if !utils.DirExists(winDir) {
+		return fmt.Errorf("no Windows directory on %s", root)
+	}
+
+	softwareHive := filepath.Join(winDir, "System32", "config", "SOFTWARE")
+	if _, err := os.Stat(softwareHive); err != nil {
+		return fmt.Errorf("SOFTWARE hive not found: %w", err)
+	}
+
+	const offlineSoftwareHive = "Offline_SOFTWARE"
+	if err := regLoadHive(offlineSoftwareHive, softwareHive); err != nil {
+		return fmt.Errorf("load SOFTWARE hive: %w", err)
+	}
+	defer func() {
+		if unloadErr := regUnloadHiveRetry(offlineSoftwareHive, 4, 500*time.Millisecond); err == nil && unloadErr != nil {
+			err = fmt.Errorf("unload SOFTWARE hive: %w", unloadErr)
+		}
+	}()
+
+	key := `HKLM\` + offlineSoftwareHive + `\Policies\Microsoft\Windows Defender`
+	if err := regCreateKey(key, registry.RegViewDefault); err != nil {
+		return fmt.Errorf("create offline Windows Defender policy key: %w", err)
+	}
+	if err := regSetDword(key, "DisableAntiSpyware", 1, registry.RegViewDefault); err != nil {
+		return fmt.Errorf("set DisableAntiSpyware: %w", err)
+	}
+
+	return nil
 }
 
 // 推测指定盘符的系统架构（32/64）

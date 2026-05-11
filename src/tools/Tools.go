@@ -36,6 +36,13 @@ var (
 	Ntdll                  = syscall.NewLazyDLL("ntdll.dll")
 	procNtShutdownSystem   = Ntdll.NewProc("NtShutdownSystem")
 	procGlobalMemoryStatus = Kernel32.NewProc("GlobalMemoryStatusEx")
+	runExeDir              = func() string {
+		exe, err := os.Executable()
+		if err != nil {
+			return ""
+		}
+		return filepath.Dir(exe)
+	}
 )
 
 const (
@@ -321,13 +328,7 @@ func RunCmdContext(ctx context.Context, bin string, input []byte, onLine func(st
 }
 
 func prepareRunCmd(cmd *exec.Cmd, dir string) {
-	toolDir := strings.TrimSpace(dir)
-	if toolDir == "" {
-		if exe, err := os.Executable(); err == nil {
-			toolDir = filepath.Join(filepath.Dir(exe), "tools")
-		}
-	}
-
+	toolDir := findRunDir(dir)
 	if toolDir == "" {
 		return
 	}
@@ -355,6 +356,23 @@ func prepareRunCmd(cmd *exec.Cmd, dir string) {
 		env = append(env, "PATH="+newPath)
 	}
 	cmd.Env = env
+}
+
+func findRunDir(dir string) string {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		if exeDir := runExeDir(); exeDir != "" {
+			dir = filepath.Join(exeDir, "tools")
+		}
+	}
+	if dir == "" {
+		return ""
+	}
+	st, err := os.Stat(dir)
+	if err != nil || !st.IsDir() {
+		return ""
+	}
+	return dir
 }
 
 func decodeConsoleLine(raw []byte) string {

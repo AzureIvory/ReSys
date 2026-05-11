@@ -31,6 +31,15 @@ var applyImageWithDism = func(imageFile, applyDir string, index uint32, progress
 var createShortcut = tools.CreateShortcut
 var addWin7Dir = fixWin7Dir
 var addWin7NVMe = fixWin7NVMe
+var closeWD = windows.CloseWD
+var installLogWrite = log.LogWrite
+var planDir = func() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return filepath.Dir(exe)
+}
 
 // ===== 领域类型 =====
 
@@ -207,6 +216,7 @@ func NormalizeInstallPlan(plan *InstallPlan) error {
 		plan.Flags.NeedBackupBeforePE = true
 		plan.Flags.NeedOfflineDrivers = true
 	}
+	fixPlanWin7(&plan.Win7Fix)
 
 	return nil
 }
@@ -378,11 +388,74 @@ func encodePlan(plan *InstallPlan) ([]byte, error) {
 		return nil, fmt.Errorf("install image path is empty")
 	}
 
-	data, err := json.MarshalIndent(plan, "", "  ")
+	cp := *plan
+	cp.Win7Fix = savePlanWin7(plan.Win7Fix)
+
+	data, err := json.MarshalIndent(&cp, "", "  ")
 	if err != nil {
 		return nil, err
 	}
 	return append(data, '\n'), nil
+}
+
+// fixPlanWin7 把 Win7 修复资源路径恢复到当前程序目录。
+func fixPlanWin7(w *InstallWin7Fix) {
+	if w == nil {
+		return
+	}
+	w.NVMe = fixPlanPath(w.NVMe)
+	w.StorageController = fixPlanPath(w.StorageController)
+	w.USB3 = fixPlanPath(w.USB3)
+	w.UEFI = fixPlanPath(w.UEFI)
+}
+
+// savePlanWin7 在写入安装计划时尽量改回相对程序目录的路径，便于进 PE 后重定位。
+func savePlanWin7(w InstallWin7Fix) InstallWin7Fix {
+	w.NVMe = savePlanPath(w.NVMe)
+	w.StorageController = savePlanPath(w.StorageController)
+	w.USB3 = savePlanPath(w.USB3)
+	w.UEFI = savePlanPath(w.UEFI)
+	return w
+}
+
+func fixPlanPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+	return joinPlanPath(path)
+}
+
+func savePlanPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if !filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+
+	base := strings.TrimSpace(planDir())
+	if base == "" {
+		return filepath.Clean(path)
+	}
+	rel, err := filepath.Rel(base, path)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return filepath.Clean(path)
+	}
+	return filepath.Clean(rel)
+}
+
+func joinPlanPath(path string) string {
+	base := strings.TrimSpace(planDir())
+	if base == "" {
+		return filepath.Clean(path)
+	}
+	path = filepath.FromSlash(strings.ReplaceAll(path, `\`, "/"))
+	return filepath.Join(base, path)
 }
 
 // installPlanPath 返回当前系统卷上的安装计划文件路径。
@@ -1141,22 +1214,30 @@ func afterInstall(ctx *InstallContext) error {
 	if ctx == nil || ctx.Plan == nil {
 		return fmt.Errorf("install context is nil")
 	}
-	if len(ctx.Plan.Files) == 0 && len(ctx.Plan.Shortcuts) == 0 {
+
+	if len(ctx.Plan.Files) > 0 {
+		selfExe, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		baseDir := filepath.Dir(selfExe)
+		if err := copyPlanFiles(ctx.Plan.TargetRoot, baseDir, ctx.Plan.Files); err != nil {
+			return err
+		}
+	}
+	if len(ctx.Plan.Shortcuts) > 0 {
+		if err := makeShortcuts(ctx.Plan.TargetRoot, ctx.Plan.Shortcuts); err != nil {
+			return err
+		}
+	}
+	if len(ctx.Plan.Files) > 0 || len(ctx.Plan.Shortcuts) > 0 {
+		installLogWrite(0, "[afterInstall] copied files and created shortcuts")
+	}
+	if err := closeWD(ctx.Plan.TargetRoot); err != nil {
+		installLogWrite(-1, "[afterInstall] close offline Windows Defender failed: target=%s err=%v", ctx.Plan.TargetRoot, err)
 		return nil
 	}
-
-	selfExe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	baseDir := filepath.Dir(selfExe)
-	if err := copyPlanFiles(ctx.Plan.TargetRoot, baseDir, ctx.Plan.Files); err != nil {
-		return err
-	}
-	if err := makeShortcuts(ctx.Plan.TargetRoot, ctx.Plan.Shortcuts); err != nil {
-		return err
-	}
-	log.LogWrite(0, "[afterInstall] copied files and created shortcuts")
+	installLogWrite(0, "[afterInstall] disabled offline Windows Defender: %s", ctx.Plan.TargetRoot)
 	return nil
 }
 

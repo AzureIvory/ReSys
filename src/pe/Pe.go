@@ -27,6 +27,7 @@ import (
 )
 
 var loadPEAppConfig = config.LoadAppConfig
+var peLogWrite = log.LogWrite
 
 // 从多个候选里挑最合适的pe(一般不会用到)
 func ChooseBestWim(paths []string, arch string) string {
@@ -149,7 +150,12 @@ func parseGoToPEArgs(paths []string) (string, string, error) {
 }
 
 // collectPECands 函数。
-func collectPECands(dvs []string, opts []peOpt, wantArch, customSdi, customWim string) (map[string]peCand, []string, error) {
+func collectPECands(dvs []string, opts []peOpt, wantArch, customSdi, customWim string) (candByWim map[string]peCand, allWims []string, err error) {
+	defer func() {
+		if err != nil {
+			peLogWrite(0, "[collectPECands] wantArch=%s customSdi=%s customWim=%s err=%v", wantArch, customSdi, customWim, err)
+		}
+	}()
 	hasGlob := func(s string) bool { return strings.ContainsAny(s, "*?[") }
 	hasDrivePrefix := func(p string) bool { return len(p) >= 2 && p[1] == ':' }
 
@@ -228,8 +234,7 @@ func collectPECands(dvs []string, opts []peOpt, wantArch, customSdi, customWim s
 		return "", false
 	}
 
-	candByWim := map[string]peCand{}
-	var allWims []string
+	candByWim = map[string]peCand{}
 
 	addCand := func(c peCand) {
 		if old, ok := candByWim[c.wAbs]; ok {
@@ -364,6 +369,11 @@ func collectPECands(dvs []string, opts []peOpt, wantArch, customSdi, customWim s
 
 // 用 tools\boot.sdi 生成目标 SDI（只在缺 SDI 时调用）
 func ensureSdiByCopy(root string, sPatRel string, wAbs string) (sAbs string, sRel string, err error) {
+	defer func() {
+		if err != nil {
+			peLogWrite(0, "[ensureSdiByCopy] root=%s sPat=%s wim=%s err=%v", root, sPatRel, wAbs, err)
+		}
+	}()
 	findToolsBootSdi := func() (string, bool) {
 		exe, e := os.Executable()
 		if e != nil {
@@ -435,7 +445,12 @@ func ensureSdiByCopy(root string, sPatRel string, wAbs string) (sAbs string, sRe
 }
 
 // applyPEBoot 函数。
-func applyPEBoot(best peCand) error {
+func applyPEBoot(best peCand) (err error) {
+	defer func() {
+		if err != nil {
+			peLogWrite(0, "[applyPEBoot] drv=%s wim=%s sdi=%s err=%v", best.lt, best.wAbs, best.sAbs, err)
+		}
+	}()
 	lt, sdi, wim, nm := best.lt, best.sRel, best.wRel, best.nm
 	log.LogWrite(0, "[applyPEBoot]PE:", nm, "DRV:", lt, "SDI:", sdi, "WIM:", wim)
 
@@ -578,7 +593,13 @@ func applyPEBoot(best peCand) error {
 //	_, _, _, err := GoToPE(false)             // 设置下次启动进PE
 //	ok, wim, sdi, err := GoToPE(true, sdiPath, wimPath)   // 扫描/校验自定义
 //	_, _, _, err := GoToPE(false, sdiPath, wimPath)       // 自定义设置启动
-func GoToPE(scan bool, paths ...string) (bool, string, string, error) {
+func GoToPE(scan bool, paths ...string) (ok bool, wim string, sdi string, err error) {
+	peLogWrite(0, "[GoToPE] start: scan=%v paths=%v", scan, paths)
+	defer func() {
+		if err != nil {
+			peLogWrite(0, "[GoToPE] failed: scan=%v paths=%v ok=%v wim=%s sdi=%s err=%v", scan, paths, ok, wim, sdi, err)
+		}
+	}()
 	customSdi, customWim, err := parseGoToPEArgs(paths)
 	if err != nil {
 		log.LogWrite(0, "[GoToPE]GoToPE 参数解析失败："+err.Error())

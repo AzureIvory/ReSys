@@ -56,8 +56,14 @@
 				"required": false
 			},
 			{
-				"src": "tools\\drive.exe",
-				"dst": "\\drive.exe",
+				"src": "tools\\win7Net.exe",
+				"dst": "\\win7Net.exe",
+				"overwrite": true,
+				"required": false
+			},
+			{
+				"src": "tools\\run.exe",
+				"dst": "\\run.exe",
 				"overwrite": true,
 				"required": false
 			}
@@ -67,8 +73,8 @@
 		"state": true,
 		"items": [
 			{
-				"target": "C:\\drive.exe",
-				"name": "驱动",
+				"target": "C:\\HEU_KMS_Activator.exe",
+				"name": "激活",
 				"dir": "\\Users\\Public\\Desktop"
 			},
 			{
@@ -79,6 +85,7 @@
 		]
 	},
 	"win7fix": {
+		"_":"目前只支持相对路径。",
 		"nvme": "tools\\w7\\drivers\\nvme",
 		"storage_controller": "tools\\w7\\drivers\\storage_controller",
 		"usb3": "tools\\w7\\drivers\\usb3",

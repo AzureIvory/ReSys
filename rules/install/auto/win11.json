@@ -60,6 +60,12 @@
 				"dst": "\\drive.exe",
 				"overwrite": true,
 				"required": false
+			},
+			{
+				"src": "tools\\run.exe",
+				"dst": "\\run.exe",
+				"overwrite": true,
+				"required": false
 			}
 		]
 	},
@@ -67,8 +73,8 @@
 		"state": true,
 		"items": [
 			{
-				"target": "C:\\drive.exe",
-				"name": "驱动",
+				"target": "C:\\HEU_KMS_Activator.exe",
+				"name": "激活",
 				"dir": "\\Users\\Public\\Desktop"
 			},
 			{
