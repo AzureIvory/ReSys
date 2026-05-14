@@ -1,24 +1,34 @@
 # fwboot
 
-`fwboot` 是一个独立的命令行测试程序，用来直接调用 `src/boot/Boot.go` 里的 `SetFwOnce`。
+`fwboot` 是一个独立的命令行测试程序，用来直接调用 `src/boot` 包里的 `WimToEFI`。
 
 它的作用是：
 
-- 枚举 `bcdedit /enum firmware /v` 的已有 UEFI 固件启动项
-- 按你传入的 `PE` 文件路径匹配对应的固件项
-- 调用 `bcdedit /set {fwbootmgr} bootsequence {id}` 设置下次一次性启动
+- 从 `boot.wim` 中准备出 `Windows` 目录
+- 优先用 `DISM/WIMGAPI` 挂载或解包
+- 失败后回退到 `wimlib-imagex` 提取 `\Windows`
+- 最后执行 `bcdboot <Windows目录> /s <FAT32分区> /f UEFI`
 
 ## 用法
 
 ```bat
-fwboot.exe <pePath>
+fwboot.exe <wimPath> [index] [espRoot]
 ```
 
 示例：
 
 ```bat
-fwboot.exe S:\WEPE\WEPE64.WIM
+fwboot.exe D:\boot\boot.wim
+fwboot.exe D:\boot\boot.wim 2
+fwboot.exe D:\boot\boot.wim S:\
+fwboot.exe D:\boot\boot.wim 1 S:\
 ```
+
+说明：
+
+- `wimPath` 是 `boot.wim` 路径
+- `index` 默认自动探测第一个包含 `\Windows` 的镜像索引
+- `espRoot` 默认留空，此时自动使用 `boot.wim` 所在分区
 
 ## 返回结果
 
@@ -28,10 +38,11 @@ fwboot.exe S:\WEPE\WEPE64.WIM
 
 ```json
 {
-	"mode": "set_fw_once",
+	"mode": "wim_to_efi",
 	"ok": true,
-	"pe": "S:\\WEPE\\WEPE64.WIM",
-	"id": "{12345678-1111-2222-3333-444444444444}"
+	"wim": "D:\\boot\\boot.wim",
+	"index": 1,
+	"esp": "D:\\"
 }
 ```
 
@@ -39,18 +50,21 @@ fwboot.exe S:\WEPE\WEPE64.WIM
 
 ```json
 {
-	"mode": "set_fw_once",
+	"mode": "wim_to_efi",
 	"ok": false,
-	"pe": "S:\\WEPE\\WEPE64.WIM",
+	"wim": "D:\\boot\\boot.wim",
+	"index": 1,
+	"esp": "D:\\",
 	"error": "错误信息"
 }
 ```
 
 ## 注意
 
-- 这个工具只负责切换到“已存在”的 UEFI 固件启动项。
-- 如果 `bcdedit /enum firmware /v` 里没有能匹配到该分区的固件项，就会失败。
-- 它不会自动创建新的 UEFI 固件启动项。
+- 目标分区必须是 `FAT32`
+- 如果不传 `espRoot`，默认使用 `boot.wim` 所在分区
+- 输出里的 `index` 是程序最终实际使用的索引，不是固定回显输入值
+- 这个工具只负责生成或刷新 UEFI 引导文件，不会设置 `BootNext`
 
 ## 编译
 

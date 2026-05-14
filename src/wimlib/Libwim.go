@@ -2,6 +2,7 @@ package wimlib
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -126,6 +127,9 @@ func LibwimLoad() (*Lib, error) {
 	}
 	toolsDir := filepath.Join(filepath.Dir(exe), "tools")
 	bridgePath := filepath.Join(toolsDir, "wimbridge.dll")
+	if _, err := os.Stat(bridgePath); err != nil {
+		return nil, fmt.Errorf("wimbridge.dll not found: %s", bridgePath)
+	}
 
 	dll := syscall.NewLazyDLL(bridgePath)
 
@@ -154,10 +158,46 @@ func LibwimLoad() (*Lib, error) {
 		procGetLastErrorW:   dll.NewProc("WimBridge_GetLastErrorStringW"),
 	}
 
+	if err := lib.prepDLL(); err != nil {
+		return nil, err
+	}
 	if err := lib.dlLoad(); err != nil {
 		return nil, err
 	}
 	return lib, nil
+}
+
+func (l *Lib) prepDLL() error {
+	if err := l.dll.Load(); err != nil {
+		return err
+	}
+	procs := []*syscall.LazyProc{
+		l.procLoad,
+		l.procUnload,
+		l.procOpenWim,
+		l.procCloseWim,
+		l.procVerifyWim,
+		l.procGetWimInfo,
+		l.procGetImageName,
+		l.procGetImageDesc,
+		l.procGetXMLUtf8,
+		l.procFreeBuffer,
+		l.procApply,
+		l.procExtractPathList,
+		l.procListPaths,
+		l.procFreeDirEntries,
+		l.procUpdateAdd,
+		l.procUpdateDelete,
+		l.procUpdateRename,
+		l.procOverwrite,
+		l.procGetLastErrorW,
+	}
+	for _, p := range procs {
+		if err := p.Find(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (l *Lib) dlLoad() error {
