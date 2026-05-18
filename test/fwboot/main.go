@@ -8,22 +8,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 )
 
 type args struct {
 	wim string
-	idx int
-	esp string
+	sdi string
 }
 
 type resp struct {
 	Mode string `json:"mode"`
 	OK   bool   `json:"ok"`
 	WIM  string `json:"wim,omitempty"`
-	Idx  int    `json:"index,omitempty"`
-	ESP  string `json:"esp,omitempty"`
+	SDI  string `json:"sdi,omitempty"`
 	Err  string `json:"error,omitempty"`
 }
 
@@ -31,68 +28,46 @@ func main() {
 	a, err := parseArgs(os.Args[1:])
 	if err != nil {
 		write(resp{
-			Mode: "wim_to_efi",
+			Mode: "wim_sdi_to_bcd",
 			OK:   false,
 			Err:  err.Error(),
 		})
 		os.Exit(1)
 	}
 
-	idx, err := boot.WimToEFI(a.wim, a.idx, a.esp)
-	if err != nil {
+	if err := boot.WimSdiToBCD(a.wim, a.sdi); err != nil {
 		write(resp{
-			Mode: "wim_to_efi",
+			Mode: "wim_sdi_to_bcd",
 			OK:   false,
 			WIM:  cleanPath(a.wim),
-			Idx:  idxOrIn(idx, a.idx),
-			ESP:  showESP(a.wim, a.esp),
+			SDI:  cleanPath(a.sdi),
 			Err:  err.Error(),
 		})
 		os.Exit(1)
 	}
 
 	write(resp{
-		Mode: "wim_to_efi",
+		Mode: "wim_sdi_to_bcd",
 		OK:   true,
 		WIM:  cleanPath(a.wim),
-		Idx:  idxOrIn(idx, a.idx),
-		ESP:  showESP(a.wim, a.esp),
+		SDI:  cleanPath(a.sdi),
 	})
 }
 
 // parseArgs 解析命令行参数。
 func parseArgs(in []string) (args, error) {
-	if len(in) < 1 || len(in) > 3 {
-		return args{}, fmt.Errorf("用法: fwboot.exe <wimPath> [index] [espRoot]")
+	if len(in) != 2 {
+		return args{}, fmt.Errorf("用法: fwboot.exe <wimPath> <sdiPath>")
 	}
-
 	wim := strings.TrimSpace(in[0])
 	if wim == "" {
 		return args{}, fmt.Errorf("wimPath 不能为空")
 	}
-
-	out := args{
-		wim: wim,
-		idx: 0,
+	sdi := strings.TrimSpace(in[1])
+	if sdi == "" {
+		return args{}, fmt.Errorf("sdiPath 不能为空")
 	}
-	if len(in) >= 2 {
-		arg2 := strings.TrimSpace(in[1])
-		if idx, err := strconv.Atoi(arg2); err == nil {
-			if idx <= 0 {
-				return args{}, fmt.Errorf("index 必须是大于 0 的整数")
-			}
-			out.idx = idx
-		} else {
-			out.esp = arg2
-		}
-	}
-	if len(in) == 3 {
-		if out.idx == 0 {
-			return args{}, fmt.Errorf("传入 espRoot 时，第二个参数必须是 index")
-		}
-		out.esp = strings.TrimSpace(in[2])
-	}
-	return out, nil
+	return args{wim: wim, sdi: sdi}, nil
 }
 
 func cleanPath(path string) string {
@@ -104,25 +79,6 @@ func cleanPath(path string) string {
 		path = abs
 	}
 	return filepath.Clean(path)
-}
-
-func showESP(wimPath, espRoot string) string {
-	if strings.TrimSpace(espRoot) != "" {
-		return cleanPath(espRoot)
-	}
-	path := cleanPath(wimPath)
-	vol := filepath.VolumeName(path)
-	if vol == "" {
-		return ""
-	}
-	return filepath.Clean(vol + `\`)
-}
-
-func idxOrIn(idx, in int) int {
-	if idx > 0 {
-		return idx
-	}
-	return in
 }
 
 func write(v resp) {

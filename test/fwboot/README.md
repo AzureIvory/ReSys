@@ -1,48 +1,35 @@
 # fwboot
 
-`fwboot` 是一个独立的命令行测试程序，用来直接调用 `src/boot` 包里的 `WimToEFI`。
+`fwboot` 是一个独立命令行测试程序，用来直接调用 `src/boot` 包里的 `WimSdiToBCD`。
 
 它的作用是：
 
-- 从 `boot.wim` 中准备出 `Windows` 目录
-- 优先用 `DISM/WIMGAPI` 挂载或解包
-- 失败后回退到 `wimlib-imagex` 提取 `\Windows`
-- 最后执行 `bcdboot <Windows目录> /s <FAT32分区> /f UEFI`
+- 使用 `wimPath + sdiPath` 写入 RAMDISK 启动项
+- 设置一次性 `bootsequence`，让下次启动进入该 PE
+- 不改主程序流程，便于手动验证
 
 ## 用法
 
 ```bat
-fwboot.exe <wimPath> [index] [espRoot]
+fwboot.exe <wimPath> <sdiPath>
 ```
 
 示例：
 
 ```bat
-fwboot.exe D:\boot\boot.wim
-fwboot.exe D:\boot\boot.wim 2
-fwboot.exe D:\boot\boot.wim S:\
-fwboot.exe D:\boot\boot.wim 1 S:\
+fwboot.exe D:\boot\11pex64.wim D:\boot\boot.sdi
 ```
 
-说明：
-
-- `wimPath` 是 `boot.wim` 路径
-- `index` 默认自动探测第一个包含 `\Windows` 的镜像索引
-- `espRoot` 默认留空，此时自动使用 `boot.wim` 所在分区
-
 ## 返回结果
-
-程序输出固定 JSON，便于人工查看，也便于脚本或 AI 解析。
 
 成功示例：
 
 ```json
 {
-	"mode": "wim_to_efi",
+	"mode": "wim_sdi_to_bcd",
 	"ok": true,
-	"wim": "D:\\boot\\boot.wim",
-	"index": 1,
-	"esp": "D:\\"
+	"wim": "D:\\boot\\11pex64.wim",
+	"sdi": "D:\\boot\\boot.sdi"
 }
 ```
 
@@ -50,25 +37,21 @@ fwboot.exe D:\boot\boot.wim 1 S:\
 
 ```json
 {
-	"mode": "wim_to_efi",
+	"mode": "wim_sdi_to_bcd",
 	"ok": false,
-	"wim": "D:\\boot\\boot.wim",
-	"index": 1,
-	"esp": "D:\\",
+	"wim": "D:\\boot\\11pex64.wim",
+	"sdi": "D:\\boot\\boot.sdi",
 	"error": "错误信息"
 }
 ```
 
 ## 注意
 
-- 目标分区必须是 `FAT32`
-- 如果不传 `espRoot`，默认使用 `boot.wim` 所在分区
-- 输出里的 `index` 是程序最终实际使用的索引，不是固定回显输入值
-- 这个工具只负责生成或刷新 UEFI 引导文件，不会设置 `BootNext`
+- `wimPath` 和 `sdiPath` 必须都存在
+- 当前实现要求两个文件在同一分区
+- 该工具会修改系统 BCD，测试前建议先备份
 
 ## 编译
-
-双击 `build.bat`，或在命令行执行：
 
 ```bat
 test\fwboot\build.bat

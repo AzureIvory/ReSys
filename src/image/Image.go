@@ -363,8 +363,9 @@ func filterArch(paths []string, want string) []string {
 	return out
 }
 
+// targetMatchesImage 判断镜像文件是否匹配目标系统。
 func targetMatchesImage(imagePath, target string) bool {
-	target = strings.ToLower(strings.TrimSpace(target))
+	target = normalizeTargetText(target)
 	if target == "" {
 		return true
 	}
@@ -372,21 +373,38 @@ func targetMatchesImage(imagePath, target string) bool {
 	infos, err := DetectImageInfos(imagePath)
 	if err == nil {
 		if detected := DetectTargetFromInfos(infos); detected != "" {
-			return detected == target
+			return normalizeTargetText(detected) == target
 		}
 	}
 
-	name := strings.ToLower(imagePath)
+	name := normalizeTargetText(imagePath)
+
 	switch target {
-	case targetWin7:
-		return strings.Contains(name, "win7") || strings.Contains(name, "windows 7")
-	case targetWin10:
-		return strings.Contains(name, "win10") || strings.Contains(name, "windows 10")
-	case targetWin11:
-		return strings.Contains(name, "win11") || strings.Contains(name, "windows 11")
+	case normalizeTargetText(targetWin7):
+		return strings.Contains(name, "win7") || strings.Contains(name, "windows7")
+	case normalizeTargetText(targetWin10):
+		return strings.Contains(name, "win10") || strings.Contains(name, "windows10")
+	case normalizeTargetText(targetWin11):
+		return strings.Contains(name, "win11") || strings.Contains(name, "windows11")
 	default:
 		return true
 	}
+}
+
+// normalizeTargetText 将目标文本转换为小写并去除非字母数字字符。
+func normalizeTargetText(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+
+	var b strings.Builder
+	b.Grow(len(s))
+
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+
+	return b.String()
 }
 
 func FilterRuleItemsByArch(items []data.RuleItem, arch string) []data.RuleItem {
