@@ -120,6 +120,27 @@ func splitDrv(abs string) (string, string, error) {
 	return drv, `\` + rel, nil
 }
 
+// toolPathFrom 从 base 开始向上查找 tools\name，最多向上 4 层。
+func toolPathFrom(base, name string) string {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return ""
+	}
+	dir := filepath.Clean(base)
+	for i := 0; i < 4; i++ {
+		path := filepath.Join(dir, "tools", name)
+		if utils.FileExists(path) {
+			return path
+		}
+		next := filepath.Dir(dir)
+		if next == dir {
+			break
+		}
+		dir = next
+	}
+	return ""
+}
+
 func bcdEditPath() string {
 	if exe, err := os.Executable(); err == nil {
 		if local := toolPathFrom(filepath.Dir(exe), "bcdedit.exe"); local != "" {
