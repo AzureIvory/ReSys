@@ -6,12 +6,10 @@ import (
 	"ReSys/src/disk"
 	"ReSys/src/file"
 	"ReSys/src/log"
-	"ReSys/src/tools"
 	"ReSys/src/windows"
 	"bytes"
 	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -28,6 +26,10 @@ import (
 
 var loadPEAppConfig = config.LoadAppConfig
 var peLogWrite = log.LogWrite
+var curWinVer = windows.GetCurrentWinVersion
+var curFw = boot.GetFwType
+var setPEBCD = boot.WimSdiToBCD
+var setPEEFI = boot.SetPEEFI
 
 // 从多个候选里挑最合适的pe(一般不会用到)
 func ChooseBestWim(paths []string, arch string) string {
@@ -452,138 +454,165 @@ func applyPEBoot(best peCand) (err error) {
 		}
 	}()
 	lt, sdi, wim, nm := best.lt, best.sRel, best.wRel, best.nm
-	log.LogWrite(0, "[applyPEBoot]PE:", nm, "DRV:", lt, "SDI:", sdi, "WIM:", wim)
-
-	bcdeditPath := utils.GetSystemExe("bcdedit.exe")
-	if _, err := tools.RunCmd(bcdeditPath, nil, nil, ""); err != nil && (errors.Is(err, os.ErrNotExist) || errors.Is(err, exec.ErrNotFound)) {
-		exe, e := os.Executable()
-		if e == nil {
-			bcdeditPath = filepath.Join(filepath.Dir(exe), "tools", "bcdedit.exe")
-		}
-	}
-
-	// /device guid
-	out, err := tools.RunCmd(bcdeditPath, nil, nil, "", "/create", "/d", "pe", "/device")
-	if err != nil {
-		return err
-	}
-	re := regexp.MustCompile(`(?i)\{([a-f0-9-]+)\}`)
-	m1 := re.FindStringSubmatch(out)
-	if len(m1) < 2 {
-		return fmt.Errorf("guid1解析失败: %s", out)
-	}
-	gd1 := strings.ToLower(m1[1])
-
-	// ramdisksdi*
-	_, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd1+"}", "ramdisksdidevice", "partition="+lt+":")
-	if err != nil {
-		return err
-	}
-	_, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd1+"}", "ramdisksdipath", sdi)
-	if err != nil {
-		return err
-	}
-
-	// /application osloader guid2
-	out, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/create", "/d", "pe", "/application", "osloader")
-	if err != nil {
-		return err
-	}
-	m2 := re.FindStringSubmatch(out)
-	if len(m2) < 2 {
-		return fmt.Errorf("guid2解析失败: %s", out)
-	}
-	gd2 := strings.ToLower(m2[1])
-
-	// device/osdevice
-	dev := fmt.Sprintf("ramdisk=[%s:]%s,{%s}", lt, wim, gd1)
-	_, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "device", dev)
-	if err != nil {
-		return err
-	}
-	_, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "osdevice", dev)
-	if err != nil {
-		return err
-	}
-
-	// BIOS/UEFI
-	fw := 0 // 1=BIOS 2=UEFI
-
-	if t, e := boot.GetFwType(); e == nil {
-		// 1=BIOS 2=UEFI 0=Unknown
-		if t == 1 || t == 2 {
-			fw = int(t)
-		}
-	} else {
-		log.LogWrite(0, "[applyPEBoot]applyPEBoot: GetFwType 失败，走其他方案: %v", e)
-	}
-
-	// WinPE 注册表 PEFirmwareType（可能不存在；不存在时 reg 会 exit 1）
-	if fw == 0 {
-		regPath := utils.GetSystemExe("reg.exe")
-
-		// 有些 WinPE 需要先 UpdateBootInfo 才会写出 PEFirmwareType
-		wpeutilPath := utils.GetSystemExe("wpeutil.exe")
-		if _, stErr := os.Stat(wpeutilPath); stErr == nil {
-			_, _ = tools.RunCmd(wpeutilPath, nil, nil, "", "UpdateBootInfo")
-		}
-
-		regOut, er2 := tools.RunCmd(regPath, nil, nil, "", "query",
-			`HKLM\SYSTEM\CurrentControlSet\Control`, "/v", "PEFirmwareType")
-
-		if er2 == nil {
-			r2 := regexp.MustCompile(`(?i)0x([0-9a-f]+)`)
-			m3 := r2.FindStringSubmatch(regOut)
-			if len(m3) >= 2 {
-				if v, e3 := strconv.ParseInt(m3[1], 16, 32); e3 == nil {
-					if v == 1 || v == 2 {
-						fw = int(v)
-					}
-				}
-			}
-		} else {
-			log.LogWrite(0, "[applyPEBoot]applyPEBoot: PEFirmwareType 不可用(忽略): %v", er2)
-		}
-	}
-
-	// 用 bcdedit 判断 {fwbootmgr}（UEFI 通常存在）
-	if fw == 0 {
-		if _, e := tools.RunCmd(bcdeditPath, nil, nil, "", "/enum", "{fwbootmgr}"); e == nil {
-			fw = 2
-		} else {
-			fw = 1
-		}
-	}
-
-	p1 := `\windows\system32\boot\winload.efi`
-	p2 := `\windows\system32\boot\winload.exe`
-	if fw == 1 {
-		p1, p2 = p2, p1
-	}
-	if _, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "path", p1); err != nil {
-		if _, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "path", p2); err != nil {
+	log.LogWrite(0, "[applyPEBoot] PE=%s DRV=%s SDI=%s WIM=%s", nm, lt, sdi, wim)
+	if usePEEFI() {
+		if err = setPEEFI(best.wAbs, best.sAbs); err != nil {
+			log.LogWrite(0, "[applyPEBoot]SetPEEFI 失败: wim=%s sdi=%s err=%v", best.wAbs, best.sAbs, err)
 			return err
 		}
+		return nil
 	}
-
-	if _, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "systemroot", `\windows`); err != nil {
-		return err
-	}
-	if _, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "detecthal", "YES"); err != nil {
-		return err
-	}
-	if _, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "winpe", "YES"); err != nil {
-		return err
-	}
-	if _, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "nx", "OptIn"); err != nil {
-		return err
-	}
-
-	// 设置下次启动
-	if _, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/bootsequence", "{"+gd2+"}"); err != nil {
+	if err = setPEBCD(best.wAbs, best.sAbs); err != nil {
+		log.LogWrite(0, "[applyPEBoot]WimSdiToBCD 失败: wim=%s sdi=%s err=%v", best.wAbs, best.sAbs, err)
 		return err
 	}
 	return nil
+
+	/*
+			旧版 bcdedit 逐项写入逻辑已停用，保留注释仅用于回溯对比。
+			当前统一走 boot.WimSdiToBCD(best.wAbs, best.sAbs)。
+
+		bcdeditPath := utils.GetSystemExe("bcdedit.exe")
+		if _, err := tools.RunCmd(bcdeditPath, nil, nil, ""); err != nil && (errors.Is(err, os.ErrNotExist) || errors.Is(err, exec.ErrNotFound)) {
+			exe, e := os.Executable()
+			if e == nil {
+				bcdeditPath = filepath.Join(filepath.Dir(exe), "tools", "bcdedit.exe")
+			}
+		}
+
+		// /device guid
+		out, err := tools.RunCmd(bcdeditPath, nil, nil, "", "/create", "/d", "pe", "/device")
+		if err != nil {
+			return err
+		}
+		re := regexp.MustCompile(`(?i)\{([a-f0-9-]+)\}`)
+		m1 := re.FindStringSubmatch(out)
+		if len(m1) < 2 {
+			return fmt.Errorf("guid1解析失败: %s", out)
+		}
+		gd1 := strings.ToLower(m1[1])
+
+		// ramdisksdi*
+		_, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd1+"}", "ramdisksdidevice", "partition="+lt+":")
+		if err != nil {
+			return err
+		}
+		_, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd1+"}", "ramdisksdipath", sdi)
+		if err != nil {
+			return err
+		}
+
+		// /application osloader guid2
+		out, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/create", "/d", "pe", "/application", "osloader")
+		if err != nil {
+			return err
+		}
+		m2 := re.FindStringSubmatch(out)
+		if len(m2) < 2 {
+			return fmt.Errorf("guid2解析失败: %s", out)
+		}
+		gd2 := strings.ToLower(m2[1])
+
+		// device/osdevice
+		dev := fmt.Sprintf("ramdisk=[%s:]%s,{%s}", lt, wim, gd1)
+		_, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "device", dev)
+		if err != nil {
+			return err
+		}
+		_, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "osdevice", dev)
+		if err != nil {
+			return err
+		}
+
+		// BIOS/UEFI
+		fw := 0 // 1=BIOS 2=UEFI
+
+		if t, e := boot.GetFwType(); e == nil {
+			// 1=BIOS 2=UEFI 0=Unknown
+			if t == 1 || t == 2 {
+				fw = int(t)
+			}
+		} else {
+			log.LogWrite(0, "[applyPEBoot]applyPEBoot: GetFwType 失败，走其他方案: %v", e)
+		}
+
+		// WinPE 注册表 PEFirmwareType（可能不存在；不存在时 reg 会 exit 1）
+		if fw == 0 {
+			regPath := utils.GetSystemExe("reg.exe")
+
+			// 有些 WinPE 需要先 UpdateBootInfo 才会写出 PEFirmwareType
+			wpeutilPath := utils.GetSystemExe("wpeutil.exe")
+			if _, stErr := os.Stat(wpeutilPath); stErr == nil {
+				_, _ = tools.RunCmd(wpeutilPath, nil, nil, "", "UpdateBootInfo")
+			}
+
+			regOut, er2 := tools.RunCmd(regPath, nil, nil, "", "query",
+				`HKLM\SYSTEM\CurrentControlSet\Control`, "/v", "PEFirmwareType")
+
+			if er2 == nil {
+				r2 := regexp.MustCompile(`(?i)0x([0-9a-f]+)`)
+				m3 := r2.FindStringSubmatch(regOut)
+				if len(m3) >= 2 {
+					if v, e3 := strconv.ParseInt(m3[1], 16, 32); e3 == nil {
+						if v == 1 || v == 2 {
+							fw = int(v)
+						}
+					}
+				}
+			} else {
+				log.LogWrite(0, "[applyPEBoot]applyPEBoot: PEFirmwareType 不可用(忽略): %v", er2)
+			}
+		}
+
+		// 用 bcdedit 判断 {fwbootmgr}（UEFI 通常存在）
+		if fw == 0 {
+			if _, e := tools.RunCmd(bcdeditPath, nil, nil, "", "/enum", "{fwbootmgr}"); e == nil {
+				fw = 2
+			} else {
+				fw = 1
+			}
+		}
+
+		p1 := `\windows\system32\boot\winload.efi`
+		p2 := `\windows\system32\boot\winload.exe`
+		if fw == 1 {
+			p1, p2 = p2, p1
+		}
+		if _, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "path", p1); err != nil {
+			if _, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "path", p2); err != nil {
+				return err
+			}
+		}
+
+		if _, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "systemroot", `\windows`); err != nil {
+			return err
+		}
+		if _, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "detecthal", "YES"); err != nil {
+			return err
+		}
+		if _, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "winpe", "YES"); err != nil {
+			return err
+		}
+		if _, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/set", "{"+gd2+"}", "nx", "OptIn"); err != nil {
+			return err
+		}
+
+		// 设置下次启动
+		if _, err = tools.RunCmd(bcdeditPath, nil, nil, "", "/bootsequence", "{"+gd2+"}"); err != nil {
+			return err
+		}
+		return nil
+	*/
+}
+
+// usePEEFI 仅在 Win7 + UEFI 下启用独立 EFI 一次性启动方案。
+func usePEEFI() bool {
+	ver, _, err := curWinVer()
+	if err != nil || ver != 7 {
+		return false
+	}
+	fw, err := curFw()
+	return err == nil && fw == 2
 }
 
 // 进入PE + 扫描模式：scan=true 时只返回最优 WIM/SDI

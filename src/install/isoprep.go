@@ -15,6 +15,7 @@ import (
 )
 
 var mtISO = imgsvc.MountISO
+var upISO = imgsvc.UnpackISO
 var cpISO = file.Copy
 var fdISO = file.FindFile
 var stISO = os.Stat
@@ -70,10 +71,46 @@ func prepISO(plan *InstallPlan) error {
 
 func isoSrcByISO(iso string) (string, error) {
 	root, err := mtISO(iso, 30*time.Second)
+	if err == nil {
+		return isoSrc(root)
+	}
+
+	// Win7 等环境可能不支持直接挂载 ISO，失败时回退到解包后提取 install.wim/esd。
+	log.LogWrite(0, "[isoSrcByISO] mount iso failed, fallback to unpack: iso=%s err=%v", iso, err)
+	dir, derr := isoUnpackDir(iso)
+	if derr != nil {
+		return "", fmt.Errorf("mount iso failed: %v; build unpack dir failed: %w", err, derr)
+	}
+
+	// 已解包过时优先复用，避免重复解包。
+	if src, ferr := isoSrc(dir); ferr == nil {
+		log.LogWrite(0, "[isoSrcByISO] reuse unpacked iso: iso=%s dir=%s", iso, dir)
+		return src, nil
+	}
+
+	_ = os.RemoveAll(dir)
+	if uerr := upISO(iso, dir); uerr != nil {
+		return "", fmt.Errorf("mount iso failed: %v; unpack iso failed: %w", err, uerr)
+	}
+
+	src, serr := isoSrc(dir)
+	if serr != nil {
+		return "", fmt.Errorf("iso unpacked but install image not found: %w", serr)
+	}
+	log.LogWrite(0, "[isoSrcByISO] unpack iso success: iso=%s dir=%s src=%s", iso, dir, src)
+	return src, nil
+}
+
+func isoUnpackDir(iso string) (string, error) {
+	abs, err := filepath.Abs(strings.TrimSpace(iso))
 	if err != nil {
 		return "", err
 	}
-	return isoSrc(root)
+	name := strings.TrimSuffix(filepath.Base(abs), filepath.Ext(abs))
+	if name == "" {
+		name = "iso"
+	}
+	return filepath.Join(filepath.Dir(abs), ".resys_iso", name), nil
 }
 
 func isoSrc(root string) (string, error) {

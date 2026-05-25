@@ -16,8 +16,6 @@ import (
 	"ReSys/src/file"
 	"ReSys/src/log"
 	"ReSys/src/utils"
-
-	"github.com/kdomanski/iso9660"
 )
 
 const (
@@ -52,34 +50,60 @@ func Findimg() ([]string, error) {
 
 	patterns := []string{"*.iso", "*.esd", "*.wim"}
 
-	validateImage := func(imagePath string) bool {
-		_, err := t.ListImageInfos(imagePath)
-		return err == nil
+	validateImage := func(imagePath string) (bool, string) {
+		infos, err := t.ListImageInfos(imagePath)
+		if err != nil {
+			return false, fmt.Sprintf("list image infos failed: %v", err)
+		}
+		if len(infos) == 0 {
+			return false, "no image infos"
+		}
+		return true, ""
 	}
 
-	validateISO := func(isoPath string) bool {
-		f, err := os.Open(isoPath)
+	validateISO := func(isoPath string) (bool, string) {
+		okay := func(msg string, args ...interface{}) (bool, string) {
+			reason := fmt.Sprintf(msg, args...)
+			log.LogWrite(0, "[validateISO] accept: path=%s reason=%s", isoPath, reason)
+			return true, ""
+		}
+		fail := func(msg string, args ...interface{}) (bool, string) {
+			reason := fmt.Sprintf(msg, args...)
+			log.LogWrite(0, "[validateISO] reject: path=%s reason=%s", isoPath, reason)
+			return false, reason
+		}
+		joinOrNone := func(items []string, max int) string {
+			if len(items) == 0 {
+				return "none"
+			}
+			if max > 0 && len(items) > max {
+				items = append([]string(nil), items[:max]...)
+				items = append(items, "...")
+			}
+			return strings.Join(items, ",")
+		}
+
+		if st, err := os.Stat(isoPath); err == nil {
+			log.LogWrite(0, "[validateISO] check: path=%s size=%d", isoPath, st.Size())
+		}
+
+		meta, err := listISO7z(isoPath)
 		if err != nil {
-			return false
+			return fail("7z list failed: %v", err)
 		}
-		defer f.Close()
-
-		format, err := detectISOFormat(f)
-		if err != nil || format != "iso9660" {
-			return false
+		if meta.hasWim || meta.hasEsd {
+			return okay("found install image via 7z list: wim=%t esd=%t", meta.hasWim, meta.hasEsd)
 		}
-
-		img, err := iso9660.OpenImage(f)
-		if err != nil {
-			return false
+		if meta.hasSwm {
+			return fail("found split swm only (%s), no install.wim/install.esd", joinOrNone(meta.ins, 20))
 		}
-
-		root, err := img.RootDir()
-		if err != nil {
-			return false
+		if !meta.hasSrc {
+			return fail("sources dir missing; root entries=%s", joinOrNone(meta.root, 12))
 		}
-
-		return hasISOInstallImage(root, "")
+		if len(meta.ins) > 0 {
+			return fail("install files found but unsupported by pre-scan (%s)", joinOrNone(meta.ins, 20))
+		}
+		return fail("install.wim/install.esd not found; sources entries=%s; root entries=%s", joinOrNone(meta.src, 20), joinOrNone(meta.root, 12))
 	}
 
 	for _, root := range drives {
@@ -117,6 +141,45 @@ func Findimg() ([]string, error) {
 	}
 
 	wg.Wait()
+	logAll := func(tag string, list []string) {
+		if len(list) == 0 {
+			log.LogWrite(0, "[Findimg] %s: none", tag)
+			return
+		}
+
+		seen := make(map[string]struct{}, len(list))
+		out := make([]string, 0, len(list))
+		for _, item := range list {
+			item = strings.TrimSpace(item)
+			if item == "" {
+				continue
+			}
+			key := strings.ToLower(item)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, item)
+		}
+		sort.Slice(out, func(i, j int) bool {
+			return strings.ToLower(out[i]) < strings.ToLower(out[j])
+		})
+		log.LogWrite(0, "[Findimg] %s (%d): %s", tag, len(out), strings.Join(out, " | "))
+	}
+	logDrop := func(path, reason string) {
+		path = strings.TrimSpace(path)
+		reason = strings.TrimSpace(reason)
+		if path == "" {
+			return
+		}
+		if reason == "" {
+			reason = "unknown"
+		}
+		log.LogWrite(0, "[Findimg] reject image: path=%s reason=%s", path, reason)
+	}
+
+	// 记录搜索阶段扫到的全部镜像文件（未做格式/体积校验前）。
+	logAll("scanned image files", files)
 
 	if len(files) > 0 {
 		seen := make(map[string]struct{}, len(files))
@@ -127,28 +190,50 @@ func Findimg() ([]string, error) {
 			base := strings.ToLower(filepath.Base(lp))
 
 			if _, ok := policy.skipNameSet[base]; ok {
+				logDrop(p, "matched skip-name list")
 				continue
 			}
 
 			fi, err := os.Stat(p)
-			if err != nil || fi.IsDir() || fi.Size() < policy.minLocalImageBytes {
+			if err != nil {
+				logDrop(p, fmt.Sprintf("stat failed: %v", err))
+				continue
+			}
+			if fi.IsDir() {
+				logDrop(p, "is directory")
+				continue
+			}
+			if fi.Size() < policy.minLocalImageBytes {
+				logDrop(p, fmt.Sprintf("file too small: size=%d min=%d", fi.Size(), policy.minLocalImageBytes))
 				continue
 			}
 
 			if _, ok := seen[lp]; ok {
+				logDrop(p, "duplicate path")
 				continue
 			}
 
 			switch strings.ToLower(filepath.Ext(p)) {
 			case ".iso":
-				if !validateISO(p) {
+				ok, why := validateISO(p)
+				if !ok {
+					if why == "" {
+						why = "unknown"
+					}
+					logDrop(p, "iso validation failed: "+why)
 					continue
 				}
 			case ".wim", ".esd":
-				if !validateImage(p) {
+				ok, why := validateImage(p)
+				if !ok {
+					if why == "" {
+						why = "unknown"
+					}
+					logDrop(p, "wim/esd metadata parse failed: "+why)
 					continue
 				}
 			default:
+				logDrop(p, "unsupported extension")
 				continue
 			}
 
@@ -158,6 +243,8 @@ func Findimg() ([]string, error) {
 
 		files = dst
 	}
+	// 记录过滤后可用的本地镜像文件。
+	logAll("accepted image files", files)
 
 	sort.Slice(files, func(i, j int) bool {
 		priority := func(p string) int {
