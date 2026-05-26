@@ -16,15 +16,11 @@ import (
 
 var (
 	listVol   = disk.ListVolumes
-	listDisk  = disk.ListPhysicalDisks
-	listPart  = disk.ListDiskPartitions
-	listFree  = disk.GetDiskFreeExtents
-	mkESP     = disk.CreateESPFromExtent
 	getType   = disk.GetDriveType
 	getKind   = disk.GetDiskKind
-	getDInfo  = disk.GetDiskInfo
-	shrinkVol = disk.ShrinkVolume
-	findExt   = disk.FindESPFreeExtentAfterShrink
+	pickExt   = disk.PickFreeExtent
+	mkPart    = disk.CreatePartitionFromFreeExtent
+	splitVol  = disk.SplitVolume
 	cpFile    = file.Copy
 	rmPath    = file.Remove
 	isDir     = utils.DirExists
@@ -36,21 +32,20 @@ var (
 )
 
 const (
-	minESP         uint64 = 2 * 1024 * 1024 * 1024
-	espPad         uint64 = 256 * 1024 * 1024
+	minFAT         uint64 = 2 * 1024 * 1024 * 1024
+	fatPad         uint64 = 256 * 1024 * 1024
 	fatMax         uint64 = 4*1024*1024*1024 - 1
-	extProbe       uint64 = 64 * 1024 * 1024
 	peLabel               = "RESYSPE"
 	peDir                 = "ReSysPE"
-	uefiName              = "TEMP PE UEFI RESYS"
-	legacyUEFIName        = "My UEFI"
+	uefiName              = "My UEFI"
+	legacyUEFIName        = "TEMP PE UEFI RESYS"
 
 	efiBootMgrPath   = `\EFI\Microsoft\Boot\bootmgfw.efi`
 	efiFallbackPath  = `\EFI\BOOT\BOOTX64.EFI`
 	ramdiskOptionsID = "{ramdiskoptions}"
 )
 
-// SetPEEFI 在 Win7+UEFI 下准备独立 ESP，并设置下次从该 EFI 条目启动。
+// SetPEEFI 为 Win7+UEFI 准备独立 FAT32 启动分区，并设置下次从该 EFI 条目启动。
 func SetPEEFI(wimPath, sdiPath string) error {
 	wimAbs, err := absArg(wimPath)
 	if err != nil {
@@ -79,30 +74,34 @@ func SetPEEFI(wimPath, sdiPath string) error {
 		return fmt.Errorf("sdi too large for FAT32: %s", sdiAbs)
 	}
 
-	need := uint64(wimSt.Size()) + uint64(sdiSt.Size()) + espPad
-	if need < minESP {
-		need = minESP
+	need := uint64(wimSt.Size()) + uint64(sdiSt.Size()) + fatPad
+	if need < minFAT {
+		need = minFAT
 	}
 
-	root, err := pickESP(need)
+	root, reuse, err := pickFAT(need)
 	if err != nil {
 		return err
 	}
-	log.LogWrite(0, "[SetPEEFI] use esp root: %s", root)
+	log.LogWrite(0, "[SetPEEFI] use fat root: %s", root)
 
-	dstDir := filepath.Join(root, peDir)
-	if isDir(dstDir) {
-		if err := rmPath(dstDir, true, false); err != nil {
-			return fmt.Errorf("remove old %s failed: %w", peDir, err)
+	wDst, sDst, err := writePE(root, wimAbs, sdiAbs)
+	if err != nil {
+		if !reuse {
+			return err
 		}
-	}
-	wDst := filepath.Join(dstDir, "boot.wim")
-	sDst := filepath.Join(dstDir, "boot.sdi")
-	if err := cpFile(wimAbs, wDst, true, true); err != nil {
-		return fmt.Errorf("copy wim failed: %w", err)
-	}
-	if err := cpFile(sdiAbs, sDst, true, true); err != nil {
-		return fmt.Errorf("copy sdi failed: %w", err)
+		// 命中 RESYSPE 复用分区但写入失败时，回退为新建 FAT32 分区后重试。
+		oldErr := err
+		log.LogWrite(0, "[SetPEEFI] write to reused fat failed, create new fat: %v", oldErr)
+		root, err = makeFAT(need)
+		if err != nil {
+			return fmt.Errorf("write reused fat failed: %v; create new fat failed: %w", oldErr, err)
+		}
+		log.LogWrite(0, "[SetPEEFI] fallback new fat root: %s", root)
+		wDst, sDst, err = writePE(root, wimAbs, sdiAbs)
+		if err != nil {
+			return err
+		}
 	}
 
 	sysRoot := strings.TrimSpace(winRoot())
@@ -120,10 +119,10 @@ func SetPEEFI(wimPath, sdiPath string) error {
 	if err := runBCDBootFresh(bcdboot, winDir, drv, store); err != nil {
 		return err
 	}
-	efiSrc := filepath.Join(root, "EFI", "Microsoft", "Boot", "bootmgfw.efi")
-	efiDst := filepath.Join(root, "EFI", "BOOT", "BOOTX64.EFI")
-	if err := cpFile(efiSrc, efiDst, true, true); err != nil {
-		return fmt.Errorf("prepare bootx64.efi failed: %w", err)
+	// bcdboot 生成基础引导后，注入自定义 UEFI 启动程序和配置。
+	// 注入通用 EFI 文件与 grubfm 配置，确保不同机器引导行为一致。
+	if err := putUEFIRes(root); err != nil {
+		return err
 	}
 
 	if err := prepStore(store, wDst, sDst); err != nil {
@@ -141,6 +140,7 @@ func SetPEEFI(wimPath, sdiPath string) error {
 	if err != nil {
 		return err
 	}
+	// 设置一次性下次启动进入该项。
 	if _, err := runBcdCmd(bcd, "/set", "{fwbootmgr}", "bootsequence", fwID); err != nil {
 		return err
 	}
@@ -149,6 +149,25 @@ func SetPEEFI(wimPath, sdiPath string) error {
 	}
 	log.LogWrite(0, "[SetPEEFI] done: root=%s fw=%s store=%s", root, fwID, store)
 	return nil
+}
+
+// writePE 清空并重写目标分区上的 ReSysPE 目录。
+func writePE(root, wimAbs, sdiAbs string) (string, string, error) {
+	dstDir := filepath.Join(root, peDir)
+	if isDir(dstDir) {
+		if err := rmPath(dstDir, true, false); err != nil {
+			return "", "", fmt.Errorf("remove old %s failed: %w", peDir, err)
+		}
+	}
+	wDst := filepath.Join(dstDir, "boot.wim")
+	sDst := filepath.Join(dstDir, "boot.sdi")
+	if err := cpFile(wimAbs, wDst, true, true); err != nil {
+		return "", "", fmt.Errorf("copy wim failed: %w", err)
+	}
+	if err := cpFile(sdiAbs, sDst, true, true); err != nil {
+		return "", "", fmt.Errorf("copy sdi failed: %w", err)
+	}
+	return wDst, sDst, nil
 }
 
 func runBCDBootFresh(bin, winDir, drv, store string) error {
@@ -209,48 +228,34 @@ func ensurePEFirmwareEntry(bcd, drv string) (string, error) {
 		log.LogWrite(0, "[SetPEEFI] enum firmware before update failed: %v", err)
 	}
 
-	fwID := ""
+	// 先清理历史残留项，避免同名启动项不断累积。
 	for _, ent := range entries {
-		if isOurFirmwareEntry(ent, drv) && strings.EqualFold(strings.TrimSpace(ent.description), uefiName) {
-			fwID = ent.id
-			break
+		if !isOurFirmwareDescription(ent.description) {
+			continue
 		}
-	}
-	if fwID == "" {
-		for _, ent := range entries {
-			if isOurFirmwareEntry(ent, drv) && strings.EqualFold(strings.TrimSpace(ent.description), legacyUEFIName) {
-				fwID = ent.id
-				break
-			}
-		}
-	}
-	if fwID == "" {
-		fwID, err = createID(bcd, "/copy", "{bootmgr}", "/d", uefiName)
-		if err != nil {
-			return "", err
-		}
-	}
-
-	if _, err := runBcdCmd(bcd, "/set", fwID, "description", uefiName); err != nil {
-		return "", err
-	}
-	if _, err := runBcdCmd(bcd, "/set", fwID, "device", "partition="+drv); err != nil {
-		return "", err
-	}
-	if _, err := runBcdCmd(bcd, "/set", fwID, "path", efiBootMgrPath); err != nil {
-		return "", err
-	}
-
-	for _, ent := range entries {
-		if strings.EqualFold(ent.id, fwID) || !isOurFirmwareEntry(ent, drv) {
+		path := normBCDValue(ent.path)
+		if path != normBCDValue(efiBootMgrPath) && path != normBCDValue(efiFallbackPath) {
 			continue
 		}
 		if _, err := runBcdCmd(bcd, "/delete", ent.id, "/f"); err != nil {
 			log.LogWrite(0, "[SetPEEFI] delete duplicate firmware entry failed: id=%s err=%v", ent.id, err)
 		} else {
-			log.LogWrite(0, "[SetPEEFI] deleted duplicate firmware entry: id=%s desc=%s", ent.id, ent.description)
+			log.LogWrite(0, "[SetPEEFI] deleted old firmware entry: id=%s desc=%s", ent.id, ent.description)
 		}
 	}
+
+	// 按 bcdedit /copy {bootmgr} 的方式创建固件启动项。
+	fwID, err := createID(bcd, "/copy", "{bootmgr}", "/d", uefiName)
+	if err != nil {
+		return "", err
+	}
+	if _, err := runBcdCmd(bcd, "/set", fwID, "device", "partition="+drv); err != nil {
+		return "", err
+	}
+	if _, err := runBcdCmd(bcd, "/set", fwID, "path", efiFallbackPath); err != nil {
+		return "", err
+	}
+
 	return fwID, nil
 }
 
@@ -294,23 +299,9 @@ func enumFirmwareEntries(bcd string) ([]firmwareEntry, error) {
 	return entries, nil
 }
 
-func isOurFirmwareEntry(ent firmwareEntry, drv string) bool {
-	if ent.id == "" || !samePartitionDevice(ent.device, drv) || !isOurFirmwareDescription(ent.description) {
-		return false
-	}
-	path := normBCDValue(ent.path)
-	return path == normBCDValue(efiBootMgrPath) || path == normBCDValue(efiFallbackPath)
-}
-
 func isOurFirmwareDescription(desc string) bool {
 	desc = strings.TrimSpace(desc)
 	return strings.EqualFold(desc, uefiName) || strings.EqualFold(desc, legacyUEFIName)
-}
-
-func samePartitionDevice(device, drv string) bool {
-	device = normBCDValue(strings.ReplaceAll(device, " ", ""))
-	drv = strings.TrimRight(strings.ToLower(strings.TrimSpace(drv)), `\`)
-	return strings.Contains(device, "partition="+drv)
 }
 
 func normBCDValue(v string) string {
@@ -318,16 +309,16 @@ func normBCDValue(v string) string {
 	return strings.ToLower(v)
 }
 
-func pickESP(need uint64) (string, error) {
+func pickFAT(need uint64) (string, bool, error) {
 	vols, err := listVol()
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	pmap := map[int][]disk.PartitionInfo{}
 	type item struct {
 		root string
 		free uint64
 	}
+	tagged := make([]item, 0, 4)
 	cands := make([]item, 0, len(vols))
 	for _, vol := range vols {
 		root, ok := normRoot(vol.RootPath)
@@ -337,9 +328,6 @@ func pickESP(need uint64) (string, error) {
 		if !strings.EqualFold(strings.TrimSpace(vol.FileSystem), "FAT32") {
 			continue
 		}
-		if vol.SizeBytes < minESP || vol.FreeBytes < need {
-			continue
-		}
 		if getType(root) != 3 {
 			continue
 		}
@@ -347,10 +335,23 @@ func pickESP(need uint64) (string, error) {
 		if err != nil || strings.EqualFold(kind, "Removable") || strings.EqualFold(kind, "CDROM") {
 			continue
 		}
-		if !isESPVol(vol, pmap) {
+		if strings.EqualFold(strings.TrimSpace(vol.Label), peLabel) {
+			tagged = append(tagged, item{root: root, free: vol.FreeBytes})
+		}
+		if vol.SizeBytes < minFAT || vol.FreeBytes < need {
 			continue
 		}
 		cands = append(cands, item{root: root, free: vol.FreeBytes})
+	}
+	if len(tagged) > 0 {
+		sort.Slice(tagged, func(i, j int) bool {
+			if tagged[i].free != tagged[j].free {
+				return tagged[i].free > tagged[j].free
+			}
+			return strings.ToLower(tagged[i].root) < strings.ToLower(tagged[j].root)
+		})
+		log.LogWrite(0, "[pickFAT] reuse label=%s root=%s", peLabel, tagged[0].root)
+		return tagged[0].root, true, nil
 	}
 	if len(cands) > 0 {
 		sort.Slice(cands, func(i, j int) bool {
@@ -359,45 +360,41 @@ func pickESP(need uint64) (string, error) {
 			}
 			return strings.ToLower(cands[i].root) < strings.ToLower(cands[j].root)
 		})
-		return cands[0].root, nil
+		return cands[0].root, false, nil
 	}
-	return makeESP(need)
+	root, err := makeFAT(need)
+	return root, false, err
 }
 
-func makeESP(need uint64) (string, error) {
-	sizeMB, err := toMB(need)
-	if err != nil {
-		return "", err
+func makeFAT(need uint64) (string, error) {
+	ext, err := pickExt(need, disk.ExtentPickPolicy{
+		PreferNonSystemDisk: true,
+		PreferLargestExtent: true,
+	})
+	if err == nil && ext.SizeBytes >= need {
+		letter, err := mkPart(ext, need, "fat32", peLabel)
+		if err == nil {
+			if root, ok := normRoot(letter); ok {
+				return root, nil
+			}
+		}
+		log.LogWrite(0, "[makeFAT] create from free extent failed: %v", err)
 	}
 
-	// 1) 优先直接在 GPT 未分配空间创建真实 ESP。
-	if root, err := makeESPFree(need, sizeMB); err == nil {
-		return root, nil
-	} else {
-		log.LogWrite(0, "[makeESP] create from free extent failed: %v", err)
-	}
-
-	// 2) 再尝试收缩 GPT+NTFS 卷后创建真实 ESP。
 	root, err := pickNTFS(need)
 	if err != nil {
 		return "", err
 	}
-	_, dnum, err := getDInfo(root)
+	sizeMB := int((need + 1024*1024 - 1) / (1024 * 1024))
+	letter, err := splitVol(root, sizeMB, "fat32", peLabel)
 	if err != nil {
 		return "", err
 	}
-	if _, err := shrinkVol(root, sizeMB); err != nil {
-		return "", err
+	out, ok := normRoot(letter)
+	if !ok {
+		return "", fmt.Errorf("split volume returned invalid root: %s", letter)
 	}
-	ext, err := findExt(root, int(dnum), need, extProbe)
-	if err != nil {
-		return "", err
-	}
-	eroot, _, err := mkESP(ext, sizeMB, peLabel)
-	if err != nil {
-		return "", err
-	}
-	return normRootOrErr(eroot)
+	return out, nil
 }
 
 func pickNTFS(need uint64) (string, error) {
@@ -418,7 +415,7 @@ func pickNTFS(need uint64) (string, error) {
 		if !strings.EqualFold(strings.TrimSpace(vol.FileSystem), "NTFS") {
 			continue
 		}
-		if vol.FreeBytes < need+espPad {
+		if vol.FreeBytes < need+fatPad {
 			continue
 		}
 		if getType(root) != 3 {
@@ -428,14 +425,10 @@ func pickNTFS(need uint64) (string, error) {
 		if err != nil || strings.EqualFold(kind, "Removable") || strings.EqualFold(kind, "CDROM") {
 			continue
 		}
-		style, _, err := getDInfo(root)
-		if err != nil || !strings.EqualFold(strings.TrimSpace(style), "GPT") {
-			continue
-		}
 		cands = append(cands, item{root: root, free: vol.FreeBytes})
 	}
 	if len(cands) == 0 {
-		return "", fmt.Errorf("no local gpt ntfs volume can be shrinked for esp")
+		return "", fmt.Errorf("no local ntfs volume can be split for fat32")
 	}
 	sort.Slice(cands, func(i, j int) bool {
 		if cands[i].free != cands[j].free {
@@ -444,106 +437,6 @@ func pickNTFS(need uint64) (string, error) {
 		return strings.ToLower(cands[i].root) < strings.ToLower(cands[j].root)
 	})
 	return cands[0].root, nil
-}
-
-func makeESPFree(need uint64, sizeMB int) (string, error) {
-	disks, err := listDisk()
-	if err != nil {
-		return "", err
-	}
-	type cand struct {
-		ext   disk.FreeExtent
-		sys   bool
-		size  uint64
-		diskn int
-	}
-	cs := make([]cand, 0, 8)
-	for _, d := range disks {
-		if !strings.EqualFold(strings.TrimSpace(d.PartitionStyle), "GPT") {
-			continue
-		}
-		exts, err := listFree(d.DiskNumber)
-		if err != nil {
-			continue
-		}
-		for _, ex := range exts {
-			if ex.SizeBytes < need {
-				continue
-			}
-			cs = append(cs, cand{
-				ext:   ex,
-				sys:   d.IsSystemDisk,
-				size:  ex.SizeBytes,
-				diskn: d.DiskNumber,
-			})
-		}
-	}
-	if len(cs) == 0 {
-		return "", fmt.Errorf("no gpt free extent large enough for esp")
-	}
-	sort.Slice(cs, func(i, j int) bool {
-		if cs[i].sys != cs[j].sys {
-			return !cs[i].sys
-		}
-		if cs[i].size != cs[j].size {
-			return cs[i].size > cs[j].size
-		}
-		if cs[i].diskn != cs[j].diskn {
-			return cs[i].diskn < cs[j].diskn
-		}
-		return cs[i].ext.OffsetBytes < cs[j].ext.OffsetBytes
-	})
-	for _, c := range cs {
-		root, _, err := mkESP(c.ext, sizeMB, peLabel)
-		if err != nil {
-			log.LogWrite(0, "[makeESPFree] create esp failed: disk=%d off=%d size=%d err=%v", c.diskn, c.ext.OffsetBytes, c.ext.SizeBytes, err)
-			continue
-		}
-		return normRootOrErr(root)
-	}
-	return "", fmt.Errorf("create esp from all candidates failed")
-}
-
-func isESPVol(vol disk.VolumeInfo, pmap map[int][]disk.PartitionInfo) bool {
-	if vol.DiskNumber < 0 {
-		return false
-	}
-	parts, ok := pmap[vol.DiskNumber]
-	if !ok {
-		ps, err := listPart(vol.DiskNumber)
-		if err != nil {
-			return false
-		}
-		parts = ps
-		pmap[vol.DiskNumber] = parts
-	}
-	for _, p := range parts {
-		if vol.OffsetBytes < p.OffsetBytes || vol.OffsetBytes >= p.OffsetBytes+p.SizeBytes {
-			continue
-		}
-		return strings.EqualFold(strings.TrimSpace(p.Type), "EFI")
-	}
-	return false
-}
-
-func toMB(size uint64) (int, error) {
-	mb := (size + 1024*1024 - 1) / (1024 * 1024)
-	if mb == 0 {
-		mb = 1
-	}
-	max := uint64(^uint(0) >> 1)
-	if mb > max {
-		return 0, fmt.Errorf("size too large")
-	}
-	return int(mb), nil
-}
-
-func normRootOrErr(path string) (string, error) {
-	root, ok := normRoot(path)
-	if !ok {
-		return "", fmt.Errorf("invalid root: %s", path)
-	}
-	return root, nil
 }
 
 func normRoot(path string) (string, bool) {
@@ -569,6 +462,50 @@ func bcdBootPath() string {
 		}
 	}
 	return utils.GetSystemExe("bcdboot.exe")
+}
+
+// putUEFIRes 将 tools\uefi 下的通用引导程序和配置复制到目标 FAT32 根目录。
+func putUEFIRes(root string) error {
+	// 先取通用 EFI 启动程序，目标是覆盖到 \EFI\BOOT\BOOTX64.EFI。
+	bootSrc, err := findUEFIRes("bootx64.efi")
+	if err != nil {
+		return err
+	}
+	bootDst := filepath.Join(root, "EFI", "BOOT", "BOOTX64.EFI")
+	// 覆盖 bcdboot 生成的 BOOTX64.EFI，统一引导行为。
+	if err := cpFile(bootSrc, bootDst, true, true); err != nil {
+		return fmt.Errorf("copy custom bootx64.efi failed: %w", err)
+	}
+
+	// 再写 grubfm 配置到 \boot\grubfm\config（无后缀）。
+	cfgSrc, err := findUEFIRes("config")
+	if err != nil {
+		return err
+	}
+	cfgDst := filepath.Join(root, "boot", "grubfm", "config")
+	if err := cpFile(cfgSrc, cfgDst, true, true); err != nil {
+		return fmt.Errorf("copy grubfm config failed: %w", err)
+	}
+	log.LogWrite(0, "[SetPEEFI] uefi resources copied: boot=%s cfg=%s", bootDst, cfgDst)
+	return nil
+}
+
+// findUEFIRes 查找 UEFI 资源文件，未命中直接返回错误。
+func findUEFIRes(name string) (string, error) {
+	if exe, err := os.Executable(); err == nil {
+		base := filepath.Dir(exe)
+		// 优先读 tools\uefi 下的资源，找不到再回退到 tools 根目录。
+		cands := []string{
+			filepath.Join("uefi", name),
+			name,
+		}
+		for _, rel := range cands {
+			if p := toolPathFrom(base, rel); p != "" {
+				return p, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("missing uefi resource: tools\\uefi\\%s", name)
 }
 
 func prepPEStore(store, wimPath, sdiPath string) error {

@@ -1,0 +1,16 @@
+set pager=1
+
+insmod part_gpt
+insmod part_msdos
+insmod fat
+insmod ntfs
+insmod search
+insmod ntboot
+
+echo Loading WinPE...
+search --file --set=root /ReSysPE/boot.wim
+
+ntboot --efi=($root)/efi/microsoft/boot/bootmgfw.efi --sdi=($root)/ReSysPE/boot.sdi --wim ($root)/ReSysPE/boot.wim --winpe=yes --detecthal=yes --testmode=no
+
+echo WinPE boot failed, entering GrubFM...
+sleep 3
