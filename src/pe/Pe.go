@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -29,7 +30,17 @@ var peLogWrite = log.LogWrite
 var curWinVer = windows.GetCurrentWinVersion
 var curFw = boot.GetFwType
 var setPEBCD = boot.WimSdiToBCD
-var setPEEFI = boot.SetPEEFI
+
+const unsupportedWin7UEFIPEBootMessage = "Win7 + UEFI 模式暂时不支持自动进入 PE"
+
+// CheckPEBootSupported returns an error when the current system cannot be
+// safely configured for an automatic PE boot.
+func CheckPEBootSupported() error {
+	if isWin7UEFI() {
+		return errors.New(unsupportedWin7UEFIPEBootMessage)
+	}
+	return nil
+}
 
 // 从多个候选里挑最合适的pe(一般不会用到)
 func ChooseBestWim(paths []string, arch string) string {
@@ -455,12 +466,8 @@ func applyPEBoot(best peCand) (err error) {
 	}()
 	lt, sdi, wim, nm := best.lt, best.sRel, best.wRel, best.nm
 	log.LogWrite(0, "[applyPEBoot] PE=%s DRV=%s SDI=%s WIM=%s", nm, lt, sdi, wim)
-	if usePEEFI() {
-		if err = setPEEFI(best.wAbs, best.sAbs); err != nil {
-			log.LogWrite(0, "[applyPEBoot]SetPEEFI 失败: wim=%s sdi=%s err=%v", best.wAbs, best.sAbs, err)
-			return err
-		}
-		return nil
+	if err = CheckPEBootSupported(); err != nil {
+		return err
 	}
 	if err = setPEBCD(best.wAbs, best.sAbs); err != nil {
 		log.LogWrite(0, "[applyPEBoot]WimSdiToBCD 失败: wim=%s sdi=%s err=%v", best.wAbs, best.sAbs, err)
@@ -605,8 +612,8 @@ func applyPEBoot(best peCand) (err error) {
 	*/
 }
 
-// usePEEFI 仅在 Win7 + UEFI 下启用独立 EFI 一次性启动方案。
-func usePEEFI() bool {
+// isWin7UEFI reports the environment that is currently blocked for automatic PE boot.
+func isWin7UEFI() bool {
 	ver, _, err := curWinVer()
 	if err != nil || ver != 7 {
 		return false

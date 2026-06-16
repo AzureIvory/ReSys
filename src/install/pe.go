@@ -53,6 +53,9 @@ func PreparePEEnvironment(ctx *InstallContext) error {
 	if ctx == nil || ctx.Plan == nil {
 		return fmt.Errorf("install context is nil")
 	}
+	if err := pe.CheckPEBootSupported(); err != nil {
+		return err
+	}
 
 	arch := strings.TrimSpace(ctx.Plan.PEArch)
 	if arch == "" {
@@ -143,6 +146,9 @@ func patchPreparedPE(ctx *InstallContext, prepared preparedPE) error {
 func SetNextBootToPE(ctx *InstallContext) error {
 	if ctx == nil || ctx.Plan == nil {
 		return fmt.Errorf("install context is nil")
+	}
+	if err := pe.CheckPEBootSupported(); err != nil {
+		return err
 	}
 
 	prepared, ok := preparedPEFromContext(ctx)
@@ -836,6 +842,7 @@ func extractWePE(arch string) (string, error) {
 }
 
 // wepeDirs 枚举可能存在微 PE 安装包的目录。
+// 每个盘的"wepe"目录，当前程序所在目录及其"tools"子目录，当前用户的 Downloads 目录
 func wepeDirs() []string {
 	seen := map[string]struct{}{}
 	var out []string
