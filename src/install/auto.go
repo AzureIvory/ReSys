@@ -3,6 +3,7 @@ package install
 import (
 	"ReSys/src/config"
 	"ReSys/src/log"
+	"ReSys/src/tools"
 	"ReSys/src/ui"
 	"ReSys/src/utils"
 	"errors"
@@ -11,6 +12,12 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"time"
+)
+
+var (
+	rebootSystem = tools.Shutdown
+	rebootDelay  = 500 * time.Millisecond
 )
 
 // init 将安装入口绑定到界面层。
@@ -61,9 +68,19 @@ func startAuto(cfg config.Config) {
 		return
 	}
 
-	ui.UiSetProgress(100)
-	ui.UiSetStatus(ui.Tr("install.auto.prepareDone"))
+	finishAutoPrepare(plan)
 	log.LogWrite(0, "[startAuto] prepare finished")
+}
+
+func finishAutoPrepare(plan *InstallPlan) {
+	ui.UiSetProgress(100)
+	if plan != nil && plan.AutoReboot {
+		ui.UiSetStatus(ui.Tr("install.manual.rebootToPE"))
+		time.Sleep(rebootDelay)
+		rebootSystem(true)
+		return
+	}
+	ui.UiSetStatus(ui.Tr("install.auto.prepareDone"))
 }
 
 // loadAutoInstallPlan 读取自动重装 JSON 并转换为安装计划。

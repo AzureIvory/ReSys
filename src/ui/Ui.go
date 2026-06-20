@@ -132,6 +132,7 @@ func UiSetProgress(value int32) {
 
 // UiShowError 弹出一个错误提示框。
 func UiShowError(title, text string) {
+	syncPromptError(text)
 	if ui.app == nil {
 		return
 	}
@@ -173,6 +174,7 @@ func Message(title, text string, onConfirm func(bool)) {
 
 // Warning 弹出 OK/Cancel 警告确认框，用户点击 OK 返回 true。可在任意线程调用。
 func Warning(title, text string) bool {
+	syncPromptError(text)
 	if ui.app == nil {
 		return false
 	}
@@ -181,6 +183,13 @@ func Warning(title, text string) bool {
 	}
 	cfg := msgBoxConfig{title: title, text: text, buttons: []msgBoxButton{msgBoxBtnOK, msgBoxBtnCancel}}
 	return showMsgBoxSync(cfg) == msgBoxBtnOK
+}
+
+func syncPromptError(text string) {
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+	progMsg(text)
 }
 
 // ImageIndexAction 表示镜像索引无效时用户的处理选择。
